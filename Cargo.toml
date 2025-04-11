@@ -1,0 +1,18 @@
+[workspace]
+members = []
+
+[package]
+name = "portal"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nostr = "0.40.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+nostr-relay-pool = "0.40.1"
+rand = "0.8"
+sha2 = "0.10"
+thiserror = "1.0"
+base64 = "0.21"
