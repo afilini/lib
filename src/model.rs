@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use hex;
+use serde::{Deserialize, Serialize};
 
 // Event kind ranges:
 // Authentication: 27000-27999
@@ -63,11 +63,11 @@ impl<'de> Deserialize<'de> for Nonce {
     {
         use serde::de::Error;
         let hex_str = String::deserialize(deserializer)?;
-        
+
         // Convert hex string back to bytes
         let bytes = hex::decode(&hex_str)
             .map_err(|e| Error::custom(format!("Invalid hex string: {}", e)))?;
-        
+
         if bytes.len() != 32 {
             return Err(Error::custom(format!(
                 "Invalid nonce length: expected 32 bytes, got {}",
@@ -111,7 +111,7 @@ impl<'de> Deserialize<'de> for Timestamp {
     {
         use serde::de::Error;
         let s = String::deserialize(deserializer)?;
-        
+
         s.parse::<u64>()
             .map(Timestamp::new)
             .map_err(|e| Error::custom(format!("Invalid timestamp: {}", e)))
@@ -300,4 +300,4 @@ pub mod payment {
         pub max_slippage_percent: f64,
         pub reference_rate: f64,
     }
-} 
+}

@@ -28,9 +28,7 @@ pub struct PublicSubkey {
 
 impl PublicSubkey {
     pub fn new(metadata: SubkeyMetadata) -> Self {
-        Self {
-            metadata,
-        }
+        Self { metadata }
     }
 
     pub fn verify(&self, master: &PublicKey) -> Result<(), Error> {

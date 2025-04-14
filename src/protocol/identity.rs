@@ -1,7 +1,13 @@
+use nostr::hashes::sha256d;
+use nostr::secp256k1::Secp256k1;
 use serde::{Deserialize, Serialize};
 use crate::model::Timestamp;
 use std::collections::BTreeMap;
+use std::hash::Hash;
+use std::str::FromStr;
 use hex;
+use nostr;
+use thiserror;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -26,12 +32,20 @@ pub enum VerificationMethod {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Certificate {
     pub version: u32,
-    pub subject: CertificateSubject,
+    pub subject: nostr::PublicKey,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub certificate_class: Option<String>,
     pub data: CertificateData,
     pub metadata: CertificateMetadata,
     pub signature: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedCertificate {
+    pub version: u32,
+    pub subject: nostr::PublicKey,
+    pub certificate_class: Option<String>,
+    pub metadata: CertificateMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,11 +60,6 @@ pub enum CertificateData {
         #[serde(flatten)]
         data: serde_json::Value,
     },
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CertificateSubject {
-    pub pubkey: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,7 +225,7 @@ impl Certificate {
     /// Creates a new certificate with the correct merkle root computed from its fields
     pub fn new(
         version: u32,
-        subject: CertificateSubject,
+        subject: nostr::PublicKey,
         certificate_class: Option<String>,
         data: CertificateData,
         metadata: CertificateMetadata,
@@ -264,6 +273,47 @@ impl Certificate {
             fields,
         })
     }
+
+    pub fn get_signed_data(&self) -> SignedCertificate {
+        SignedCertificate {
+            version: self.version,
+            subject: self.subject,
+            certificate_class: self.certificate_class.clone(),
+            metadata: self.metadata.clone(),
+        }
+    }
+
+    pub fn sign(&mut self, issuer_key: &nostr::Keys) -> Result<(), SignError> {
+        use sha2::{Sha256, Digest};
+        
+        // Check the key matches the issuer pubkey
+        if self.metadata.issuer_pubkey != issuer_key.public_key() {
+            return Err(SignError::InvalidKey);
+        }
+
+        // Check that the merkle root matches
+        let prepared = self.prepare_for_revealing()?;
+        if self.metadata.merkle_root.0.as_slice() != &prepared.compute_merkle_root(&self.metadata.salt_sequence)? {
+            return Err(SignError::InvalidMerkleRoot);
+        }
+
+        // Check that the signature is currently empty
+        if !self.signature.is_empty() {
+            return Err(SignError::AlreadySigned);
+        }
+
+        let certificate = serde_json::to_string(&self.get_signed_data()).map_err(|e| SignError::Serialization(e))?;
+        dbg!(&certificate);
+
+        let mut hasher = Sha256::new();
+        hasher.update(certificate.as_bytes());
+        let message = nostr::secp256k1::Message::from_digest_slice(&hasher.finalize().to_vec())?;
+        let signature = issuer_key.key_pair(&Secp256k1::new()).sign_schnorr(message);
+
+        self.signature = hex::encode(signature.serialize());
+
+        Ok(())
+    }
 }
 
 impl RevealableField {
@@ -289,6 +339,8 @@ fn flatten_json(
     value: &serde_json::Value,
     fields: &mut BTreeMap<String, RevealableField>,
 ) -> Result<(), RevealError> {
+    // TODO: Escape dots in field names to prevent ambiguity with nested field paths
+    // For example: a field named "a.b" should be distinguishable from a nested field "a" with subfield "b"
     match value {
         serde_json::Value::Object(map) => {
             // Add the object itself as a field
@@ -467,7 +519,7 @@ impl PreparedCertificate {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CertificateMetadata {
-    pub issuer_pubkey: String,
+    pub issuer_pubkey: nostr::PublicKey,
     pub issued_at: Timestamp,
     pub expires_at: Timestamp,
     pub verification_level: VerificationLevel,
@@ -530,9 +582,41 @@ pub struct PreparedCertificate {
     pub fields: BTreeMap<String, RevealableField>,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum SignError {
+    #[error("Invalid key")]
+    InvalidKey,
+
+    #[error("Invalid merkle root")]
+    InvalidMerkleRoot,
+
+    #[error("Certificate already signed")]
+    AlreadySigned,
+
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("Signing error")]
+    SigningFailed,
+
+    #[error("Reveal error: {0}")]
+    RevealError(#[from] RevealError),
+
+    #[error("Secp256k1 error: {0}")]
+    Secp256k1(#[from] nostr::secp256k1::Error),
+}
+
 #[cfg(test)]
 mod tests {
+    use nostr::nips::nip19::ToBech32;
+
     use super::*;
+
+    #[test]
+    fn test_generate_key() {
+        let key = nostr::Keys::generate();
+        println!("{:?}", key.public_key.to_bech32());
+    }
 
     fn create_test_salt_sequence(num_salts: usize) -> SaltSequence {
         use rand::{thread_rng, RngCore};
@@ -544,12 +628,15 @@ mod tests {
         SaltSequence::new(salt_size, value)
     }
 
+    const TEST_KEY: &str = "npub1e7s0pna3h389l5gz6ycjgxrf98kjxzvl3we6csf4upqygfkfzttqtyslhq";
+
     fn create_test_person_certificate() -> Certificate {
+        let subject = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+        let issuer = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+
         Certificate::new(
             1,
-            CertificateSubject {
-                pubkey: "test_pubkey".to_string(),
-            },
+            subject,
             None,
             CertificateData::Person(PersonData {
                 full_name: "John Doe".to_string(),
@@ -570,7 +657,7 @@ mod tests {
                 }),
             }),
             CertificateMetadata {
-                issuer_pubkey: "issuer_pubkey".to_string(),
+                issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
                 expires_at: Timestamp::new(9876543210),
                 verification_level: VerificationLevel::High,
@@ -578,16 +665,17 @@ mod tests {
                 salt_sequence: create_test_salt_sequence(100), // Enough salts for all fields
                 merkle_root: MerkleRoot::new([0u8; 32]), // This will be replaced with the computed root
             },
-            "test_signature".to_string(),
+            "".to_string(),
         ).unwrap()
     }
 
     fn create_test_business_certificate() -> Certificate {
+        let subject = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+        let issuer = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+
         Certificate::new(
             1,
-            CertificateSubject {
-                pubkey: "test_pubkey".to_string(),
-            },
+            subject,
             None,
             CertificateData::Business(BusinessData {
                 legal_name: "Acme Corp".to_string(),
@@ -611,7 +699,7 @@ mod tests {
                 website: Some("https://acme.com".to_string()),
             }),
             CertificateMetadata {
-                issuer_pubkey: "issuer_pubkey".to_string(),
+                issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
                 expires_at: Timestamp::new(9876543210),
                 verification_level: VerificationLevel::High,
@@ -624,6 +712,9 @@ mod tests {
     }
 
     fn create_test_custom_certificate() -> Certificate {
+        let subject = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+        let issuer = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+
         let custom_data = serde_json::json!({
             "custom_field": "custom_value",
             "nested": {
@@ -635,15 +726,13 @@ mod tests {
 
         Certificate::new(
             1,
-            CertificateSubject {
-                pubkey: "test_pubkey".to_string(),
-            },
+            subject,
             Some("test_class".to_string()),
             CertificateData::Custom {
                 data: custom_data,
             },
             CertificateMetadata {
-                issuer_pubkey: "issuer_pubkey".to_string(),
+                issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
                 expires_at: Timestamp::new(9876543210),
                 verification_level: VerificationLevel::Medium,
@@ -806,6 +895,8 @@ mod tests {
     #[test]
     fn test_edge_case_null_and_empty_values() {
         let merkle_root = MerkleRoot::new([0u8; 32]); // Default merkle root for testing
+        let subject = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+        let issuer = nostr::PublicKey::from_str(TEST_KEY).unwrap();
         let custom_data = serde_json::json!({
             "null_field": null,
             "empty_string": "",
@@ -820,15 +911,13 @@ mod tests {
 
         let cert = Certificate {
             version: 1,
-            subject: CertificateSubject {
-                pubkey: "test_pubkey".to_string(),
-            },
+            subject,
             certificate_class: None,
             data: CertificateData::Custom {
                 data: custom_data,
             },
             metadata: CertificateMetadata {
-                issuer_pubkey: "issuer_pubkey".to_string(),
+                issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
                 expires_at: Timestamp::new(9876543210),
                 verification_level: VerificationLevel::Medium,
@@ -872,6 +961,8 @@ mod tests {
     #[test]
     fn test_edge_case_large_nested_structure() {
         let merkle_root = MerkleRoot::new([0u8; 32]); // Default merkle root for testing
+        let subject = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+        let issuer = nostr::PublicKey::from_str(TEST_KEY).unwrap();
         // Create a deeply nested structure
         let mut nested_value = serde_json::json!({
             "value": "deepest"
@@ -886,15 +977,13 @@ mod tests {
 
         let cert = Certificate {
             version: 1,
-            subject: CertificateSubject {
-                pubkey: "test_pubkey".to_string(),
-            },
+            subject,
             certificate_class: None,
             data: CertificateData::Custom {
                 data: nested_value,
             },
             metadata: CertificateMetadata {
-                issuer_pubkey: "issuer_pubkey".to_string(),
+                issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
                 expires_at: Timestamp::new(9876543210),
                 verification_level: VerificationLevel::Medium,
@@ -927,6 +1016,8 @@ mod tests {
     #[test]
     fn test_edge_case_special_characters() {
         let merkle_root = MerkleRoot::new([0u8; 32]); // Default merkle root for testing
+        let subject = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+        let issuer = nostr::PublicKey::from_str(TEST_KEY).unwrap();
         let custom_data = serde_json::json!({
             "field.with.dots": "value",
             "field\\with\\backslashes": "value",
@@ -944,15 +1035,13 @@ mod tests {
 
         let cert = Certificate {
             version: 1,
-            subject: CertificateSubject {
-                pubkey: "test_pubkey".to_string(),
-            },
+            subject,
             certificate_class: None,
             data: CertificateData::Custom {
                 data: custom_data,
             },
             metadata: CertificateMetadata {
-                issuer_pubkey: "issuer_pubkey".to_string(),
+                issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
                 expires_at: Timestamp::new(9876543210),
                 verification_level: VerificationLevel::Medium,
@@ -1032,16 +1121,16 @@ mod tests {
     #[test]
     fn test_merkle_root_with_empty_fields() {
         let merkle_root = MerkleRoot::new([0u8; 32]); // Default merkle root for testing
+        let subject = nostr::PublicKey::from_str(TEST_KEY).unwrap();
+        let issuer = nostr::PublicKey::from_str(TEST_KEY).unwrap();
         let custom_data = serde_json::json!({});
         let cert = Certificate {
             version: 1,
-            subject: CertificateSubject {
-                pubkey: "test_pubkey".to_string(),
-            },
+            subject,
             certificate_class: None,
             data: CertificateData::Custom { data: custom_data },
             metadata: CertificateMetadata {
-                issuer_pubkey: "issuer_pubkey".to_string(),
+                issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
                 expires_at: Timestamp::new(9876543210),
                 verification_level: VerificationLevel::Medium,
@@ -1113,23 +1202,49 @@ mod tests {
         
         // Try to create an invalid proof by modifying a revealed field
         let mut modified_proof = proof.clone();
-        if let MerkleProofNode::Parent { left, .. } = &modified_proof {
-            if let MerkleProofNode::Parent { left, .. } = &**left {
-                if let MerkleProofNode::Leaf(MerkleProofLeaf::Cleartext { .. }) = &**left {
-                    // Modify the field value
-                    if let MerkleProofNode::Parent { left: ref mut modified_left, .. } = modified_proof {
-                        if let MerkleProofNode::Parent { left: ref mut modified_inner, .. } = **modified_left {
-                            if let MerkleProofNode::Leaf(MerkleProofLeaf::Cleartext { field: ref mut modified_field, .. }) = **modified_inner {
-                                modified_field.value = serde_json::json!("Jane Doe");
-                            }
-                        }
-                    }
-                    
-                    // Verify that the modified proof is invalid
-                    assert!(!prepared.verify_proof(&modified_proof, &cert.metadata.merkle_root));
+        fn modify_first_cleartext(node: &mut MerkleProofNode) {
+            match node {
+                MerkleProofNode::Leaf(MerkleProofLeaf::Cleartext { field, .. }) => {
+                    field.value = serde_json::json!("Jane Doe");
                 }
+                MerkleProofNode::Parent { left, right } => {
+                    modify_first_cleartext(left);
+                    modify_first_cleartext(right);
+                }
+                _ => {}
             }
         }
+        modify_first_cleartext(&mut modified_proof);
+        
+        // Verify that the modified proof is invalid
+        assert!(!prepared.verify_proof(&modified_proof, &cert.metadata.merkle_root));
+    }
+
+    #[test]
+    fn test_sign() {
+        let mut cert = create_test_person_certificate();
+        let issuer_key = nostr::Keys::generate();
+        
+        // Update the issuer pubkey to match our test key
+        cert.metadata.issuer_pubkey = issuer_key.public_key();
+        
+        // First sign should succeed
+        cert.sign(&issuer_key).expect("Failed to sign certificate");
+        assert!(!cert.signature.is_empty());
+        
+        // Second sign should fail
+        assert!(matches!(cert.sign(&issuer_key), Err(SignError::AlreadySigned)));
+        
+        // Sign with wrong key should fail
+        let wrong_key = nostr::Keys::generate();
+        let mut cert = create_test_person_certificate();
+        assert!(matches!(cert.sign(&wrong_key), Err(SignError::InvalidKey)));
+        
+        // Sign with invalid merkle root should fail
+        let mut cert = create_test_person_certificate();
+        cert.metadata.issuer_pubkey = issuer_key.public_key();
+        cert.metadata.merkle_root = MerkleRoot::new([1u8; 32]); // Wrong root
+        assert!(matches!(cert.sign(&issuer_key), Err(SignError::InvalidMerkleRoot)));
     }
 }
 
