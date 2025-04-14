@@ -1,10 +1,7 @@
-use nostr::hashes::sha256d;
 use nostr::secp256k1::Secp256k1;
 use serde::{Deserialize, Serialize};
 use crate::model::Timestamp;
 use std::collections::BTreeMap;
-use std::hash::Hash;
-use std::str::FromStr;
 use hex;
 use nostr;
 use thiserror;
@@ -771,6 +768,7 @@ pub enum SignError {
 #[cfg(test)]
 mod tests {
     use nostr::nips::nip19::ToBech32;
+    use std::str::FromStr;
 
     use super::*;
 
