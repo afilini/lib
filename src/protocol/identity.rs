@@ -9,6 +9,33 @@ use hex;
 use nostr;
 use thiserror;
 
+#[derive(Debug, thiserror::Error)]
+pub enum VerifyError {
+    #[error("Invalid merkle root")]
+    InvalidMerkleRoot,
+
+    #[error("Invalid signature")]
+    InvalidSignature,
+
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
+    #[error("Secp256k1 error: {0}")]
+    Secp256k1(#[from] nostr::secp256k1::Error),
+
+    #[error("Key error: {0}")]
+    KeyError(#[from] nostr::key::Error),
+
+    #[error("Data deserialization error: {0}")]
+    DataDeserialization(#[from] RevealError),
+
+    #[error("Certificate has expired")]
+    Expired,
+
+    #[error("Certificate is not yet valid")]
+    NotYetValid,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum VerificationLevel {
@@ -33,19 +60,25 @@ pub enum VerificationMethod {
 pub struct Certificate {
     pub version: u32,
     pub subject: nostr::PublicKey,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub certificate_class: Option<String>,
     pub data: CertificateData,
     pub metadata: CertificateMetadata,
     pub signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SignedCertificate {
+pub struct SignedCertificateData {
     pub version: u32,
     pub subject: nostr::PublicKey,
-    pub certificate_class: Option<String>,
     pub metadata: CertificateMetadata,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartialCertificate {
+    pub version: u32,
+    pub subject: nostr::PublicKey,
+    pub metadata: CertificateMetadata,
+    pub signature: String,
+    pub merkle_proof: MerkleProofNode,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +252,32 @@ impl MerkleProofNode {
             }
         }
     }
+
+    /// Collects all revealed fields from the proof and constructs a PreparedCertificate.
+    /// This is useful for working with partial certificates where only some fields are revealed.
+    pub fn to_prepared_certificate(&self) -> PreparedCertificate {
+        let mut fields = BTreeMap::new();
+        self.collect_revealed_fields(&mut fields);
+        PreparedCertificate {
+            version: 1, // Default version, as we can't know the original version from just the proof
+            fields,
+        }
+    }
+
+    /// Helper method to recursively collect revealed fields from the proof
+    fn collect_revealed_fields(&self, fields: &mut BTreeMap<String, RevealableField>) {
+        match self {
+            MerkleProofNode::Leaf(MerkleProofLeaf::Cleartext { name, field, .. }) => {
+                fields.insert(name.clone(), field.clone());
+            }
+            MerkleProofNode::Parent { left, right } => {
+                left.collect_revealed_fields(fields);
+                right.collect_revealed_fields(fields);
+            }
+            // Hidden and blinded nodes are skipped as they don't contain revealed fields
+            _ => {}
+        }
+    }
 }
 
 impl Certificate {
@@ -226,7 +285,6 @@ impl Certificate {
     pub fn new(
         version: u32,
         subject: nostr::PublicKey,
-        certificate_class: Option<String>,
         data: CertificateData,
         metadata: CertificateMetadata,
         signature: String,
@@ -235,7 +293,6 @@ impl Certificate {
         let temp = Self {
             version,
             subject,
-            certificate_class,
             data,
             metadata,
             signature,
@@ -252,7 +309,6 @@ impl Certificate {
         Ok(Self {
             version: temp.version,
             subject: temp.subject,
-            certificate_class: temp.certificate_class,
             data: temp.data,
             metadata,
             signature: temp.signature,
@@ -274,11 +330,10 @@ impl Certificate {
         })
     }
 
-    pub fn get_signed_data(&self) -> SignedCertificate {
-        SignedCertificate {
+    pub fn get_signed_data(&self) -> SignedCertificateData {
+        SignedCertificateData {
             version: self.version,
             subject: self.subject,
-            certificate_class: self.certificate_class.clone(),
             metadata: self.metadata.clone(),
         }
     }
@@ -303,7 +358,6 @@ impl Certificate {
         }
 
         let certificate = serde_json::to_string(&self.get_signed_data()).map_err(|e| SignError::Serialization(e))?;
-        dbg!(&certificate);
 
         let mut hasher = Sha256::new();
         hasher.update(certificate.as_bytes());
@@ -313,6 +367,40 @@ impl Certificate {
         self.signature = hex::encode(signature.serialize());
 
         Ok(())
+    }
+}
+
+impl PartialCertificate {
+    pub fn get_signed_data(&self) -> SignedCertificateData {
+        SignedCertificateData {
+            version: self.version,
+            subject: self.subject,
+            metadata: self.metadata.clone(),
+        }
+    }
+    
+    pub fn verify(&self) -> Result<serde_json::Value, VerifyError> {
+        use sha2::{Sha256, Digest};
+
+        let certificate = serde_json::to_string(&self.get_signed_data()).map_err(|e| VerifyError::Serialization(e))?;
+
+        // Check merkle root matches
+        if self.metadata.merkle_root.0.as_slice() != &self.merkle_proof.compute_hash() {
+            return Err(VerifyError::InvalidMerkleRoot);
+        }
+
+        // TODO: check timestamp
+
+        let secp = Secp256k1::new();
+
+        let mut hasher = Sha256::new();
+        hasher.update(certificate.as_bytes());
+        let message = nostr::secp256k1::Message::from_digest_slice(&hasher.finalize().to_vec())?;
+        let signature = nostr::secp256k1::schnorr::Signature::from_slice(&hex::decode(&self.signature).map_err(|_| VerifyError::InvalidSignature)?).map_err(|e| VerifyError::Secp256k1(e))?;
+        secp.verify_schnorr(&signature, &message, &self.metadata.issuer_pubkey.xonly()?).map_err(|_| VerifyError::InvalidSignature)?;
+
+        let json = self.merkle_proof.to_prepared_certificate().to_json()?;
+        Ok(json)
     }
 }
 
@@ -401,6 +489,12 @@ pub enum RevealError {
 
     #[error("Insufficient salts in sequence")]
     InsufficientSalts,
+}
+
+#[derive(Debug, Clone)]
+pub struct PreparedCertificate {
+    pub version: u32,
+    pub fields: BTreeMap<String, RevealableField>,
 }
 
 impl PreparedCertificate {
@@ -515,6 +609,80 @@ impl PreparedCertificate {
         let computed_root = proof.compute_hash();
         computed_root.as_slice() == merkle_root.as_bytes()
     }
+
+    /// Reconstructs the original JSON value from the flattened fields.
+    /// This is the reverse operation of `flatten_json`.
+    pub fn to_json(&self) -> Result<serde_json::Value, RevealError> {
+        use std::str::FromStr;
+
+        let mut root = serde_json::Map::new();
+
+        // Process each field path and reconstruct the nested structure
+        for (path, field) in &self.fields {
+            // Skip empty paths as they represent the root object itself
+            if path.is_empty() {
+                continue;
+            }
+
+            // Split the path into components
+            let parts: Vec<&str> = path.split('.').collect();
+            
+            // Helper function to get or create an array at the given path
+            fn get_or_create_array<'a>(obj: &'a mut serde_json::Map<String, serde_json::Value>, key: &str) -> Result<&'a mut Vec<serde_json::Value>, RevealError> {
+                match obj.entry(key.to_string()).or_insert(serde_json::Value::Array(Vec::new())) {
+                    serde_json::Value::Array(arr) => Ok(arr),
+                    _ => Err(RevealError::InvalidField),
+                }
+            }
+
+            // Helper function to get or create an object
+            fn get_or_create_object<'a>(value: &'a mut serde_json::Value) -> Result<&'a mut serde_json::Map<String, serde_json::Value>, RevealError> {
+                match value {
+                    serde_json::Value::Object(obj) => Ok(obj),
+                    _ => {
+                        *value = serde_json::Value::Object(serde_json::Map::new());
+                        match value {
+                            serde_json::Value::Object(obj) => Ok(obj),
+                            _ => Err(RevealError::InvalidField),
+                        }
+                    }
+                }
+            }
+
+            // Navigate the path and create intermediate objects/arrays
+            let mut current = &mut root;
+            for (i, &part) in parts[..parts.len()-1].iter().enumerate() {
+                if let Ok(idx) = usize::from_str(part) {
+                    // Handle array index
+                    let array = get_or_create_array(current, parts[i-1])?;
+                    while array.len() <= idx {
+                        array.push(serde_json::Value::Object(serde_json::Map::new()));
+                    }
+                    current = get_or_create_object(&mut array[idx])?;
+                } else {
+                    // Handle object field
+                    let next = current.entry(part.to_string()).or_insert(serde_json::Value::Object(serde_json::Map::new()));
+                    current = get_or_create_object(next)?;
+                }
+            }
+
+            // Handle the last part of the path
+            let last = parts.last().ok_or(RevealError::InvalidField)?;
+            if let Ok(idx) = usize::from_str(last) {
+                // Handle array index
+                let array = get_or_create_array(current, parts[parts.len()-2])?;
+                while array.len() <= idx {
+                    array.push(serde_json::Value::Null);
+                }
+                array[idx] = field.value.clone();
+            } else {
+                // Handle object field
+                current.insert(last.to_string(), field.value.clone());
+            }
+        }
+
+        Ok(serde_json::Value::Object(root))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -576,12 +744,6 @@ pub struct RevealableField {
     pub value: serde_json::Value,
 }
 
-#[derive(Debug, Clone)]
-pub struct PreparedCertificate {
-    pub version: u32,
-    pub fields: BTreeMap<String, RevealableField>,
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum SignError {
     #[error("Invalid key")]
@@ -637,7 +799,6 @@ mod tests {
         Certificate::new(
             1,
             subject,
-            None,
             CertificateData::Person(PersonData {
                 full_name: "John Doe".to_string(),
                 date_of_birth: "1990-01-01".to_string(),
@@ -676,7 +837,6 @@ mod tests {
         Certificate::new(
             1,
             subject,
-            None,
             CertificateData::Business(BusinessData {
                 legal_name: "Acme Corp".to_string(),
                 trading_name: Some("Acme".to_string()),
@@ -727,7 +887,6 @@ mod tests {
         Certificate::new(
             1,
             subject,
-            Some("test_class".to_string()),
             CertificateData::Custom {
                 data: custom_data,
             },
@@ -819,7 +978,6 @@ mod tests {
         let cert = create_test_custom_certificate();
 
         let prepared = cert.prepare_for_revealing().unwrap();
-        dbg!(&prepared);
 
         // Check custom fields
         let custom_fields = [
@@ -912,7 +1070,6 @@ mod tests {
         let cert = Certificate {
             version: 1,
             subject,
-            certificate_class: None,
             data: CertificateData::Custom {
                 data: custom_data,
             },
@@ -978,7 +1135,6 @@ mod tests {
         let cert = Certificate {
             version: 1,
             subject,
-            certificate_class: None,
             data: CertificateData::Custom {
                 data: nested_value,
             },
@@ -1036,7 +1192,6 @@ mod tests {
         let cert = Certificate {
             version: 1,
             subject,
-            certificate_class: None,
             data: CertificateData::Custom {
                 data: custom_data,
             },
@@ -1127,7 +1282,6 @@ mod tests {
         let cert = Certificate {
             version: 1,
             subject,
-            certificate_class: None,
             data: CertificateData::Custom { data: custom_data },
             metadata: CertificateMetadata {
                 issuer_pubkey: issuer,
@@ -1245,6 +1399,115 @@ mod tests {
         cert.metadata.issuer_pubkey = issuer_key.public_key();
         cert.metadata.merkle_root = MerkleRoot::new([1u8; 32]); // Wrong root
         assert!(matches!(cert.sign(&issuer_key), Err(SignError::InvalidMerkleRoot)));
+    }
+
+    #[test]
+    fn test_merkle_proof_to_prepared_certificate() {
+        let cert = create_test_person_certificate();
+        let prepared = cert.prepare_for_revealing().unwrap();
+        
+        // Try to reveal a few fields
+        let reveal_fields = vec![
+            "full_name".to_string(),
+            "nationality".to_string(),
+            "address.city".to_string(),
+        ];
+        
+        let proof = prepared.create_proof(&cert.metadata.salt_sequence, &reveal_fields).unwrap();
+        
+        // Convert proof back to prepared certificate
+        let revealed_cert = proof.to_prepared_certificate();
+        
+        // Check that only the revealed fields are present
+        assert_eq!(revealed_cert.fields.len(), 3);
+        assert!(revealed_cert.fields.contains_key("full_name"));
+        assert!(revealed_cert.fields.contains_key("nationality"));
+        assert!(revealed_cert.fields.contains_key("address.city"));
+        
+        // Check that the values match the original
+        assert_eq!(
+            revealed_cert.fields.get("full_name").unwrap().value.as_str().unwrap(),
+            "John Doe"
+        );
+        assert_eq!(
+            revealed_cert.fields.get("nationality").unwrap().value.as_str().unwrap(),
+            "US"
+        );
+        assert_eq!(
+            revealed_cert.fields.get("address.city").unwrap().value.as_str().unwrap(),
+            "New York"
+        );
+
+        // Convert back to JSON and verify structure
+        let json = revealed_cert.to_json().unwrap();
+        assert_eq!(json.get("full_name").unwrap().as_str().unwrap(), "John Doe");
+        assert_eq!(json.get("nationality").unwrap().as_str().unwrap(), "US");
+        assert_eq!(json.get("address").unwrap().get("city").unwrap().as_str().unwrap(), "New York");
+    }
+
+    #[test]
+    fn test_partial_certificate_verification() {
+        // Create and sign a test certificate
+        let mut cert = create_test_person_certificate();
+        let issuer_key = nostr::Keys::generate();
+        cert.metadata.issuer_pubkey = issuer_key.public_key();
+        cert.sign(&issuer_key).expect("Failed to sign certificate");
+
+        // Prepare it for revealing and create a proof with some fields
+        let prepared = cert.prepare_for_revealing().unwrap();
+        let reveal_fields = vec![
+            "full_name".to_string(),
+            "nationality".to_string(),
+            "address.city".to_string(),
+        ];
+        let proof = prepared.create_proof(&cert.metadata.salt_sequence, &reveal_fields).unwrap();
+
+        // Create a valid partial certificate
+        let valid_partial = PartialCertificate {
+            version: cert.version,
+            subject: cert.subject,
+            metadata: cert.metadata.clone(),
+            signature: cert.signature.clone(),
+            merkle_proof: proof,
+        };
+
+        // Test successful verification
+        let result = valid_partial.verify().unwrap();
+        assert_eq!(result.get("full_name").unwrap().as_str().unwrap(), "John Doe");
+        assert_eq!(result.get("nationality").unwrap().as_str().unwrap(), "US");
+        assert_eq!(result.get("address").unwrap().get("city").unwrap().as_str().unwrap(), "New York");
+
+        // Test invalid merkle root
+        let mut invalid_root = valid_partial.clone();
+        invalid_root.metadata.merkle_root = MerkleRoot::new([1u8; 32]); // Wrong root
+        assert!(matches!(invalid_root.verify(), Err(VerifyError::InvalidMerkleRoot)));
+
+        // Test invalid signature
+        let mut invalid_sig = valid_partial.clone();
+        invalid_sig.signature = hex::encode([1u8; 64]); // Wrong signature
+        assert!(matches!(invalid_sig.verify(), Err(VerifyError::InvalidSignature)));
+
+        // Test wrong issuer key
+        let mut wrong_issuer = valid_partial.clone();
+        wrong_issuer.metadata.issuer_pubkey = nostr::Keys::generate().public_key();
+        assert!(matches!(wrong_issuer.verify(), Err(VerifyError::InvalidSignature)));
+
+        // Test tampered proof (modify a revealed field)
+        let mut tampered = valid_partial.clone();
+        fn modify_first_cleartext(node: &mut MerkleProofNode) {
+            match node {
+                MerkleProofNode::Leaf(MerkleProofLeaf::Cleartext { field, .. }) => {
+                    field.value = serde_json::json!("Jane Doe");
+                }
+                MerkleProofNode::Parent { left, right } => {
+                    modify_first_cleartext(left);
+                    modify_first_cleartext(right);
+                }
+                _ => {}
+            }
+        }
+        modify_first_cleartext(&mut tampered.merkle_proof);
+        assert!(matches!(tampered.verify(), Err(VerifyError::InvalidMerkleRoot)));
     }
 }
 
