@@ -7,7 +7,8 @@ use std::{
 use connector::DelayedReply;
 use futures::StreamExt;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use tokio::sync::mpsc;
+use std::sync::Arc;
+use tokio::sync::{Mutex, mpsc};
 
 use nostr::{
     event::{Event, EventId, Kind, Tags},
@@ -23,10 +24,9 @@ pub mod connector;
 pub mod sdk;
 
 const MAX_CLIENTS: usize = 8;
+const CONVERSATION_THRESHOLD: usize = 1024;
 
-// TODO: remove expired conversations
 // TODO: update expiry at every message
-// TODO: remove subscribers when conversation is removed
 
 pub struct MessageRouter {
     conversations: HashMap<String, Box<dyn ConversationTrait + Send>>,
@@ -48,34 +48,72 @@ impl MessageRouter {
         )
     }
 
-    // fn get_relevant_conversations(
-    //     &self,
-    //     event_id: &EventId,
-    //     kind: &Kind,
-    //     pubkey: &PublicKey,
-    //     tags: &Tags,
-    // ) -> HashSet<String> {
-    //     // TODO: remove cloned
+    /// Removes expired conversations and returns the number of conversations removed
+    async fn cleanup_expired(&mut self) -> usize {
+        let expired: Vec<_> = self
+            .conversations
+            .iter()
+            .filter(|(_, conv)| conv.is_expired())
+            .map(|(id, _)| id.clone())
+            .collect();
 
-    //     let mut conversations = HashSet::new();
+        for id in &expired {
+            self.cleanup_conversation(id, None).await;
+        }
 
-    //     if let Some(evs) = self.triggers.get(&Trigger::Event(*event_id)) {
-    //         conversations.extend(evs.iter().cloned());
-    //     }
-    //     if let Some(evs) = self.triggers.get(&Trigger::Kind(*kind)) {
-    //         conversations.extend(evs.iter().cloned());
-    //     }
-    //     if let Some(evs) = self.triggers.get(&Trigger::FromPubkey(*pubkey)) {
-    //         conversations.extend(evs.iter().cloned());
-    //     }
-    //     for pk in tags.public_keys() {
-    //         if let Some(evs) = self.triggers.get(&Trigger::TagPubkey(*pk)) {
-    //             conversations.extend(evs.iter().cloned());
-    //         }
-    //     }
+        expired.len()
+    }
 
-    //     conversations
-    // }
+    /// If the number of conversations exceeds the threshold, try to clean up expired ones
+    async fn maybe_cleanup(&mut self) {
+        if self.conversations.len() >= CONVERSATION_THRESHOLD {
+            self.cleanup_expired().await;
+        }
+    }
+
+    /// Start a periodic cleanup task that removes expired conversations
+    pub fn start_cleanup_task(router: Arc<Mutex<Self>>) {
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let mut router = router.lock().await;
+                let removed = router.cleanup_expired().await;
+                if removed > 0 {
+                    log::debug!("Periodic cleanup removed {} expired conversations", removed);
+                }
+            }
+        });
+    }
+
+    async fn cleanup_conversation(
+        &mut self,
+        conversation: &str,
+        content: Option<WrappedContent<serde_json::Value>>,
+    ) {
+        // Notify subscribers if there's content
+        if let Some(content) = content {
+            if let Some(subscribers) = self.subscribers.get(conversation) {
+                for sub in subscribers.iter() {
+                    let _ = sub.send(content.clone()).await;
+                }
+            }
+        }
+
+        // Remove conversation state
+        self.conversations.remove(conversation);
+        self.subscribers.remove(conversation);
+
+        // Remove filters from relays
+        self.outgoing_queue
+            .send(RelayAction::RemoveFilter(conversation.to_string()))
+            .expect("Queue should always be available");
+    }
+
+    pub fn purge(&mut self) {
+        self.conversations.clear();
+        self.subscribers.clear();
+    }
 
     pub async fn on_message(
         &mut self,
@@ -95,15 +133,7 @@ impl MessageRouter {
         if let Some(conv) = self.conversations.get_mut(conversation) {
             match conv.on_message(event, &mut response)? {
                 ConversationState::Finished(content) => {
-                    if let Some(subscribers) = self.subscribers.get(conversation) {
-                        for sub in subscribers.iter() {
-                            sub.send(content.clone()).await.unwrap();
-                        }
-                    }
-
-                    self.conversations.remove(conversation);
-                    self.subscribers.remove(conversation);
-                    // TODO: send out message to remove filters on relays
+                    self.cleanup_conversation(conversation, Some(content)).await;
                 }
                 ConversationState::Continue => {}
             }
@@ -163,6 +193,9 @@ impl MessageRouter {
         subkeys: Vec<PublicKey>,
         args: Inner::Args,
     ) -> Result<String, Inner::Error> {
+        // Check if we need to clean up expired conversations
+        futures::executor::block_on(self.maybe_cleanup());
+
         let id = random_string(16);
         let mut response = ResponseBuilder::new();
 
@@ -189,29 +222,10 @@ impl MessageRouter {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Trigger {
-    Event(EventId),
-    Kind(Kind),
-    FromPubkey(PublicKey),
-    TagPubkey(PublicKey),
-}
-
-impl From<Trigger> for Filter {
-    fn from(trigger: Trigger) -> Self {
-        match trigger {
-            Trigger::Event(event_id) => Filter::new().event(event_id),
-            Trigger::Kind(kind) => Filter::new().kinds([kind]),
-            Trigger::FromPubkey(pubkey) => Filter::new().author(pubkey),
-            Trigger::TagPubkey(pubkey) => Filter::new().pubkey(pubkey),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum RelayAction {
     ApplyFilter(String, Filter),
-
+    RemoveFilter(String),
     SendEvent(PublicKey, OutgoingEvent),
 }
 
@@ -279,6 +293,7 @@ pub trait ConversationTrait {
         response: &mut ResponseBuilder,
     ) -> Result<ConversationState, ConversationError>;
     fn is_expired(&self) -> bool;
+    fn expires_at(&self) -> SystemTime;
     fn get_involved_keys(&self) -> HashSet<PublicKey>;
 }
 
@@ -303,6 +318,10 @@ impl<T: ServiceRequestInner> ConversationTrait for ServiceRequest<T> {
 
     fn is_expired(&self) -> bool {
         self.expires_at < SystemTime::now()
+    }
+
+    fn expires_at(&self) -> SystemTime {
+        self.expires_at
     }
 
     fn get_involved_keys(&self) -> HashSet<PublicKey> {

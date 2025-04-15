@@ -57,15 +57,6 @@ async fn create_service() -> Result<Arc<Connector>, Box<dyn std::error::Error>> 
     // Bootstrap the authenticator
     service.bootstrap().await.unwrap();
 
-    let _service = Arc::clone(&service);
-    tokio::spawn(async move {
-        _service.process_incoming_events().await.unwrap();
-    });
-    let _service = Arc::clone(&service);
-    tokio::spawn(async move {
-        _service.process_outgoing_events().await.unwrap();
-    });
-
     Ok(service)
 }
 

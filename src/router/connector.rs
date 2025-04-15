@@ -52,17 +52,26 @@ impl Connector {
 
         // Connect
         self.relays.connect().await;
-        // let mut filter = Filter::new().pubkey(self.keypair.public_key()).limit(0);
 
-        // // If we are a subkey also subscribe to the main key, even though we won't be able to decode those messages
-        // if let Some(subkey_proof) = self.keypair.subkey_proof() {
-        //     filter = filter.pubkey(subkey_proof.main_key);
-        // }
+        let service = Arc::clone(&self);
+        let bootstrapped = Arc::clone(&self.bootstrapped);
+        tokio::spawn(async move {
+            while bootstrapped.load(Ordering::SeqCst) {
+                if let Err(e) = service.process_incoming_events().await {
+                    log::error!("Error processing incoming events: {:?}", e);
+                }
+            }
+        });
 
-        // Subscribe
-        // self.relays
-        //     .subscribe(filter, SubscribeOptions::default())
-        //     .await?;
+        let service = Arc::clone(&self);
+        let bootstrapped = Arc::clone(&self.bootstrapped);
+        tokio::spawn(async move {
+            while bootstrapped.load(Ordering::SeqCst) {
+                if let Err(e) = service.process_outgoing_events().await {
+                    log::error!("Error processing outgoing events: {:?}", e);
+                }
+            }
+        });
 
         // Mark as bootstrapped
         self.bootstrapped.store(true, Ordering::SeqCst);
@@ -70,9 +79,20 @@ impl Connector {
         Ok(())
     }
 
+    pub async fn disconnect(self: &Arc<Self>) {
+        self.relays.disconnect().await;
+
+        // Purge queue
+        let mut queue = self.outgoing_queue.lock().await;
+        while let Some(_) = queue.recv().await {}
+
+        self.router.lock().await.purge();
+
+        self.bootstrapped.store(false, Ordering::SeqCst);
+    }
+
     pub async fn process_incoming_events(&self) -> Result<(), Error> {
         log::debug!("Processing events...");
-        // TODO: do we have to manually verify the signatures??
 
         while let Ok(notification) = self.relays.notifications().recv().await {
             log::trace!("Notification = {:?}", notification);
@@ -94,13 +114,13 @@ impl Connector {
                 _ => continue,
             };
 
-            log::trace!(
-                "Event pubkey = {:?}, self = {:?}",
-                event.pubkey,
-                self.keypair.public_key()
-            );
             if event.pubkey == self.keypair.public_key() {
                 log::trace!("Ignoring event from self");
+                continue;
+            }
+
+            if !event.verify_signature() {
+                log::warn!("Invalid signature for event id: {:?}", event.id);
                 continue;
             }
 
@@ -163,6 +183,11 @@ impl Connector {
                             SubscribeOptions::default(),
                         )
                         .await?;
+                }
+                RelayAction::RemoveFilter(id) => {
+                    log::trace!("Conversation id {}, removing filter", id);
+                    let sub_id = SubscriptionId::new(id);
+                    self.relays.unsubscribe(&sub_id).await;
                 }
             }
         }
