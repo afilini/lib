@@ -5,24 +5,18 @@ use std::{
 };
 
 use connector::DelayedReply;
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::sync::mpsc;
 
 use nostr::{
-    event::{Event, EventId, Kind, Tag, Tags},
+    event::{Event, EventId, Kind, Tags},
     filter::Filter,
     key::PublicKey,
     message::SubscriptionId,
 };
 
-use crate::{
-    model::{
-        auth::{AuthChallengeContent, AuthInitContent, SubkeyProof},
-        event_kinds::*,
-    },
-    utils::random_string,
-};
+use crate::utils::random_string;
 
 pub mod app;
 pub mod connector;
@@ -88,7 +82,11 @@ impl MessageRouter {
         event: &CleartextEvent,
         conversation: &SubscriptionId,
     ) -> Result<(), ConversationError> {
-        log::trace!("Dispatching message of kind {:?} for {:?}", event.kind, conversation);
+        log::trace!(
+            "Dispatching message of kind {:?} for {:?}",
+            event.kind,
+            conversation
+        );
         log::trace!("Current conversations = {:?}", self.conversations.keys());
 
         let conversation = conversation.as_str();
@@ -145,12 +143,15 @@ impl MessageRouter {
 
             for pubkey in keys {
                 self.outgoing_queue
-                    .send(RelayAction::SendEvent(pubkey, OutgoingEvent {
-                        kind: kind.clone(),
-                        content: content.clone(),
-                        encrypted: true, // TODO
-                        tags: tags.clone(),
-                    }))
+                    .send(RelayAction::SendEvent(
+                        pubkey,
+                        OutgoingEvent {
+                            kind: kind.clone(),
+                            content: content.clone(),
+                            encrypted: true, // TODO
+                            tags: tags.clone(),
+                        },
+                    ))
                     .expect("Queue should always be available");
             }
         }
@@ -419,9 +420,9 @@ pub trait ServiceRequestInner: Sized + Send + 'static {
     }
 
     fn on_message(
-        state: &mut ServiceRequest<Self>,
-        event: &CleartextEvent,
-        response: &mut ResponseBuilder,
+        _state: &mut ServiceRequest<Self>,
+        _event: &CleartextEvent,
+        _response: &mut ResponseBuilder,
     ) -> Result<ConversationState, Self::Error> {
         Ok(ConversationState::Continue)
     }

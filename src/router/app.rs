@@ -1,14 +1,12 @@
-use std::collections::HashSet;
+use nostr::event::{Event, Kind, Tag};
 
-use nostr::{
-    event::{Event, Kind, Tag},
-    key::PublicKey,
+use crate::{
+    app::AuthRequestData,
+    model::{
+        auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent, SubkeyProof},
+        event_kinds::*,
+    },
 };
-
-use crate::{app::AuthRequestData, model::{
-    auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent, SubkeyProof},
-    event_kinds::*,
-}};
 
 use super::*;
 
@@ -68,7 +66,7 @@ impl ServiceRequestInner for AuthListener {
         _response: &mut ResponseBuilder,
     ) -> Result<ConversationState, Self::Error> {
         log::trace!("Entering on_message for AuthListener");
-        
+
         match serde_json::from_value::<AuthChallengeContent>(event.content.clone()) {
             Ok(content) => {
                 log::debug!(
@@ -79,11 +77,12 @@ impl ServiceRequestInner for AuthListener {
 
                 // TODO: verify subkey proof
 
-                Ok(ConversationState::finish(event.pubkey, AuthRequestData::from((content, event.id, event.pubkey))))
+                Ok(ConversationState::finish(
+                    event.pubkey,
+                    AuthRequestData::from((content, event.id, event.pubkey)),
+                ))
             }
-            _ => {
-                Ok(ConversationState::Continue)
-            }
+            _ => Ok(ConversationState::Continue),
         }
     }
 

@@ -1,39 +1,24 @@
 use std::{
-    collections::HashMap,
     ops::{Deref, DerefMut},
-    str::FromStr,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::{Duration, SystemTime},
 };
 
 use futures::Stream;
 use nostr::{
-    event::{Event, EventBuilder, Kind, Tag},
-    filter::Filter,
-    key::PublicKey,
+    event::{Event, EventBuilder},
     message::{RelayMessage, SubscriptionId},
-    nips::{
-        nip19::{FromBech32, ToBech32},
-        nip44,
-    },
+    nips::nip44,
 };
-use nostr_relay_pool::{RelayOptions, RelayPool, RelayPoolNotification, SubscribeOptions};
-use rand::Rng;
+use nostr_relay_pool::{RelayPool, RelayPoolNotification, SubscribeOptions};
 use serde::Serialize;
 use tokio::sync::{Mutex, mpsc};
 
 use crate::{
-    model::{
-        Timestamp,
-        auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent},
-        event_kinds::*,
-    },
-    protocol::{LocalKeypair, auth_init::AuthInitUrl},
-    router::{CleartextEvent, MessageRouter, OutgoingEvent, RelayAction, WrappedContent},
-    utils::random_string,
+    protocol::LocalKeypair,
+    router::{CleartextEvent, MessageRouter, RelayAction, WrappedContent},
 };
 
 pub struct Connector {
@@ -67,12 +52,12 @@ impl Connector {
 
         // Connect
         self.relays.connect().await;
-        let mut filter = Filter::new().pubkey(self.keypair.public_key()).limit(0);
+        // let mut filter = Filter::new().pubkey(self.keypair.public_key()).limit(0);
 
-        // If we are a subkey also subscribe to the main key, even though we won't be able to decode those messages
-        if let Some(subkey_proof) = self.keypair.subkey_proof() {
-            filter = filter.pubkey(subkey_proof.main_key);
-        }
+        // // If we are a subkey also subscribe to the main key, even though we won't be able to decode those messages
+        // if let Some(subkey_proof) = self.keypair.subkey_proof() {
+        //     filter = filter.pubkey(subkey_proof.main_key);
+        // }
 
         // Subscribe
         // self.relays
@@ -109,7 +94,11 @@ impl Connector {
                 _ => continue,
             };
 
-            log::trace!("Event pubkey = {:?}, self = {:?}", event.pubkey, self.keypair.public_key());
+            log::trace!(
+                "Event pubkey = {:?}, self = {:?}",
+                event.pubkey,
+                self.keypair.public_key()
+            );
             if event.pubkey == self.keypair.public_key() {
                 log::trace!("Ignoring event from self");
                 continue;

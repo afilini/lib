@@ -3,7 +3,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use nostr::Keys;
 use nostr_relay_pool::{RelayOptions, RelayPool};
-use portal::{model::auth, protocol::LocalKeypair, router::connector::Connector, sdk::SDKMethods};
+use portal::{protocol::LocalKeypair, router::connector::Connector, sdk::SDKMethods};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,8 +16,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create a relay pool with some test relays
     let relay_pool = RelayPool::new();
-    relay_pool.add_relay("wss://relay.damus.io", RelayOptions::default()).await?;
-    relay_pool.add_relay("wss://relay.nostr.net", RelayOptions::default()).await?;
+    relay_pool
+        .add_relay("wss://relay.damus.io", RelayOptions::default())
+        .await?;
+    relay_pool
+        .add_relay("wss://relay.nostr.net", RelayOptions::default())
+        .await?;
 
     // Create the authenticator
     let authenticator = Connector::new(keypair, relay_pool);
@@ -34,7 +38,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         while let Some(Ok(event)) = rx.next().await {
             println!("Event: {:?}", event);
-            let mut rx = _authenticator.request_login(event.pubkey, vec![], vec![]).await.unwrap();
+            let mut rx = _authenticator
+                .request_login(event.pubkey, vec![], vec![])
+                .await
+                .unwrap();
+            println!("Login response: {:?}", rx.await_reply().await.unwrap());
         }
     });
 
@@ -48,4 +56,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     authenticator.process_outgoing_events().await.unwrap();
 
     Ok(())
-} 
+}

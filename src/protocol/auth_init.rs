@@ -1,6 +1,9 @@
-use std::{str::FromStr, fmt};
+use std::{fmt, str::FromStr};
 
-use nostr::{PublicKey, nips::nip19::{ToBech32, FromBech32}};
+use nostr::{
+    PublicKey,
+    nips::nip19::{FromBech32, ToBech32},
+};
 use thiserror::Error;
 
 #[derive(Debug)]
@@ -11,10 +14,11 @@ pub struct AuthInitUrl {
     pub subkey: Option<PublicKey>,
 }
 
-
 impl fmt::Display for AuthInitUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let relays = self.relays.iter()
+        let relays = self
+            .relays
+            .iter()
             .map(|r| urlencoding::encode(r).into_owned())
             .collect::<Vec<_>>();
 
@@ -83,19 +87,26 @@ impl FromStr for AuthInitUrl {
         let mut subkey = None;
 
         for param in query.split('&') {
-            let (key, value) = param.split_once('=')
+            let (key, value) = param
+                .split_once('=')
                 .ok_or_else(|| ParseError::InvalidQueryParam("missing value".into()))?;
 
             match key {
                 "relays" => {
-                    relays = value.split(',')
+                    relays = value
+                        .split(',')
                         .map(|r| urlencoding::decode(r).map(|s| s.into_owned()))
                         .collect::<Result<Vec<_>, _>>()
                         .map_err(|e| ParseError::InvalidRelayUrl(e.to_string()))?;
-                },
+                }
                 "token" => token = Some(value.to_string()),
                 "subkey" => subkey = Some(PublicKey::from_bech32(value)?),
-                _ => return Err(ParseError::InvalidQueryParam(format!("unknown parameter: {}", key))),
+                _ => {
+                    return Err(ParseError::InvalidQueryParam(format!(
+                        "unknown parameter: {}",
+                        key
+                    )));
+                }
             }
         }
 

@@ -1,60 +1,32 @@
-use std::{
-    collections::HashMap,
-    str::FromStr,
-    sync::Arc,
-    sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, SystemTime},
-};
-
-use futures::Stream;
-use nostr::{
-    event::{EventBuilder, Kind, Tag},
-    filter::Filter,
-    key::PublicKey,
-    nips::{
-        nip19::{FromBech32, ToBech32},
-        nip44,
-    },
-};
-use nostr_relay_pool::{RelayOptions, RelayPool, RelayPoolNotification, SubscribeOptions};
-use rand::Rng;
-use tokio::sync::{Mutex, mpsc};
+use nostr::key::PublicKey;
 
 use crate::{
     model::{
-        auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent}, event_kinds::*, Timestamp
+        Timestamp,
+        auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent},
     },
-    protocol::{auth_init::AuthInitUrl, LocalKeypair},
-    router::{connector::{Connector, DelayedReply}, CleartextEvent, MessageRouter, OutgoingEvent, RelayAction, WrappedContent},
+    protocol::auth_init::AuthInitUrl,
+    router::connector::{Connector, DelayedReply},
     utils::random_string,
 };
 
 pub trait SDKMethods {
     fn init_session(
         &self,
-    ) -> impl std::future::Future<Output = (
-        AuthInitUrl,
-        DelayedReply<AuthInitContent>
-    )> + Send;
+    ) -> impl std::future::Future<Output = (AuthInitUrl, DelayedReply<AuthInitContent>)> + Send;
 
     fn request_login(
         &self,
         main_key: PublicKey,
         subkeys: Vec<PublicKey>,
         relays: Vec<String>,
-    ) -> impl std::future::Future<Output = Result<
-        DelayedReply<AuthResponseContent>,
-        crate::router::connector::Error,
-    >> + Send;
+    ) -> impl std::future::Future<
+        Output = Result<DelayedReply<AuthResponseContent>, crate::router::connector::Error>,
+    > + Send;
 }
 
 impl SDKMethods for Connector {
-    async fn init_session(
-        &self,
-    ) -> (
-        AuthInitUrl,
-        DelayedReply<AuthInitContent>
-    ) {
+    async fn init_session(&self) -> (AuthInitUrl, DelayedReply<AuthInitContent>) {
         let relays = self
             .relays()
             .relays()
@@ -101,10 +73,7 @@ impl SDKMethods for Connector {
         main_key: PublicKey,
         subkeys: Vec<PublicKey>,
         relays: Vec<String>,
-    ) -> Result<
-        DelayedReply<AuthResponseContent>,
-        crate::router::connector::Error,
-    > {
+    ) -> Result<DelayedReply<AuthResponseContent>, crate::router::connector::Error> {
         let mut router = self.router().lock().await;
 
         let challenge = AuthChallengeContent {

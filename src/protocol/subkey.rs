@@ -1,6 +1,9 @@
-use nostr::{prelude::*, secp256k1::{Scalar, Secp256k1}};
-use serde::{Deserialize, Serialize};
 use nostr::{Keys, PublicKey};
+use nostr::{
+    prelude::*,
+    secp256k1::{Scalar, Secp256k1},
+};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ops::Deref;
 
@@ -40,7 +43,11 @@ pub trait PrivateSubkeyManager {
 /// Trait for verifying public subkeys
 pub trait PublicSubkeyVerifier {
     /// Verifies that a public key is a valid subkey of the main key
-    fn verify_subkey(&self, subkey: &PublicKey, metadata: &SubkeyMetadata) -> Result<(), SubkeyError>;
+    fn verify_subkey(
+        &self,
+        subkey: &PublicKey,
+        metadata: &SubkeyMetadata,
+    ) -> Result<(), SubkeyError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -61,7 +68,10 @@ impl SubkeyMetadata {
         // Compute the tweaking factor by hashing the metadata
         let mut hasher = Sha256::new();
         hasher.update(&metadata_bytes);
-        let hash: [u8; 32] = hasher.finalize().try_into().map_err(|_| SubkeyError::InvalidMetadata)?;
+        let hash: [u8; 32] = hasher
+            .finalize()
+            .try_into()
+            .map_err(|_| SubkeyError::InvalidMetadata)?;
         let tweak = Scalar::from_be_bytes(hash).map_err(|_| SubkeyError::InvalidMetadata)?;
         Ok(tweak)
     }
@@ -95,7 +105,8 @@ impl PrivateSubkeyManager for Keys {
         let tweak = metadata.get_tweak()?;
 
         // Apply the tweak to the private key
-        let mut secret_key = nostr::secp256k1::SecretKey::from_slice(&self.secret_key().secret_bytes())?;
+        let mut secret_key =
+            nostr::secp256k1::SecretKey::from_slice(&self.secret_key().secret_bytes())?;
         if secret_key.public_key(&secp).x_only_public_key().1 == nostr::secp256k1::Parity::Odd {
             secret_key = secret_key.negate();
         }
@@ -108,13 +119,21 @@ impl PrivateSubkeyManager for Keys {
 }
 
 impl PublicSubkeyVerifier for Keys {
-    fn verify_subkey(&self, subkey: &PublicKey, metadata: &SubkeyMetadata) -> Result<(), SubkeyError> {
+    fn verify_subkey(
+        &self,
+        subkey: &PublicKey,
+        metadata: &SubkeyMetadata,
+    ) -> Result<(), SubkeyError> {
         self.public_key().verify_subkey(subkey, metadata)
     }
 }
 
 impl PublicSubkeyVerifier for PublicKey {
-    fn verify_subkey(&self, subkey: &PublicKey, metadata: &SubkeyMetadata) -> Result<(), SubkeyError> {
+    fn verify_subkey(
+        &self,
+        subkey: &PublicKey,
+        metadata: &SubkeyMetadata,
+    ) -> Result<(), SubkeyError> {
         let tweak = metadata.get_tweak()?;
 
         // Add the tweak * G to the public key
@@ -135,7 +154,12 @@ mod tests {
     use super::*;
     use crate::model::Nonce;
 
-    fn create_test_metadata(name: &str, valid_from: u64, expires_at: u64, permissions: Vec<SubkeyPermission>) -> SubkeyMetadata {
+    fn create_test_metadata(
+        name: &str,
+        valid_from: u64,
+        expires_at: u64,
+        permissions: Vec<SubkeyPermission>,
+    ) -> SubkeyMetadata {
         SubkeyMetadata {
             name: name.to_string(),
             nonce: Nonce::new([0u8; 32]),
@@ -166,7 +190,10 @@ mod tests {
         main_key.verify_subkey(&pubkey, &metadata).unwrap();
 
         // Verify using just the main public key
-        main_key.public_key().verify_subkey(&pubkey, &metadata).unwrap();
+        main_key
+            .public_key()
+            .verify_subkey(&pubkey, &metadata)
+            .unwrap();
     }
 
     #[test]
@@ -192,15 +219,25 @@ mod tests {
             assert_eq!(subkey.metadata().permissions, permissions);
 
             // Verify with both private and public key
-            main_key.verify_subkey(&subkey.public_key(), &metadata).unwrap();
-            main_key.public_key().verify_subkey(&subkey.public_key(), &metadata).unwrap();
+            main_key
+                .verify_subkey(&subkey.public_key(), &metadata)
+                .unwrap();
+            main_key
+                .public_key()
+                .verify_subkey(&subkey.public_key(), &metadata)
+                .unwrap();
         }
     }
 
     #[test]
     fn test_subkey_deterministic_derivation() {
         let main_key = Keys::generate();
-        let metadata = create_test_metadata("deterministic_test", 0, u64::MAX, vec![SubkeyPermission::Auth]);
+        let metadata = create_test_metadata(
+            "deterministic_test",
+            0,
+            u64::MAX,
+            vec![SubkeyPermission::Auth],
+        );
 
         // Create two subkeys with the same metadata
         let subkey1 = main_key.create_subkey(&metadata).unwrap();
@@ -208,20 +245,25 @@ mod tests {
 
         // They should be identical
         assert_eq!(subkey1.public_key(), subkey2.public_key());
-        assert_eq!(subkey1.secret_key().secret_bytes(), subkey2.secret_key().secret_bytes());
+        assert_eq!(
+            subkey1.secret_key().secret_bytes(),
+            subkey2.secret_key().secret_bytes()
+        );
     }
 
     #[test]
     fn test_subkey_verification_failures() {
         let main_key = Keys::generate();
         let wrong_key = Keys::generate();
-        let metadata = create_test_metadata("test_failures", 0, u64::MAX, vec![SubkeyPermission::Auth]);
+        let metadata =
+            create_test_metadata("test_failures", 0, u64::MAX, vec![SubkeyPermission::Auth]);
 
         // Create a valid subkey
         let subkey = main_key.create_subkey(&metadata).unwrap();
 
         // Test with wrong metadata
-        let wrong_metadata = create_test_metadata("wrong_name", 0, u64::MAX, vec![SubkeyPermission::Auth]);
+        let wrong_metadata =
+            create_test_metadata("wrong_name", 0, u64::MAX, vec![SubkeyPermission::Auth]);
         assert!(matches!(
             main_key.verify_subkey(&subkey.public_key(), &wrong_metadata),
             Err(SubkeyError::InvalidMetadata)
@@ -242,7 +284,9 @@ mod tests {
 
         // Test verification with wrong public key
         assert!(matches!(
-            wrong_key.public_key().verify_subkey(&subkey.public_key(), &metadata),
+            wrong_key
+                .public_key()
+                .verify_subkey(&subkey.public_key(), &metadata),
             Err(SubkeyError::InvalidMetadata)
         ));
     }
@@ -250,7 +294,8 @@ mod tests {
     #[test]
     fn test_subkey_with_different_nonces() {
         let main_key = Keys::generate();
-        let mut metadata1 = create_test_metadata("nonce_test", 0, u64::MAX, vec![SubkeyPermission::Auth]);
+        let mut metadata1 =
+            create_test_metadata("nonce_test", 0, u64::MAX, vec![SubkeyPermission::Auth]);
         let mut metadata2 = metadata1.clone();
 
         // Set different nonces
@@ -263,11 +308,18 @@ mod tests {
 
         // They should be different
         assert_ne!(subkey1.public_key(), subkey2.public_key());
-        assert_ne!(subkey1.secret_key().secret_bytes(), subkey2.secret_key().secret_bytes());
+        assert_ne!(
+            subkey1.secret_key().secret_bytes(),
+            subkey2.secret_key().secret_bytes()
+        );
 
         // But both should verify correctly
-        main_key.verify_subkey(&subkey1.public_key(), &metadata1).unwrap();
-        main_key.verify_subkey(&subkey2.public_key(), &metadata2).unwrap();
+        main_key
+            .verify_subkey(&subkey1.public_key(), &metadata1)
+            .unwrap();
+        main_key
+            .verify_subkey(&subkey2.public_key(), &metadata2)
+            .unwrap();
     }
 
     #[test]
@@ -296,8 +348,13 @@ mod tests {
 
         // Verify all subkeys with both private and public key
         for (subkey, metadata) in subkeys {
-            main_key.verify_subkey(&subkey.public_key(), &metadata).unwrap();
-            main_key.public_key().verify_subkey(&subkey.public_key(), &metadata).unwrap();
+            main_key
+                .verify_subkey(&subkey.public_key(), &metadata)
+                .unwrap();
+            main_key
+                .public_key()
+                .verify_subkey(&subkey.public_key(), &metadata)
+                .unwrap();
         }
     }
 }

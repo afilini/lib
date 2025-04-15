@@ -95,7 +95,12 @@ impl Timestamp {
     }
 
     pub fn now() -> Self {
-        Self(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs())
+        Self(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        )
     }
 
     pub fn now_plus_seconds(seconds: u64) -> Self {

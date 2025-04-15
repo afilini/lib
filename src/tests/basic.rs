@@ -1,7 +1,9 @@
+use crate::{
+    app::AppMethods, protocol::LocalKeypair, router::connector::Connector, sdk::SDKMethods,
+};
+use nostr::key::Keys;
 use nostr_relay_pool::{RelayOptions, RelayPool};
-use crate::{protocol::{auth_init::AuthInitUrl, LocalKeypair}, router::connector::Connector, sdk::SDKMethods, app::AppMethods};
-use nostr::{key::Keys, nips::nip19::ToBech32};
-use std::{f32::consts::E, sync::Arc};
+use std::sync::Arc;
 
 async fn create_app() -> Result<Arc<Connector>, Box<dyn std::error::Error>> {
     // Create a new keypair
@@ -13,7 +15,9 @@ async fn create_app() -> Result<Arc<Connector>, Box<dyn std::error::Error>> {
     // Create a relay pool with some test relays
     let relay_pool = RelayPool::new();
     // relay_pool.add_relay("wss://relay.damus.io", RelayOptions::default()).await?;
-    relay_pool.add_relay("wss://relay.nostr.net", RelayOptions::default()).await?;
+    relay_pool
+        .add_relay("wss://relay.nostr.net", RelayOptions::default())
+        .await?;
 
     // Create the authenticator
     let service = Connector::new(keypair, relay_pool);
@@ -43,7 +47,9 @@ async fn create_service() -> Result<Arc<Connector>, Box<dyn std::error::Error>> 
     // Create a relay pool with some test relays
     let relay_pool = RelayPool::new();
     // relay_pool.add_relay("wss://relay.damus.io", RelayOptions::default()).await?;
-    relay_pool.add_relay("wss://relay.nostr.net", RelayOptions::default()).await?;
+    relay_pool
+        .add_relay("wss://relay.nostr.net", RelayOptions::default())
+        .await?;
 
     // Create the authenticator
     let service = Connector::new(keypair, relay_pool);
@@ -86,7 +92,9 @@ async fn test_basic() -> Result<(), Box<dyn std::error::Error>> {
     let app_ping = rx.await_reply().await.unwrap()?;
     log::info!("User public key: {}", app_ping.pubkey);
 
-    let mut response = service.request_login(app_ping.pubkey, vec![], app_ping.content.preferred_relays).await?;
+    let mut response = service
+        .request_login(app_ping.pubkey, vec![], app_ping.content.preferred_relays)
+        .await?;
     log::info!("Login response = {:?}", response.await_reply().await);
 
     Ok(())

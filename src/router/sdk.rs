@@ -6,9 +6,9 @@ use nostr::{
 };
 
 use crate::model::{
-        auth::{AuthChallengeContent, AuthInitContent, SubkeyProof},
-        event_kinds::*,
-    };
+    auth::{AuthChallengeContent, AuthInitContent, SubkeyProof},
+    event_kinds::*,
+};
 
 use super::*;
 
@@ -36,9 +36,21 @@ impl ServiceRequestInner for AuthRequest {
         state: &mut ServiceRequest<Self>,
         response: &mut ResponseBuilder,
     ) -> Result<(), Self::Error> {
-        response.filter(Filter::new().kinds([Kind::from(AUTH_RESPONSE), Kind::from(SUBKEY_PROOF)]).limit(0));
+        response.filter(
+            Filter::new()
+                .kinds([Kind::from(AUTH_RESPONSE), Kind::from(SUBKEY_PROOF)])
+                .limit(0),
+        );
 
-        response.reply_all(Kind::from(AUTH_CHALLENGE), state.get_involved_keys().iter().map(|k| Tag::public_key(*k)).collect(), state.content.clone());
+        response.reply_all(
+            Kind::from(AUTH_CHALLENGE),
+            state
+                .get_involved_keys()
+                .iter()
+                .map(|k| Tag::public_key(*k))
+                .collect(),
+            state.content.clone(),
+        );
 
         Ok(())
     }
@@ -101,13 +113,20 @@ impl ServiceRequestInner for AuthRequest {
             response.reply_to(
                 event.pubkey,
                 Kind::from(AUTH_CHALLENGE),
-                state.get_involved_keys().iter().map(|k| Tag::public_key(*k)).collect(),
+                state
+                    .get_involved_keys()
+                    .iter()
+                    .map(|k| Tag::public_key(*k))
+                    .collect(),
                 state.inner.content.clone(),
             );
         } else if event.kind == Kind::from(AUTH_RESPONSE) {
             log::debug!("Got auth response: {:?}", event.content);
 
-            return Ok(ConversationState::finish(event.pubkey, event.content.clone()));
+            return Ok(ConversationState::finish(
+                event.pubkey,
+                event.content.clone(),
+            ));
         }
 
         Ok(ConversationState::Continue)
@@ -140,7 +159,10 @@ impl ServiceRequestInner for AuthPing {
         Ok(s)
     }
 
-    fn init(_state: &mut ServiceRequest<Self>, response: &mut ResponseBuilder) -> Result<(), Self::Error> {
+    fn init(
+        _state: &mut ServiceRequest<Self>,
+        response: &mut ResponseBuilder,
+    ) -> Result<(), Self::Error> {
         response.filter(Filter::new().kinds([Kind::from(AUTH_INIT)]));
         Ok(())
     }
@@ -155,7 +177,11 @@ impl ServiceRequestInner for AuthPing {
         let content = match serde_json::from_value::<AuthInitContent>(event.content.clone()) {
             Ok(content) if content.token == state.token => content,
             Ok(content) => {
-                log::warn!("Token didn't match ({} != {}), continuing", content.token, state.token);
+                log::warn!(
+                    "Token didn't match ({} != {}), continuing",
+                    content.token,
+                    state.token
+                );
                 return Ok(ConversationState::Continue);
             }
             Err(e) => {
@@ -170,4 +196,3 @@ impl ServiceRequestInner for AuthPing {
 
 #[derive(Debug, thiserror::Error)]
 pub enum AuthPingError {}
-

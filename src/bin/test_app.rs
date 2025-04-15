@@ -1,8 +1,12 @@
 use std::{io::Write, str::FromStr, sync::Arc};
 
-use nostr::{nips::nip19::ToBech32, Keys};
+use nostr::{Keys, nips::nip19::ToBech32};
 use nostr_relay_pool::{RelayOptions, RelayPool};
-use portal::{app::AppMethods, protocol::{auth_init::AuthInitUrl, LocalKeypair}, router::connector::Connector};
+use portal::{
+    app::AppMethods,
+    protocol::{LocalKeypair, auth_init::AuthInitUrl},
+    router::connector::Connector,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -11,13 +15,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a new keypair
     // let keys = Keys::generate();
     let keys = Keys::parse("nsec1w86jfju9yfpfxtcr6mhqmqrstzdvckkyrthdccdmqhk3xakvt3sqy5ud2k")?;
-    println!("Running with keys: {}", keys.public_key.to_bech32().unwrap());
+    println!(
+        "Running with keys: {}",
+        keys.public_key.to_bech32().unwrap()
+    );
     let keypair = LocalKeypair::new(keys, None);
 
     // Create a relay pool with some test relays
     let relay_pool = RelayPool::new();
     // relay_pool.add_relay("wss://relay.damus.io", RelayOptions::default()).await?;
-    relay_pool.add_relay("wss://relay.nostr.net", RelayOptions::default()).await?;
+    relay_pool
+        .add_relay("wss://relay.nostr.net", RelayOptions::default())
+        .await?;
 
     // Create the authenticator
     let service = Connector::new(keypair, relay_pool);
@@ -43,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     let _service = Arc::clone(&service);
     tokio::spawn(async move {
-        let mut rx =_service.listen_for_auth_request().await.unwrap();
+        let mut rx = _service.listen_for_auth_request().await.unwrap();
         let request = rx.await_reply().await.unwrap().unwrap();
         log::info!("Received auth request: {:?}", request);
 
@@ -55,4 +64,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     service.process_outgoing_events().await.unwrap();
 
     Ok(())
-} 
+}

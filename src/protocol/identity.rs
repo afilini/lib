@@ -1,9 +1,9 @@
-use nostr::secp256k1::Secp256k1;
-use serde::{Deserialize, Serialize};
 use crate::model::Timestamp;
-use std::collections::BTreeMap;
 use hex;
 use nostr;
+use nostr::secp256k1::Secp256k1;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use thiserror;
 
 #[derive(Debug, thiserror::Error)]
@@ -101,23 +101,18 @@ pub struct SaltSequence {
 
 impl SaltSequence {
     pub fn new(salt_size: usize, value: Vec<u8>) -> Self {
-        Self {
-            salt_size,
-            value,
-        }
+        Self { salt_size, value }
     }
 
     pub fn get_salt(&self, n: usize) -> Option<&[u8]> {
-        self.value
-            .chunks_exact(self.salt_size)
-            .nth(n)
+        self.value.chunks_exact(self.salt_size).nth(n)
     }
 }
 
 // Helper module for base64 serialization
 mod base64_serde {
-    use serde::{Deserialize, Deserializer, Serializer};
     use base64::Engine;
+    use serde::{Deserialize, Deserializer, Serializer};
 
     pub fn serialize<S: Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
         let base64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v);
@@ -162,10 +157,10 @@ impl<'de> Deserialize<'de> for MerkleRoot {
     {
         use serde::de::Error;
         let hex_str = String::deserialize(deserializer)?;
-        
+
         let bytes = hex::decode(&hex_str)
             .map_err(|e| Error::custom(format!("Invalid hex string: {}", e)))?;
-        
+
         if bytes.len() != 32 {
             return Err(Error::custom(format!(
                 "Invalid merkle root length: expected 32 bytes, got {}",
@@ -193,7 +188,7 @@ pub enum MerkleProofLeaf {
     Hidden {
         #[serde(with = "hex_serde")]
         hash: Vec<u8>,
-    }
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,20 +219,17 @@ mod hex_serde {
 
     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
         let hex_str = String::deserialize(d)?;
-        hex::decode(hex_str)
-            .map_err(serde::de::Error::custom)
+        hex::decode(hex_str).map_err(serde::de::Error::custom)
     }
 }
 
 impl MerkleProofNode {
     pub fn compute_hash(&self) -> Vec<u8> {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
 
         match self {
             MerkleProofNode::Leaf(leaf) => match leaf {
-                MerkleProofLeaf::Cleartext { name, field, salt } => {
-                    field.to_hash(name, salt)
-                }
+                MerkleProofLeaf::Cleartext { name, field, salt } => field.to_hash(name, salt),
                 MerkleProofLeaf::Hidden { hash } => hash.clone(),
             },
             MerkleProofNode::Blinded { hash } => hash.clone(),
@@ -298,10 +290,14 @@ impl Certificate {
         // Prepare the certificate and compute its merkle root
         let prepared = temp.prepare_for_revealing()?;
         let root_bytes = prepared.compute_merkle_root(&temp.metadata.salt_sequence)?;
-        
+
         // Create the final certificate with the computed merkle root
         let mut metadata = temp.metadata;
-        metadata.merkle_root = MerkleRoot::new(root_bytes.try_into().map_err(|_| RevealError::InvalidField)?);
+        metadata.merkle_root = MerkleRoot::new(
+            root_bytes
+                .try_into()
+                .map_err(|_| RevealError::InvalidField)?,
+        );
 
         Ok(Self {
             version: temp.version,
@@ -317,7 +313,7 @@ impl Certificate {
     pub fn prepare_for_revealing(&self) -> Result<PreparedCertificate, RevealError> {
         // Only serialize the data part
         let value = serde_json::to_value(&self.data)?;
-        
+
         let mut fields = BTreeMap::new();
         flatten_json("", &value, &mut fields)?;
 
@@ -336,8 +332,8 @@ impl Certificate {
     }
 
     pub fn sign(&mut self, issuer_key: &nostr::Keys) -> Result<(), SignError> {
-        use sha2::{Sha256, Digest};
-        
+        use sha2::{Digest, Sha256};
+
         // Check the key matches the issuer pubkey
         if self.metadata.issuer_pubkey != issuer_key.public_key() {
             return Err(SignError::InvalidKey);
@@ -345,7 +341,9 @@ impl Certificate {
 
         // Check that the merkle root matches
         let prepared = self.prepare_for_revealing()?;
-        if self.metadata.merkle_root.0.as_slice() != &prepared.compute_merkle_root(&self.metadata.salt_sequence)? {
+        if self.metadata.merkle_root.0.as_slice()
+            != &prepared.compute_merkle_root(&self.metadata.salt_sequence)?
+        {
             return Err(SignError::InvalidMerkleRoot);
         }
 
@@ -354,7 +352,8 @@ impl Certificate {
             return Err(SignError::AlreadySigned);
         }
 
-        let certificate = serde_json::to_string(&self.get_signed_data()).map_err(|e| SignError::Serialization(e))?;
+        let certificate = serde_json::to_string(&self.get_signed_data())
+            .map_err(|e| SignError::Serialization(e))?;
 
         let mut hasher = Sha256::new();
         hasher.update(certificate.as_bytes());
@@ -375,11 +374,12 @@ impl PartialCertificate {
             metadata: self.metadata.clone(),
         }
     }
-    
-    pub fn verify(&self) -> Result<serde_json::Value, VerifyError> {
-        use sha2::{Sha256, Digest};
 
-        let certificate = serde_json::to_string(&self.get_signed_data()).map_err(|e| VerifyError::Serialization(e))?;
+    pub fn verify(&self) -> Result<serde_json::Value, VerifyError> {
+        use sha2::{Digest, Sha256};
+
+        let certificate = serde_json::to_string(&self.get_signed_data())
+            .map_err(|e| VerifyError::Serialization(e))?;
 
         // Check merkle root matches
         if self.metadata.merkle_root.0.as_slice() != &self.merkle_proof.compute_hash() {
@@ -393,8 +393,12 @@ impl PartialCertificate {
         let mut hasher = Sha256::new();
         hasher.update(certificate.as_bytes());
         let message = nostr::secp256k1::Message::from_digest_slice(&hasher.finalize().to_vec())?;
-        let signature = nostr::secp256k1::schnorr::Signature::from_slice(&hex::decode(&self.signature).map_err(|_| VerifyError::InvalidSignature)?).map_err(|e| VerifyError::Secp256k1(e))?;
-        secp.verify_schnorr(&signature, &message, &self.metadata.issuer_pubkey.xonly()?).map_err(|_| VerifyError::InvalidSignature)?;
+        let signature = nostr::secp256k1::schnorr::Signature::from_slice(
+            &hex::decode(&self.signature).map_err(|_| VerifyError::InvalidSignature)?,
+        )
+        .map_err(|e| VerifyError::Secp256k1(e))?;
+        secp.verify_schnorr(&signature, &message, &self.metadata.issuer_pubkey.xonly()?)
+            .map_err(|_| VerifyError::InvalidSignature)?;
 
         let json = self.merkle_proof.to_prepared_certificate().to_json()?;
         Ok(json)
@@ -408,13 +412,13 @@ impl RevealableField {
     }
 
     pub fn to_hash(&self, field_name: &str, salt: &[u8]) -> Vec<u8> {
-        use sha2::{Sha256, Digest};
-        
+        use sha2::{Digest, Sha256};
+
         let mut hasher = Sha256::new();
         hasher.update(field_name.as_bytes());
         hasher.update(self.value.to_string().as_bytes());
         hasher.update(salt);
-        
+
         hasher.finalize().to_vec()
     }
 }
@@ -430,10 +434,7 @@ fn flatten_json(
         serde_json::Value::Object(map) => {
             // Add the object itself as a field
             if !prefix.is_empty() {
-                fields.insert(
-                    prefix.to_string(),
-                    RevealableField::new(value)?
-                );
+                fields.insert(prefix.to_string(), RevealableField::new(value)?);
             }
 
             // Then add all its fields
@@ -445,14 +446,11 @@ fn flatten_json(
                 };
                 flatten_json(&new_prefix, val, fields)?;
             }
-        },
+        }
         serde_json::Value::Array(arr) => {
             // Add the array itself as a field
             if !prefix.is_empty() {
-                fields.insert(
-                    prefix.to_string(),
-                    RevealableField::new(value)?
-                );
+                fields.insert(prefix.to_string(), RevealableField::new(value)?);
             }
 
             // Then add all its elements
@@ -460,13 +458,10 @@ fn flatten_json(
                 let new_prefix = format!("{}.{}", prefix, i);
                 flatten_json(&new_prefix, val, fields)?;
             }
-        },
+        }
         _ => {
             if !prefix.is_empty() {
-                fields.insert(
-                    prefix.to_string(),
-                    RevealableField::new(value)?
-                );
+                fields.insert(prefix.to_string(), RevealableField::new(value)?);
             }
         }
     }
@@ -477,7 +472,7 @@ fn flatten_json(
 pub enum RevealError {
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Invalid field value")]
     InvalidField,
 
@@ -497,13 +492,17 @@ pub struct PreparedCertificate {
 impl PreparedCertificate {
     /// Computes the Merkle root by hashing all fields in order with their corresponding salts.
     /// The n-th salt from the sequence is applied to the n-th field as sorted by the BTreeMap.
-    pub fn compute_merkle_root(&self, salt_sequence: &SaltSequence) -> Result<Vec<u8>, RevealError> {
-        use sha2::{Sha256, Digest};
+    pub fn compute_merkle_root(
+        &self,
+        salt_sequence: &SaltSequence,
+    ) -> Result<Vec<u8>, RevealError> {
+        use sha2::{Digest, Sha256};
 
         // First compute all the field hashes in order
         let mut field_hashes = Vec::with_capacity(self.fields.len());
         for (i, (field_name, field)) in self.fields.iter().enumerate() {
-            let salt = salt_sequence.get_salt(i)
+            let salt = salt_sequence
+                .get_salt(i)
                 .ok_or(RevealError::InsufficientSalts)?;
             let hash = field.to_hash(field_name, salt);
             field_hashes.push(hash);
@@ -519,7 +518,7 @@ impl PreparedCertificate {
         // Now build the Merkle tree bottom-up
         while field_hashes.len() > 1 {
             let mut next_level = Vec::with_capacity((field_hashes.len() + 1) / 2);
-            
+
             // Process pairs of hashes
             for pair in field_hashes.chunks(2) {
                 let mut hasher = Sha256::new();
@@ -532,7 +531,7 @@ impl PreparedCertificate {
                 }
                 next_level.push(hasher.finalize().to_vec());
             }
-            
+
             field_hashes = next_level;
         }
 
@@ -540,19 +539,24 @@ impl PreparedCertificate {
     }
 
     /// Constructs a Merkle proof for the specified fields.
-    /// 
+    ///
     /// The proof includes the revealed fields with their salts, and the minimum set of hashes
     /// needed to recompute the Merkle root.
-    pub fn create_proof(&self, salt_sequence: &SaltSequence, reveal_fields: &[String]) -> Result<MerkleProofNode, RevealError> {
-        use sha2::{Sha256, Digest};
+    pub fn create_proof(
+        &self,
+        salt_sequence: &SaltSequence,
+        reveal_fields: &[String],
+    ) -> Result<MerkleProofNode, RevealError> {
+        use sha2::{Digest, Sha256};
 
         // First compute all field hashes and create leaf nodes
         let mut leaves: Vec<MerkleProofNode> = Vec::with_capacity(self.fields.len());
-        
+
         for (i, (field_name, field)) in self.fields.iter().enumerate() {
-            let salt = salt_sequence.get_salt(i)
+            let salt = salt_sequence
+                .get_salt(i)
                 .ok_or(RevealError::InsufficientSalts)?;
-            
+
             let leaf = if reveal_fields.contains(field_name) {
                 MerkleProofNode::Leaf(MerkleProofLeaf::Cleartext {
                     name: field_name.clone(),
@@ -563,7 +567,7 @@ impl PreparedCertificate {
                 let hash = field.to_hash(field_name, salt);
                 MerkleProofNode::Leaf(MerkleProofLeaf::Hidden { hash })
             };
-            
+
             leaves.push(leaf);
         }
 
@@ -572,14 +576,14 @@ impl PreparedCertificate {
             let mut hasher = Sha256::new();
             hasher.update([]);
             return Ok(MerkleProofNode::Blinded {
-                hash: hasher.finalize().to_vec()
+                hash: hasher.finalize().to_vec(),
             });
         }
 
         // Now build the Merkle tree
         while leaves.len() > 1 {
             let mut next_level = Vec::with_capacity((leaves.len() + 1) / 2);
-            
+
             for pair in leaves.chunks(2) {
                 let left = pair[0].clone();
                 let right = if let Some(right) = pair.get(1) {
@@ -588,13 +592,13 @@ impl PreparedCertificate {
                     // If odd number of nodes, duplicate the last one
                     left.clone()
                 };
-                
+
                 next_level.push(MerkleProofNode::Parent {
                     left: Box::new(left),
                     right: Box::new(right),
                 });
             }
-            
+
             leaves = next_level;
         }
 
@@ -623,17 +627,26 @@ impl PreparedCertificate {
 
             // Split the path into components
             let parts: Vec<&str> = path.split('.').collect();
-            
+
             // Helper function to get or create an array at the given path
-            fn get_or_create_array<'a>(obj: &'a mut serde_json::Map<String, serde_json::Value>, key: &str) -> Result<&'a mut Vec<serde_json::Value>, RevealError> {
-                match obj.entry(key.to_string()).or_insert(serde_json::Value::Array(Vec::new())) {
+            fn get_or_create_array<'a>(
+                obj: &'a mut serde_json::Map<String, serde_json::Value>,
+                key: &str,
+            ) -> Result<&'a mut Vec<serde_json::Value>, RevealError> {
+                match obj
+                    .entry(key.to_string())
+                    .or_insert(serde_json::Value::Array(Vec::new()))
+                {
                     serde_json::Value::Array(arr) => Ok(arr),
                     _ => Err(RevealError::InvalidField),
                 }
             }
 
             // Helper function to get or create an object
-            fn get_or_create_object<'a>(value: &'a mut serde_json::Value) -> Result<&'a mut serde_json::Map<String, serde_json::Value>, RevealError> {
+            fn get_or_create_object<'a>(
+                value: &'a mut serde_json::Value,
+            ) -> Result<&'a mut serde_json::Map<String, serde_json::Value>, RevealError>
+            {
                 match value {
                     serde_json::Value::Object(obj) => Ok(obj),
                     _ => {
@@ -648,17 +661,19 @@ impl PreparedCertificate {
 
             // Navigate the path and create intermediate objects/arrays
             let mut current = &mut root;
-            for (i, &part) in parts[..parts.len()-1].iter().enumerate() {
+            for (i, &part) in parts[..parts.len() - 1].iter().enumerate() {
                 if let Ok(idx) = usize::from_str(part) {
                     // Handle array index
-                    let array = get_or_create_array(current, parts[i-1])?;
+                    let array = get_or_create_array(current, parts[i - 1])?;
                     while array.len() <= idx {
                         array.push(serde_json::Value::Object(serde_json::Map::new()));
                     }
                     current = get_or_create_object(&mut array[idx])?;
                 } else {
                     // Handle object field
-                    let next = current.entry(part.to_string()).or_insert(serde_json::Value::Object(serde_json::Map::new()));
+                    let next = current
+                        .entry(part.to_string())
+                        .or_insert(serde_json::Value::Object(serde_json::Map::new()));
                     current = get_or_create_object(next)?;
                 }
             }
@@ -667,7 +682,7 @@ impl PreparedCertificate {
             let last = parts.last().ok_or(RevealError::InvalidField)?;
             if let Ok(idx) = usize::from_str(last) {
                 // Handle array index
-                let array = get_or_create_array(current, parts[parts.len()-2])?;
+                let array = get_or_create_array(current, parts[parts.len() - 2])?;
                 while array.len() <= idx {
                     array.push(serde_json::Value::Null);
                 }
@@ -775,16 +790,20 @@ mod tests {
     #[test]
     fn test_generate_key() {
         let key = nostr::Keys::generate();
-        println!("{} {:?}", key.secret_key().to_bech32().unwrap(), key.public_key.to_bech32());
+        println!(
+            "{} {:?}",
+            key.secret_key().to_bech32().unwrap(),
+            key.public_key.to_bech32()
+        );
     }
 
     fn create_test_salt_sequence(num_salts: usize) -> SaltSequence {
-        use rand::{thread_rng, RngCore};
+        use rand::{RngCore, thread_rng};
         let salt_size = 32;
         let mut rng = thread_rng();
         let mut value = vec![0u8; salt_size * num_salts];
         rng.fill_bytes(&mut value);
-        
+
         SaltSequence::new(salt_size, value)
     }
 
@@ -825,7 +844,8 @@ mod tests {
                 merkle_root: MerkleRoot::new([0u8; 32]), // This will be replaced with the computed root
             },
             "".to_string(),
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     fn create_test_business_certificate() -> Certificate {
@@ -866,7 +886,8 @@ mod tests {
                 merkle_root: MerkleRoot::new([0u8; 32]), // This will be replaced with the computed root
             },
             "test_signature".to_string(),
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     fn create_test_custom_certificate() -> Certificate {
@@ -885,9 +906,7 @@ mod tests {
         Certificate::new(
             1,
             subject,
-            CertificateData::Custom {
-                data: custom_data,
-            },
+            CertificateData::Custom { data: custom_data },
             CertificateMetadata {
                 issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
@@ -898,7 +917,8 @@ mod tests {
                 merkle_root: MerkleRoot::new([0u8; 32]), // This will be replaced with the computed root
             },
             "test_signature".to_string(),
-        ).unwrap()
+        )
+        .unwrap()
     }
 
     #[test]
@@ -919,7 +939,11 @@ mod tests {
         ];
 
         for field in essential_fields {
-            assert!(prepared.fields.contains_key(field), "Missing field: {}", field);
+            assert!(
+                prepared.fields.contains_key(field),
+                "Missing field: {}",
+                field
+            );
         }
 
         // Check optional fields
@@ -932,7 +956,11 @@ mod tests {
         ];
 
         for field in optional_fields {
-            assert!(prepared.fields.contains_key(field), "Missing optional field: {}", field);
+            assert!(
+                prepared.fields.contains_key(field),
+                "Missing optional field: {}",
+                field
+            );
         }
     }
 
@@ -954,7 +982,11 @@ mod tests {
         ];
 
         for field in business_fields {
-            assert!(prepared.fields.contains_key(field), "Missing field: {}", field);
+            assert!(
+                prepared.fields.contains_key(field),
+                "Missing field: {}",
+                field
+            );
         }
 
         // Check optional business fields
@@ -967,7 +999,11 @@ mod tests {
         ];
 
         for field in optional_fields {
-            assert!(prepared.fields.contains_key(field), "Missing optional field: {}", field);
+            assert!(
+                prepared.fields.contains_key(field),
+                "Missing optional field: {}",
+                field
+            );
         }
     }
 
@@ -988,30 +1024,64 @@ mod tests {
         ];
 
         for field in custom_fields {
-            assert!(prepared.fields.contains_key(field), "Missing field: {}", field);
+            assert!(
+                prepared.fields.contains_key(field),
+                "Missing field: {}",
+                field
+            );
         }
 
         // Check that array values are correct
         assert_eq!(
-            prepared.fields.get("array.0").unwrap().value.as_str().unwrap(),
+            prepared
+                .fields
+                .get("array.0")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
             "item1"
         );
         assert_eq!(
-            prepared.fields.get("array.1").unwrap().value.as_str().unwrap(),
+            prepared
+                .fields
+                .get("array.1")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
             "item2"
         );
         assert_eq!(
-            prepared.fields.get("array.2").unwrap().value.as_str().unwrap(),
+            prepared
+                .fields
+                .get("array.2")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
             "item3"
         );
 
         // Check that nested object values are correct
         assert_eq!(
-            prepared.fields.get("nested.field1").unwrap().value.as_str().unwrap(),
+            prepared
+                .fields
+                .get("nested.field1")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
             "value1"
         );
         assert_eq!(
-            prepared.fields.get("nested.field2").unwrap().value.as_u64().unwrap(),
+            prepared
+                .fields
+                .get("nested.field2")
+                .unwrap()
+                .value
+                .as_u64()
+                .unwrap(),
             42
         );
     }
@@ -1023,11 +1093,18 @@ mod tests {
 
         // Verify that hashes are deterministic for each field
         for (i, (key, field)) in prepared.fields.iter().enumerate() {
-            let salt = cert.metadata.salt_sequence.get_salt(i)
+            let salt = cert
+                .metadata
+                .salt_sequence
+                .get_salt(i)
                 .expect("Should have enough salts");
             let first_hash = field.to_hash(key, salt);
             let second_hash = field.to_hash(key, salt);
-            assert_eq!(first_hash, second_hash, "Hash should be deterministic for {}", key);
+            assert_eq!(
+                first_hash, second_hash,
+                "Hash should be deterministic for {}",
+                key
+            );
             assert_eq!(first_hash.len(), 32, "Hash should be 32 bytes for {}", key);
         }
     }
@@ -1039,11 +1116,18 @@ mod tests {
 
         // Verify that the hash is deterministic for each field
         for (i, (key, field)) in prepared.fields.iter().enumerate() {
-            let salt = cert.metadata.salt_sequence.get_salt(i)
+            let salt = cert
+                .metadata
+                .salt_sequence
+                .get_salt(i)
                 .expect("Should have enough salts");
             let first_hash = field.to_hash(key, salt);
             let second_hash = field.to_hash(key, salt);
-            assert_eq!(first_hash, second_hash, "Hash should be deterministic for {}", key);
+            assert_eq!(
+                first_hash, second_hash,
+                "Hash should be deterministic for {}",
+                key
+            );
             assert_eq!(first_hash.len(), 32, "Hash should be 32 bytes for {}", key);
         }
     }
@@ -1068,9 +1152,7 @@ mod tests {
         let cert = Certificate {
             version: 1,
             subject,
-            data: CertificateData::Custom {
-                data: custom_data,
-            },
+            data: CertificateData::Custom { data: custom_data },
             metadata: CertificateMetadata {
                 issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
@@ -1100,17 +1182,71 @@ mod tests {
         ];
 
         for field in fields {
-            assert!(prepared.fields.contains_key(field), "Missing field: {}", field);
+            assert!(
+                prepared.fields.contains_key(field),
+                "Missing field: {}",
+                field
+            );
         }
 
         // Check specific values
         assert!(prepared.fields.get("null_field").unwrap().value.is_null());
-        assert_eq!(prepared.fields.get("empty_string").unwrap().value.as_str().unwrap(), "");
-        assert!(prepared.fields.get("empty_array").unwrap().value.as_array().unwrap().is_empty());
-        assert!(prepared.fields.get("empty_object").unwrap().value.as_object().unwrap().is_empty());
-        assert!(prepared.fields.get("array_with_nulls.0").unwrap().value.is_null());
-        assert_eq!(prepared.fields.get("array_with_nulls.1").unwrap().value.as_str().unwrap(), "value");
-        assert!(prepared.fields.get("array_with_nulls.2").unwrap().value.is_null());
+        assert_eq!(
+            prepared
+                .fields
+                .get("empty_string")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
+            ""
+        );
+        assert!(
+            prepared
+                .fields
+                .get("empty_array")
+                .unwrap()
+                .value
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            prepared
+                .fields
+                .get("empty_object")
+                .unwrap()
+                .value
+                .as_object()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            prepared
+                .fields
+                .get("array_with_nulls.0")
+                .unwrap()
+                .value
+                .is_null()
+        );
+        assert_eq!(
+            prepared
+                .fields
+                .get("array_with_nulls.1")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
+            "value"
+        );
+        assert!(
+            prepared
+                .fields
+                .get("array_with_nulls.2")
+                .unwrap()
+                .value
+                .is_null()
+        );
     }
 
     #[test]
@@ -1133,9 +1269,7 @@ mod tests {
         let cert = Certificate {
             version: 1,
             subject,
-            data: CertificateData::Custom {
-                data: nested_value,
-            },
+            data: CertificateData::Custom { data: nested_value },
             metadata: CertificateMetadata {
                 issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
@@ -1190,9 +1324,7 @@ mod tests {
         let cert = Certificate {
             version: 1,
             subject,
-            data: CertificateData::Custom {
-                data: custom_data,
-            },
+            data: CertificateData::Custom { data: custom_data },
             metadata: CertificateMetadata {
                 issuer_pubkey: issuer,
                 issued_at: Timestamp::new(1234567890),
@@ -1220,27 +1352,48 @@ mod tests {
             "array.1",
             "array.2",
             "nested.field.with.special\nchars",
-            "nested.emoji"
+            "nested.emoji",
         ];
 
         for field in fields {
-            assert!(prepared.fields.contains_key(field), "Missing field: {}", field);
-            assert!(prepared.fields[field].value.is_string(), "Field should be a string: {}", field);
+            assert!(
+                prepared.fields.contains_key(field),
+                "Missing field: {}",
+                field
+            );
+            assert!(
+                prepared.fields[field].value.is_string(),
+                "Field should be a string: {}",
+                field
+            );
         }
 
         // Check that emoji are preserved
         assert_eq!(
-            prepared.fields.get("nested.emoji").unwrap().value.as_str().unwrap(),
+            prepared
+                .fields
+                .get("nested.emoji")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
             "🦀🔒💻"
         );
 
         // Verify that hashes are deterministic for all fields
         for (i, (key, field)) in prepared.fields.iter().enumerate() {
-            let salt = cert.metadata.salt_sequence.get_salt(i)
+            let salt = cert
+                .metadata
+                .salt_sequence
+                .get_salt(i)
                 .expect("Should have enough salts");
             let first_hash = field.to_hash(key, salt);
             let second_hash = field.to_hash(key, salt);
-            assert_eq!(first_hash, second_hash, "Hash should be deterministic for {}", key);
+            assert_eq!(
+                first_hash, second_hash,
+                "Hash should be deterministic for {}",
+                key
+            );
             assert_eq!(first_hash.len(), 32, "Hash should be 32 bytes for {}", key);
         }
     }
@@ -1249,10 +1402,14 @@ mod tests {
     fn test_merkle_root_is_deterministic() {
         let cert = create_test_person_certificate();
         let prepared = cert.prepare_for_revealing().unwrap();
-        
-        let root1 = prepared.compute_merkle_root(&cert.metadata.salt_sequence).unwrap();
-        let root2 = prepared.compute_merkle_root(&cert.metadata.salt_sequence).unwrap();
-        
+
+        let root1 = prepared
+            .compute_merkle_root(&cert.metadata.salt_sequence)
+            .unwrap();
+        let root2 = prepared
+            .compute_merkle_root(&cert.metadata.salt_sequence)
+            .unwrap();
+
         assert_eq!(root1, root2, "Merkle root should be deterministic");
         assert_eq!(root1.len(), 32, "Merkle root should be 32 bytes");
     }
@@ -1261,14 +1418,21 @@ mod tests {
     fn test_merkle_root_changes_with_different_salts() {
         let cert = create_test_person_certificate();
         let prepared = cert.prepare_for_revealing().unwrap();
-        
-        let root1 = prepared.compute_merkle_root(&cert.metadata.salt_sequence).unwrap();
-        
+
+        let root1 = prepared
+            .compute_merkle_root(&cert.metadata.salt_sequence)
+            .unwrap();
+
         // Create a different salt sequence
         let different_salt_sequence = create_test_salt_sequence(100);
-        let root2 = prepared.compute_merkle_root(&different_salt_sequence).unwrap();
-        
-        assert_ne!(root1, root2, "Merkle root should be different with different salts");
+        let root2 = prepared
+            .compute_merkle_root(&different_salt_sequence)
+            .unwrap();
+
+        assert_ne!(
+            root1, root2,
+            "Merkle root should be different with different salts"
+        );
     }
 
     #[test]
@@ -1294,20 +1458,26 @@ mod tests {
         };
 
         let prepared = cert.prepare_for_revealing().unwrap();
-        let root = prepared.compute_merkle_root(&cert.metadata.salt_sequence).unwrap();
-        
-        assert_eq!(root.len(), 32, "Merkle root should be 32 bytes even for empty fields");
+        let root = prepared
+            .compute_merkle_root(&cert.metadata.salt_sequence)
+            .unwrap();
+
+        assert_eq!(
+            root.len(),
+            32,
+            "Merkle root should be 32 bytes even for empty fields"
+        );
     }
 
     #[test]
     fn test_merkle_root_insufficient_salts() {
         let cert = create_test_person_certificate();
         let prepared = cert.prepare_for_revealing().unwrap();
-        
+
         // Create a salt sequence with too few salts
         let insufficient_salt_sequence = create_test_salt_sequence(1);
         let result = prepared.compute_merkle_root(&insufficient_salt_sequence);
-        
+
         assert!(matches!(result, Err(RevealError::InsufficientSalts)));
     }
 
@@ -1315,19 +1485,21 @@ mod tests {
     fn test_merkle_proof() {
         let cert = create_test_person_certificate();
         let prepared = cert.prepare_for_revealing().unwrap();
-        
+
         // Try to reveal a few fields
         let reveal_fields = vec![
             "full_name".to_string(),
             "nationality".to_string(),
             "address.city".to_string(),
         ];
-        
-        let proof = prepared.create_proof(&cert.metadata.salt_sequence, &reveal_fields).unwrap();
-        
+
+        let proof = prepared
+            .create_proof(&cert.metadata.salt_sequence, &reveal_fields)
+            .unwrap();
+
         // Verify that the proof is valid
         assert!(prepared.verify_proof(&proof, &cert.metadata.merkle_root));
-        
+
         // Verify that we can extract the revealed fields
         fn find_revealed_fields(node: &MerkleProofNode) -> Vec<(String, serde_json::Value)> {
             let mut fields = Vec::new();
@@ -1343,15 +1515,32 @@ mod tests {
             }
             fields
         }
-        
+
         let revealed = find_revealed_fields(&proof);
         assert_eq!(revealed.len(), 3);
-        
+
         let mut revealed_map: BTreeMap<_, _> = revealed.into_iter().collect();
-        assert_eq!(revealed_map.remove("full_name").unwrap().as_str().unwrap(), "John Doe");
-        assert_eq!(revealed_map.remove("nationality").unwrap().as_str().unwrap(), "US");
-        assert_eq!(revealed_map.remove("address.city").unwrap().as_str().unwrap(), "New York");
-        
+        assert_eq!(
+            revealed_map.remove("full_name").unwrap().as_str().unwrap(),
+            "John Doe"
+        );
+        assert_eq!(
+            revealed_map
+                .remove("nationality")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "US"
+        );
+        assert_eq!(
+            revealed_map
+                .remove("address.city")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "New York"
+        );
+
         // Try to create an invalid proof by modifying a revealed field
         let mut modified_proof = proof.clone();
         fn modify_first_cleartext(node: &mut MerkleProofNode) {
@@ -1367,7 +1556,7 @@ mod tests {
             }
         }
         modify_first_cleartext(&mut modified_proof);
-        
+
         // Verify that the modified proof is invalid
         assert!(!prepared.verify_proof(&modified_proof, &cert.metadata.merkle_root));
     }
@@ -1376,63 +1565,89 @@ mod tests {
     fn test_sign() {
         let mut cert = create_test_person_certificate();
         let issuer_key = nostr::Keys::generate();
-        
+
         // Update the issuer pubkey to match our test key
         cert.metadata.issuer_pubkey = issuer_key.public_key();
-        
+
         // First sign should succeed
         cert.sign(&issuer_key).expect("Failed to sign certificate");
         assert!(!cert.signature.is_empty());
-        
+
         // Second sign should fail
-        assert!(matches!(cert.sign(&issuer_key), Err(SignError::AlreadySigned)));
-        
+        assert!(matches!(
+            cert.sign(&issuer_key),
+            Err(SignError::AlreadySigned)
+        ));
+
         // Sign with wrong key should fail
         let wrong_key = nostr::Keys::generate();
         let mut cert = create_test_person_certificate();
         assert!(matches!(cert.sign(&wrong_key), Err(SignError::InvalidKey)));
-        
+
         // Sign with invalid merkle root should fail
         let mut cert = create_test_person_certificate();
         cert.metadata.issuer_pubkey = issuer_key.public_key();
         cert.metadata.merkle_root = MerkleRoot::new([1u8; 32]); // Wrong root
-        assert!(matches!(cert.sign(&issuer_key), Err(SignError::InvalidMerkleRoot)));
+        assert!(matches!(
+            cert.sign(&issuer_key),
+            Err(SignError::InvalidMerkleRoot)
+        ));
     }
 
     #[test]
     fn test_merkle_proof_to_prepared_certificate() {
         let cert = create_test_person_certificate();
         let prepared = cert.prepare_for_revealing().unwrap();
-        
+
         // Try to reveal a few fields
         let reveal_fields = vec![
             "full_name".to_string(),
             "nationality".to_string(),
             "address.city".to_string(),
         ];
-        
-        let proof = prepared.create_proof(&cert.metadata.salt_sequence, &reveal_fields).unwrap();
-        
+
+        let proof = prepared
+            .create_proof(&cert.metadata.salt_sequence, &reveal_fields)
+            .unwrap();
+
         // Convert proof back to prepared certificate
         let revealed_cert = proof.to_prepared_certificate();
-        
+
         // Check that only the revealed fields are present
         assert_eq!(revealed_cert.fields.len(), 3);
         assert!(revealed_cert.fields.contains_key("full_name"));
         assert!(revealed_cert.fields.contains_key("nationality"));
         assert!(revealed_cert.fields.contains_key("address.city"));
-        
+
         // Check that the values match the original
         assert_eq!(
-            revealed_cert.fields.get("full_name").unwrap().value.as_str().unwrap(),
+            revealed_cert
+                .fields
+                .get("full_name")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
             "John Doe"
         );
         assert_eq!(
-            revealed_cert.fields.get("nationality").unwrap().value.as_str().unwrap(),
+            revealed_cert
+                .fields
+                .get("nationality")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
             "US"
         );
         assert_eq!(
-            revealed_cert.fields.get("address.city").unwrap().value.as_str().unwrap(),
+            revealed_cert
+                .fields
+                .get("address.city")
+                .unwrap()
+                .value
+                .as_str()
+                .unwrap(),
             "New York"
         );
 
@@ -1440,7 +1655,15 @@ mod tests {
         let json = revealed_cert.to_json().unwrap();
         assert_eq!(json.get("full_name").unwrap().as_str().unwrap(), "John Doe");
         assert_eq!(json.get("nationality").unwrap().as_str().unwrap(), "US");
-        assert_eq!(json.get("address").unwrap().get("city").unwrap().as_str().unwrap(), "New York");
+        assert_eq!(
+            json.get("address")
+                .unwrap()
+                .get("city")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "New York"
+        );
     }
 
     #[test]
@@ -1458,7 +1681,9 @@ mod tests {
             "nationality".to_string(),
             "address.city".to_string(),
         ];
-        let proof = prepared.create_proof(&cert.metadata.salt_sequence, &reveal_fields).unwrap();
+        let proof = prepared
+            .create_proof(&cert.metadata.salt_sequence, &reveal_fields)
+            .unwrap();
 
         // Create a valid partial certificate
         let valid_partial = PartialCertificate {
@@ -1471,24 +1696,45 @@ mod tests {
 
         // Test successful verification
         let result = valid_partial.verify().unwrap();
-        assert_eq!(result.get("full_name").unwrap().as_str().unwrap(), "John Doe");
+        assert_eq!(
+            result.get("full_name").unwrap().as_str().unwrap(),
+            "John Doe"
+        );
         assert_eq!(result.get("nationality").unwrap().as_str().unwrap(), "US");
-        assert_eq!(result.get("address").unwrap().get("city").unwrap().as_str().unwrap(), "New York");
+        assert_eq!(
+            result
+                .get("address")
+                .unwrap()
+                .get("city")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "New York"
+        );
 
         // Test invalid merkle root
         let mut invalid_root = valid_partial.clone();
         invalid_root.metadata.merkle_root = MerkleRoot::new([1u8; 32]); // Wrong root
-        assert!(matches!(invalid_root.verify(), Err(VerifyError::InvalidMerkleRoot)));
+        assert!(matches!(
+            invalid_root.verify(),
+            Err(VerifyError::InvalidMerkleRoot)
+        ));
 
         // Test invalid signature
         let mut invalid_sig = valid_partial.clone();
         invalid_sig.signature = hex::encode([1u8; 64]); // Wrong signature
-        assert!(matches!(invalid_sig.verify(), Err(VerifyError::InvalidSignature)));
+        assert!(matches!(
+            invalid_sig.verify(),
+            Err(VerifyError::InvalidSignature)
+        ));
 
         // Test wrong issuer key
         let mut wrong_issuer = valid_partial.clone();
         wrong_issuer.metadata.issuer_pubkey = nostr::Keys::generate().public_key();
-        assert!(matches!(wrong_issuer.verify(), Err(VerifyError::InvalidSignature)));
+        assert!(matches!(
+            wrong_issuer.verify(),
+            Err(VerifyError::InvalidSignature)
+        ));
 
         // Test tampered proof (modify a revealed field)
         let mut tampered = valid_partial.clone();
@@ -1505,7 +1751,9 @@ mod tests {
             }
         }
         modify_first_cleartext(&mut tampered.merkle_proof);
-        assert!(matches!(tampered.verify(), Err(VerifyError::InvalidMerkleRoot)));
+        assert!(matches!(
+            tampered.verify(),
+            Err(VerifyError::InvalidMerkleRoot)
+        ));
     }
 }
-
