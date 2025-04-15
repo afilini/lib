@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn test_generate_key() {
         let key = nostr::Keys::generate();
-        println!("{:?}", key.public_key.to_bech32());
+        println!("{} {:?}", key.secret_key().to_bech32().unwrap(), key.public_key.to_bech32());
     }
 
     fn create_test_salt_sequence(num_salts: usize) -> SaltSequence {

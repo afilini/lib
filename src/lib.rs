@@ -1,7 +1,9 @@
 pub mod app;
 pub mod model;
 pub mod protocol;
+pub mod router;
 pub mod sdk;
+pub mod utils;
 
-pub use model::*;
-pub use protocol::*;
+#[cfg(test)]
+mod tests;

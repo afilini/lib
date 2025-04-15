@@ -1,3 +1,5 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use hex;
 use serde::{Deserialize, Serialize};
 
@@ -8,28 +10,31 @@ use serde::{Deserialize, Serialize};
 
 pub mod event_kinds {
     // Authentication events (27000-27999)
-    pub const AUTH_CHALLENGE: u32 = 27000;
-    pub const AUTH_RESPONSE: u32 = 27001;
-    pub const AUTH_SUCCESS: u32 = 27002;
-    pub const AUTH_INIT: u32 = 27010;
+    pub const AUTH_CHALLENGE: u16 = 27000;
+    pub const AUTH_RESPONSE: u16 = 27001;
+    pub const AUTH_SUCCESS: u16 = 27002;
+    pub const AUTH_INIT: u16 = 27010;
 
     // Payment events (28000-28999)
-    pub const PAYMENT_REQUEST: u32 = 28000;
-    pub const PAYMENT_RESPONSE: u32 = 28001;
-    pub const PAYMENT_CONFIRMATION: u32 = 28002;
-    pub const PAYMENT_ERROR: u32 = 28003;
-    pub const PAYMENT_RECEIPT: u32 = 28004;
-    pub const RECURRING_PAYMENT_REQUEST: u32 = 28005;
-    pub const RECURRING_PAYMENT_AUTH: u32 = 28006;
-    pub const RECURRING_PAYMENT_CANCEL: u32 = 28007;
+    pub const PAYMENT_REQUEST: u16 = 28000;
+    pub const PAYMENT_RESPONSE: u16 = 28001;
+    pub const PAYMENT_CONFIRMATION: u16 = 28002;
+    pub const PAYMENT_ERROR: u16 = 28003;
+    pub const PAYMENT_RECEIPT: u16 = 28004;
+    pub const RECURRING_PAYMENT_REQUEST: u16 = 28005;
+    pub const RECURRING_PAYMENT_AUTH: u16 = 28006;
+    pub const RECURRING_PAYMENT_CANCEL: u16 = 28007;
 
     // Identity events (29000-29999)
-    pub const CERTIFICATE_REQUEST: u32 = 29000;
-    pub const CERTIFICATE_RESPONSE: u32 = 29001;
-    pub const CERTIFICATE_ERROR: u32 = 29002;
-    pub const CERTIFICATE_REVOCATION: u32 = 29003;
-    pub const CERTIFICATE_VERIFY_REQUEST: u32 = 29004;
-    pub const CERTIFICATE_VERIFY_RESPONSE: u32 = 29005;
+    pub const CERTIFICATE_REQUEST: u16 = 29000;
+    pub const CERTIFICATE_RESPONSE: u16 = 29001;
+    pub const CERTIFICATE_ERROR: u16 = 29002;
+    pub const CERTIFICATE_REVOCATION: u16 = 29003;
+    pub const CERTIFICATE_VERIFY_REQUEST: u16 = 29004;
+    pub const CERTIFICATE_VERIFY_RESPONSE: u16 = 29005;
+
+    // Control events (30000-30999)
+    pub const SUBKEY_PROOF: u16 = 30000;
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +94,16 @@ impl Timestamp {
         Self(timestamp)
     }
 
+    pub fn now() -> Self {
+        Self(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs())
+    }
+
+    pub fn now_plus_seconds(seconds: u64) -> Self {
+        let mut ts = Self::now();
+        ts.0 += seconds;
+        ts
+    }
+
     pub fn as_u64(&self) -> u64 {
         self.0
     }
@@ -119,14 +134,16 @@ impl<'de> Deserialize<'de> for Timestamp {
 }
 
 pub mod auth {
+    use crate::protocol::subkey::{PublicSubkeyVerifier, SubkeyError, SubkeyMetadata};
+
     use super::*;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ServiceInformation {
-        pub service_pubkey: String,
+        pub service_pubkey: nostr::PublicKey,
         pub relays: Vec<String>,
         pub token: String,
-        pub subkey: Option<String>,
+        pub subkey: Option<nostr::PublicKey>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,16 +162,22 @@ pub mod auth {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct AuthChallengeContent {
         pub challenge: String,
-        pub expires_at: u64,
+        pub expires_at: Timestamp,
         pub required_permissions: Vec<String>,
         pub subkey_proof: Option<SubkeyProof>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct SubkeyProof {
-        pub main_key: String,
+        pub main_key: nostr::PublicKey,
         pub signature: String,
-        pub metadata: serde_json::Value,
+        pub metadata: SubkeyMetadata,
+    }
+
+    impl SubkeyProof {
+        pub fn verify(&self, subkey: &nostr::PublicKey) -> Result<(), SubkeyError> {
+            self.main_key.verify_subkey(subkey, &self.metadata)
+        }
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,54 +190,6 @@ pub mod auth {
 
 pub mod identity {
     use super::*;
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct PersonalIdentityCertificate {
-        #[serde(rename = "type")]
-        pub certificate_type: String,
-        pub version: u32,
-        pub subject: CertificateSubject,
-        pub data: PersonalIdentityData,
-        pub metadata: CertificateMetadata,
-        pub signature: String,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct CertificateSubject {
-        pub pubkey: String,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct PersonalIdentityData {
-        pub full_name: String,
-        pub date_of_birth: String,
-        pub nationality: String,
-        pub document_type: String,
-        pub document_number: String,
-        pub place_of_birth: Option<String>,
-        pub gender: Option<String>,
-        pub issue_date: Option<String>,
-        pub expiry_date: Option<String>,
-        pub address: Option<Address>,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct Address {
-        pub street: String,
-        pub city: String,
-        pub state: Option<String>,
-        pub postal_code: String,
-        pub country: String,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct CertificateMetadata {
-        pub issuer_pubkey: String,
-        pub issued_at: u64,
-        pub expires_at: u64,
-        pub verification_level: String,
-        pub verification_method: String,
-    }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct CertificateRequestContent {

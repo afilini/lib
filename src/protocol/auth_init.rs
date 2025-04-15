@@ -1,0 +1,138 @@
+use std::{str::FromStr, fmt};
+
+use nostr::{PublicKey, nips::nip19::{ToBech32, FromBech32}};
+use thiserror::Error;
+
+#[derive(Debug)]
+pub struct AuthInitUrl {
+    pub main_key: PublicKey,
+    pub relays: Vec<String>,
+    pub token: String,
+    pub subkey: Option<PublicKey>,
+}
+
+
+impl fmt::Display for AuthInitUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let relays = self.relays.iter()
+            .map(|r| urlencoding::encode(r).into_owned())
+            .collect::<Vec<_>>();
+
+        let subkey_part = if let Some(key) = self.subkey.as_ref() {
+            match key.to_bech32() {
+                Ok(bech32) => format!("&subkey={}", bech32),
+                Err(_) => String::new(),
+            }
+        } else {
+            String::new()
+        };
+
+        match self.main_key.to_bech32() {
+            Ok(bech32) => write!(
+                f,
+                "portal://{}?relays={}&token={}{}",
+                bech32,
+                relays.join(","),
+                self.token,
+                subkey_part
+            ),
+            Err(_) => Err(fmt::Error),
+        }
+    }
+}
+
+impl AuthInitUrl {
+    pub fn send_to(&self) -> PublicKey {
+        if let Some(subkey) = self.subkey {
+            subkey
+        } else {
+            self.main_key
+        }
+    }
+
+    pub fn all_keys(&self) -> Vec<PublicKey> {
+        let mut keys = Vec::new();
+        keys.push(self.main_key);
+        if let Some(subkey) = self.subkey {
+            keys.push(subkey);
+        }
+
+        keys
+    }
+}
+
+impl FromStr for AuthInitUrl {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Check prefix
+        if !s.starts_with("portal://") {
+            return Err(ParseError::InvalidProtocol);
+        }
+
+        // Split URL into base and query
+        let s = &s["portal://".len()..];
+        let (pubkey, query) = s.split_once('?').ok_or(ParseError::MissingQueryParams)?;
+
+        // Parse main pubkey
+        let main_key = PublicKey::from_bech32(pubkey)?;
+
+        // Parse query parameters
+        let mut relays = Vec::new();
+        let mut token = None;
+        let mut subkey = None;
+
+        for param in query.split('&') {
+            let (key, value) = param.split_once('=')
+                .ok_or_else(|| ParseError::InvalidQueryParam("missing value".into()))?;
+
+            match key {
+                "relays" => {
+                    relays = value.split(',')
+                        .map(|r| urlencoding::decode(r).map(|s| s.into_owned()))
+                        .collect::<Result<Vec<_>, _>>()
+                        .map_err(|e| ParseError::InvalidRelayUrl(e.to_string()))?;
+                },
+                "token" => token = Some(value.to_string()),
+                "subkey" => subkey = Some(PublicKey::from_bech32(value)?),
+                _ => return Err(ParseError::InvalidQueryParam(format!("unknown parameter: {}", key))),
+            }
+        }
+
+        let token = token.ok_or(ParseError::MissingRequiredParam("token"))?;
+        if relays.is_empty() {
+            return Err(ParseError::NoRelays);
+        }
+
+        Ok(Self {
+            main_key,
+            relays,
+            token,
+            subkey,
+        })
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum ParseError {
+    #[error("Invalid protocol")]
+    InvalidProtocol,
+
+    #[error("Missing query parameters")]
+    MissingQueryParams,
+
+    #[error("Invalid query parameter: {0}")]
+    InvalidQueryParam(String),
+
+    #[error("Missing required parameter: {0}")]
+    MissingRequiredParam(&'static str),
+
+    #[error("Invalid relay URL: {0}")]
+    InvalidRelayUrl(String),
+
+    #[error("No relays specified")]
+    NoRelays,
+
+    #[error("Invalid bech32: {0}")]
+    Bech32(#[from] nostr::nips::nip19::Error),
+}
