@@ -1,9 +1,10 @@
 use std::ops::Deref;
 
-use crate::model::auth::SubkeyProof;
+use model::auth::SubkeyProof;
 
 pub mod auth_init;
 pub mod identity;
+pub mod model;
 pub mod subkey;
 
 pub struct LocalKeypair {

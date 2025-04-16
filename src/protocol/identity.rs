@@ -1,4 +1,4 @@
-use crate::model::Timestamp;
+use crate::protocol::model::Timestamp;
 use hex;
 use nostr;
 use nostr::secp256k1::Secp256k1;

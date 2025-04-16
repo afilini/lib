@@ -3,11 +3,13 @@ use std::sync::Arc;
 use nostr::{Keys, event::Kind, filter::Filter};
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
-    model::{auth::AuthInitContent, event_kinds::AUTH_INIT},
-    protocol::{LocalKeypair, auth_init::AuthInitUrl},
+    protocol::{
+        LocalKeypair,
+        auth_init::AuthInitUrl,
+        model::{auth::AuthInitContent, event_kinds::AUTH_INIT},
+    },
     router::{
-        Conversation, ConversationError, DelayedReply, MessageRouter, MultiKeyProxy, MultiKeyTrait,
-        Response,
+        ConversationError, DelayedReply, MessageRouter, MultiKeyProxy, MultiKeyTrait, Response,
     },
     utils::random_string,
 };
@@ -99,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = Arc::new(MessageRouter::new(relay_pool, keypair));
     let _router = Arc::clone(&router);
     tokio::spawn(async move {
-        _router.listen().await;
+        _router.listen().await.unwrap();
     });
 
     let relays = router

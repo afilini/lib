@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     ops::{Deref, DerefMut},
-    sync::Arc,
     time::{Duration, SystemTime},
 };
 
@@ -63,7 +62,7 @@ impl<C: Channel> MessageRouter<C> {
         self.subscribers.lock().await.clear();
     }
 
-    pub async fn listen(&self) {
+    pub async fn listen(&self) -> Result<(), ConversationError> {
         while let Ok(notification) = self.channel.receive().await {
             log::trace!("Notification = {:?}", notification);
 
@@ -119,21 +118,26 @@ impl<C: Channel> MessageRouter<C> {
             match self.conversations.lock().await.get_mut(conversation_id) {
                 Some(conv) => match conv.on_message(message) {
                     Ok(response) => {
-                        self.process_response(conversation_id, response).await;
+                        self.process_response(conversation_id, response).await?;
                     }
                     Err(e) => {
                         log::warn!("Error in conversation id {:?}: {:?}", conversation_id, e);
-                        self.cleanup_conversation(conversation_id).await;
+                        self.cleanup_conversation(conversation_id).await?;
 
                         continue;
                     }
                 },
                 None => {
                     log::warn!("No conversation found for id: {:?}", conversation_id);
-                    self.channel.unsubscribe(conversation_id.to_string()).await;
+                    self.channel
+                        .unsubscribe(conversation_id.to_string())
+                        .await
+                        .map_err(|e| ConversationError::Inner(Box::new(e)))?;
                 }
             }
         }
+
+        Ok(())
     }
 
     async fn process_response(
@@ -244,22 +248,6 @@ impl<C: Channel> MessageRouter<C> {
     pub fn keypair(&self) -> &LocalKeypair {
         &self.keypair
     }
-}
-
-#[derive(Debug)]
-pub enum RelayAction {
-    ApplyFilter(String, Filter),
-    RemoveFilter(String),
-    SendEvent(PublicKey, OutgoingEvent),
-}
-
-#[derive(Debug)]
-// TODO: we should select individual relays for each event
-pub struct OutgoingEvent {
-    pub kind: Kind,
-    pub content: serde_json::Value,
-    pub encrypted: bool,
-    pub tags: Tags,
 }
 
 #[derive(Debug)]

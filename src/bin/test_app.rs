@@ -7,11 +7,14 @@ use nostr::{
 };
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
-    model::{
-        auth::{AuthInitContent, ClientInfo},
-        event_kinds::AUTH_INIT,
+    protocol::{
+        LocalKeypair,
+        auth_init::AuthInitUrl,
+        model::{
+            auth::{AuthInitContent, ClientInfo},
+            event_kinds::AUTH_INIT,
+        },
     },
-    protocol::{LocalKeypair, auth_init::AuthInitUrl},
     router::{Conversation, MessageRouter, Response},
 };
 
@@ -80,7 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let router = Arc::new(MessageRouter::new(relay_pool, keypair));
     let _router = Arc::clone(&router);
     tokio::spawn(async move {
-        _router.listen().await;
+        _router.listen().await.unwrap();
     });
 
     print!("Enter the auth init URL: ");

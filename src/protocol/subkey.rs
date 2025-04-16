@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ops::Deref;
 
-use crate::model::{Nonce, Timestamp};
+use crate::protocol::model::{Nonce, Timestamp};
 
 /// A subkey with its associated metadata
 #[derive(Debug, Clone)]
@@ -152,7 +152,7 @@ impl PublicSubkeyVerifier for PublicKey {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Nonce;
+    use crate::protocol::model::Nonce;
 
     fn create_test_metadata(
         name: &str,
