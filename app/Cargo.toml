@@ -13,3 +13,5 @@ thiserror = "2.0.12"
 tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
 android_logger = "0.15.0"
 log = "0.4.27"
+async = "0.0.0"
+async-trait = "0.1.88"

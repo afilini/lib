@@ -296,7 +296,7 @@ pub mod bindings {
 
     use super::*;
 
-    #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
     pub struct PublicKey(pub nostr::PublicKey);
 
     uniffi::custom_type!(PublicKey, String, {

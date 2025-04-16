@@ -4,45 +4,12 @@ use nostr::{Keys, event::Kind, filter::Filter};
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
     protocol::{
-        LocalKeypair,
-        auth_init::AuthInitUrl,
-        model::{auth::AuthInitContent, event_kinds::AUTH_INIT},
-    },
-    router::{
+        auth_init::AuthInitUrl, model::{auth::AuthInitContent, event_kinds::AUTH_INIT}, LocalKeypair
+    }, router::{
         ConversationError, DelayedReply, MessageRouter, MultiKeyProxy, MultiKeyTrait, Response,
-    },
-    utils::random_string,
+    }, sdk::handlers::AuthInitReceiverConversation, utils::random_string
 };
 // use portal::{protocol::LocalKeypair, router::connector::Connector, sdk::SDKMethods};
-
-struct AuthInitReceiverConversation {
-    token: String,
-}
-
-impl MultiKeyTrait for AuthInitReceiverConversation {
-    const VALIDITY_SECONDS: u64 = 60 * 5;
-
-    type Error = ConversationError;
-    type Message = AuthInitContent;
-
-    fn init(_state: &portal::router::MultiKeyProxy<Self>) -> Result<Response, Self::Error> {
-        Ok(Response::new().filter(Filter::new().kinds(vec![Kind::from(AUTH_INIT)])))
-    }
-
-    fn on_message(
-        _state: &mut portal::router::MultiKeyProxy<Self>,
-        _event: &portal::router::CleartextEvent,
-        message: &Self::Message,
-    ) -> Result<Response, Self::Error> {
-        if message.token == _state.token {
-            return Ok(Response::new().notify(serde_json::json!({
-                "token": _state.token,
-            })));
-        }
-
-        Ok(Response::default())
-    }
-}
 
 // impl Conversation for AuthInitReceiverConversation {
 //     fn init(&self) -> Result<Response, ConversationError> {
@@ -129,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Auth init URL: {}", url);
 
-    let inner = AuthInitReceiverConversation { token };
+    let inner = AuthInitReceiverConversation::new(token);
     let conv = MultiKeyProxy::new(inner);
     let id = router.add_conversation(Box::new(conv)).await?;
     log::debug!("Added conversation with id: {}", id);

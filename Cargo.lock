@@ -114,6 +114,8 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "async",
+ "async-trait",
  "log",
  "portal",
  "thiserror 2.0.12",
@@ -126,6 +128,23 @@ name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
+name = "async"
+version = "0.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6232ae588d3c787fe1175eca53dd2b088fb7405efebd9d145e4e0afe7a4e79f1"
+
+[[package]]
+name = "async-trait"
+version = "0.1.88"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e539d3fca749fcee5236ab05e93a52867dd549cc157c8cb7f99595f3cedffdb5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "async-utility"

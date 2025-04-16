@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
 use portal::{
-    app::handlers::AuthInitConversation,
+    app::handlers::{AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation},
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
     protocol::{auth_init::AuthInitUrl, model::auth::SubkeyProof},
-    router::MessageRouter,
+    router::{DelayedReply, MessageRouter, MultiKeyProxy, WrappedContent},
 };
 
 uniffi::setup_scaffolding!();
@@ -83,6 +83,18 @@ impl From<portal::protocol::auth_init::ParseError> for ParseError {
     }
 }
 
+#[derive(Debug, PartialEq, thiserror::Error, uniffi::Error)]
+pub enum CallbackError {
+    #[error("Callback error: {0}")]
+    Error(String),
+}
+
+#[uniffi::export(with_foreign)]
+#[async_trait::async_trait]
+pub trait AuthChallengeListener: Send + Sync {
+    async fn on_auth_challenge(&self, event: AuthChallengeEvent) -> Result<bool, CallbackError>;
+}
+
 #[uniffi::export]
 impl PortalApp {
     #[uniffi::constructor]
@@ -113,12 +125,31 @@ impl PortalApp {
             .keys()
             .map(|r| r.to_string())
             .collect();
-        let id = self
+        let _id = self
             .router
             .add_conversation(Box::new(AuthInitConversation { url, relays }))
             .await?;
         // let rx = self.router.subscribe_to_service_request(id).await?;
         // let response = rx.await_reply().await.map_err(AppError::ConversationError)?;
+
+        Ok(())
+    }
+
+    pub async fn listen_for_auth_challenge(&self, evt: Arc<dyn AuthChallengeListener>) -> Result<(), AppError> {
+        let listener = AuthChallengeListenerConversation::new(self.router.keypair().subkey_proof().cloned());
+        let id = self.router.add_conversation(Box::new(MultiKeyProxy::new(listener))).await?;
+
+        let mut rx: DelayedReply<AuthChallengeEvent> = self.router.subscribe_to_service_request(id).await?;
+        let response = rx.await_reply().await.ok_or(AppError::ListenerDisconnected)?.unwrap();
+
+        let result = evt.on_auth_challenge(response.content.clone()).await?;
+
+        if result {
+            let approve = AuthResponseConversation::new(response.content, vec![], self.router.keypair().subkey_proof().cloned());
+            let _ = self.router.add_conversation(Box::new(approve)).await?;
+        } else {
+            // TODO: send explicit rejection
+        }
 
         Ok(())
     }
@@ -131,6 +162,12 @@ pub enum AppError {
 
     #[error("Failed to send auth init: {0}")]
     ConversationError(String),
+
+    #[error("Listener disconnected")]
+    ListenerDisconnected,
+
+    #[error("Callback error: {0}")]
+    CallbackError(#[from] CallbackError),
 }
 
 impl From<portal::router::ConversationError> for AppError {
