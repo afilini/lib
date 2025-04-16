@@ -1,224 +1,248 @@
 use std::{
-    collections::{HashMap, HashSet},
-    ops::Deref,
+    collections::HashMap,
+    ops::{Deref, DerefMut},
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
-use connector::DelayedReply;
-use futures::StreamExt;
+use channel::Channel;
+use futures::{Stream, StreamExt};
+use nostr_relay_pool::RelayPoolNotification;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 
 use nostr::{
-    event::{Event, EventId, Kind, Tags},
+    event::{Event, EventBuilder, EventId, Kind, Tags},
     filter::Filter,
     key::PublicKey,
-    message::SubscriptionId,
+    message::{RelayMessage, SubscriptionId},
+    nips::nip44,
 };
 
-use crate::utils::random_string;
+use crate::{protocol::LocalKeypair, utils::random_string};
 
-pub mod app;
-pub mod connector;
-pub mod sdk;
+pub mod channel;
 
 const MAX_CLIENTS: usize = 8;
-const CONVERSATION_THRESHOLD: usize = 1024;
 
 // TODO: update expiry at every message
 
-pub struct MessageRouter {
-    conversations: HashMap<String, Box<dyn ConversationTrait + Send>>,
-    subscribers: HashMap<String, Vec<mpsc::Sender<WrappedContent<serde_json::Value>>>>,
-    outgoing_queue: mpsc::UnboundedSender<RelayAction>,
+pub struct MessageRouter<C: Channel> {
+    channel: C,
+    keypair: LocalKeypair,
+    conversations: Mutex<HashMap<String, Box<dyn Conversation + Send>>>,
+    subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<WrappedContent<serde_json::Value>>>>>,
 }
 
-impl MessageRouter {
-    pub fn new() -> (Self, mpsc::UnboundedReceiver<RelayAction>) {
-        let (tx, rx) = mpsc::unbounded_channel();
-
-        (
-            Self {
-                conversations: HashMap::new(),
-                subscribers: HashMap::new(),
-                outgoing_queue: tx,
-            },
-            rx,
-        )
-    }
-
-    /// Removes expired conversations and returns the number of conversations removed
-    async fn cleanup_expired(&mut self) -> usize {
-        let expired: Vec<_> = self
-            .conversations
-            .iter()
-            .filter(|(_, conv)| conv.is_expired())
-            .map(|(id, _)| id.clone())
-            .collect();
-
-        for id in &expired {
-            self.cleanup_conversation(id, None).await;
-        }
-
-        expired.len()
-    }
-
-    /// If the number of conversations exceeds the threshold, try to clean up expired ones
-    async fn maybe_cleanup(&mut self) {
-        if self.conversations.len() >= CONVERSATION_THRESHOLD {
-            self.cleanup_expired().await;
+impl<C: Channel> MessageRouter<C> {
+    pub fn new(channel: C, keypair: LocalKeypair) -> Self {
+        Self {
+            channel,
+            keypair,
+            conversations: Mutex::new(HashMap::new()),
+            subscribers: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Start a periodic cleanup task that removes expired conversations
-    pub fn start_cleanup_task(router: Arc<Mutex<Self>>) {
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
-            loop {
-                interval.tick().await;
-                let mut router = router.lock().await;
-                let removed = router.cleanup_expired().await;
-                if removed > 0 {
-                    log::debug!("Periodic cleanup removed {} expired conversations", removed);
-                }
-            }
-        });
-    }
-
-    async fn cleanup_conversation(
-        &mut self,
-        conversation: &str,
-        content: Option<WrappedContent<serde_json::Value>>,
-    ) {
-        // Notify subscribers if there's content
-        if let Some(content) = content {
-            if let Some(subscribers) = self.subscribers.get(conversation) {
-                for sub in subscribers.iter() {
-                    let _ = sub.send(content.clone()).await;
-                }
-            }
-        }
-
+    async fn cleanup_conversation(&self, conversation: &str) -> Result<(), ConversationError> {
         // Remove conversation state
-        self.conversations.remove(conversation);
-        self.subscribers.remove(conversation);
+        self.conversations.lock().await.remove(conversation);
+        self.subscribers.lock().await.remove(conversation);
 
         // Remove filters from relays
-        self.outgoing_queue
-            .send(RelayAction::RemoveFilter(conversation.to_string()))
-            .expect("Queue should always be available");
+        self.channel
+            .unsubscribe(conversation.to_string())
+            .await
+            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+        Ok(())
     }
 
-    pub fn purge(&mut self) {
-        self.conversations.clear();
-        self.subscribers.clear();
+    pub async fn purge(&mut self) {
+        self.conversations.lock().await.clear();
+        self.subscribers.lock().await.clear();
     }
 
-    pub async fn on_message(
-        &mut self,
-        event: &CleartextEvent,
-        conversation: &SubscriptionId,
-    ) -> Result<(), ConversationError> {
-        log::trace!(
-            "Dispatching message of kind {:?} for {:?}",
-            event.kind,
-            conversation
-        );
-        log::trace!("Current conversations = {:?}", self.conversations.keys());
+    pub async fn listen(&self) {
+        while let Ok(notification) = self.channel.receive().await {
+            log::trace!("Notification = {:?}", notification);
 
-        let conversation = conversation.as_str();
-        let mut response = ResponseBuilder::new();
+            let (subscription_id, event): (SubscriptionId, Event) = match notification {
+                RelayPoolNotification::Message {
+                    message:
+                        RelayMessage::Event {
+                            subscription_id,
+                            event,
+                        },
+                    ..
+                } => (subscription_id.into_owned(), event.into_owned()),
+                RelayPoolNotification::Event {
+                    event,
+                    subscription_id,
+                    ..
+                } => (subscription_id, *event),
+                _ => continue,
+            };
 
-        if let Some(conv) = self.conversations.get_mut(conversation) {
-            match conv.on_message(event, &mut response)? {
-                ConversationState::Finished(content) => {
-                    self.cleanup_conversation(conversation, Some(content)).await;
+            if event.pubkey == self.keypair.public_key() {
+                log::trace!("Ignoring event from self");
+                continue;
+            }
+
+            if !event.verify_signature() {
+                log::warn!("Invalid signature for event id: {:?}", event.id);
+                continue;
+            }
+
+            log::trace!("Decrypting with key = {:?}", self.keypair.public_key());
+
+            let message = if let Ok(content) =
+                nip44::decrypt(&self.keypair.secret_key(), &event.pubkey, &event.content)
+            {
+                let cleartext = match CleartextEvent::new(&event, &content) {
+                    Ok(cleartext) => cleartext,
+                    Err(e) => {
+                        log::warn!("Invalid JSON in event: {:?}", e);
+                        continue;
+                    }
+                };
+
+                log::trace!("Decrypted event: {:?}", cleartext);
+
+                ConversationMessage::Cleartext(cleartext)
+            } else {
+                log::warn!("Failed to decrypt event: {:?}", event);
+                ConversationMessage::Encrypted(event)
+            };
+
+            let conversation_id = subscription_id.as_str();
+            match self.conversations.lock().await.get_mut(conversation_id) {
+                Some(conv) => match conv.on_message(message) {
+                    Ok(response) => {
+                        self.process_response(conversation_id, response).await;
+                    }
+                    Err(e) => {
+                        log::warn!("Error in conversation id {:?}: {:?}", conversation_id, e);
+                        self.cleanup_conversation(conversation_id).await;
+
+                        continue;
+                    }
+                },
+                None => {
+                    log::warn!("No conversation found for id: {:?}", conversation_id);
+                    self.channel.unsubscribe(conversation_id.to_string()).await;
                 }
-                ConversationState::Continue => {}
             }
         }
-
-        self.process_response_builder(conversation, response);
-
-        Ok(())
     }
 
-    pub async fn on_encrypted_message(&mut self, _event: &Event) -> Result<(), ConversationError> {
-        Ok(())
-    }
-
-    fn process_response_builder(&mut self, id: &str, response: ResponseBuilder) {
+    async fn process_response(
+        &self,
+        id: &str,
+        response: Response,
+    ) -> Result<(), ConversationError> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
         if !response.filter.is_empty() {
-            self.outgoing_queue
-                .send(RelayAction::ApplyFilter(id.to_string(), response.filter))
-                .expect("Queue should always be available");
+            self.channel
+                .subscribe(id.to_string(), response.filter)
+                .await
+                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
         }
 
-        for (pubkey, (kind, tags, content)) in response.responses.iter() {
-            let keys = match pubkey {
-                Some(pubkey) => vec![pubkey.clone()],
-                None => self
-                    .conversations
-                    .get(id)
-                    .map(|c| c.get_involved_keys())
-                    .unwrap_or_default()
-                    .into_iter()
-                    .collect(),
-            };
+        for response in response.responses.iter() {
+            log::trace!(
+                "Sending event of kind {:?} to {:?}",
+                response.kind,
+                response.recepient_keys
+            );
 
-            log::trace!("Sending event of kind {:?} to {:?}", kind, keys);
+            for pubkey in response.recepient_keys.iter() {
+                // TODO: we should allow non-encrypted messages
 
-            for pubkey in keys {
-                self.outgoing_queue
-                    .send(RelayAction::SendEvent(
-                        pubkey,
-                        OutgoingEvent {
-                            kind: kind.clone(),
-                            content: content.clone(),
-                            encrypted: true, // TODO
-                            tags: tags.clone(),
-                        },
-                    ))
-                    .expect("Queue should always be available");
+                let encrypted = nip44::encrypt(
+                    &self.keypair.secret_key(),
+                    &pubkey,
+                    serde_json::to_string(&response.content)
+                        .map_err(|e| ConversationError::Inner(Box::new(e)))?,
+                    nip44::Version::V2,
+                )
+                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                let event = EventBuilder::new(response.kind, encrypted)
+                    .tags(response.tags.clone())
+                    .sign_with_keys(&self.keypair)
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+                log::trace!("Encrypted event: {:?}", event);
+
+                // TODO: should only send to selected relays
+                self.channel
+                    .broadcast(event)
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                // TODO: wait for confirmation from relays
             }
         }
+
+        for notification in response.notifications.iter() {
+            let mut lock = self.subscribers.lock().await;
+            if let Some(senders) = lock.get_mut(id) {
+                for sender in senders.iter_mut() {
+                    let _ = sender.send(WrappedContent::new(notification.clone())).await;
+                }
+            }
+        }
+
+        if response.finished {
+            self.cleanup_conversation(id).await?;
+        }
+
+        Ok(())
     }
 
-    pub fn new_service_request<Inner: ServiceRequestInner>(
-        &mut self,
-        user: PublicKey,
-        subkeys: Vec<PublicKey>,
-        args: Inner::Args,
-    ) -> Result<String, Inner::Error> {
-        // Check if we need to clean up expired conversations
-        futures::executor::block_on(self.maybe_cleanup());
+    pub async fn add_conversation(
+        &self,
+        conversation: Box<dyn Conversation + Send>,
+    ) -> Result<String, ConversationError> {
+        let conversation_id = random_string(32);
 
-        let id = random_string(16);
-        let mut response = ResponseBuilder::new();
+        let response = conversation.init()?;
 
-        let req = ServiceRequest::<Inner>::new(user, subkeys, args, &mut response)?;
-        self.conversations.insert(id.clone(), Box::new(req));
+        self.conversations
+            .lock()
+            .await
+            .insert(conversation_id.clone(), conversation);
 
-        self.process_response_builder(&id, response);
+        self.process_response(&conversation_id, response).await?;
 
-        Ok(id)
+        Ok(conversation_id)
     }
 
-    pub fn subscribe_to_service_request<T: DeserializeOwned + Serialize>(
-        &mut self,
+    pub async fn subscribe_to_service_request<T: DeserializeOwned + Serialize>(
+        &self,
         id: String,
     ) -> Result<DelayedReply<T>, ConversationError> {
         let (tx, rx) = mpsc::channel(8);
-        self.subscribers.entry(id).or_insert(Vec::new()).push(tx);
+        self.subscribers
+            .lock()
+            .await
+            .entry(id)
+            .or_insert(Vec::new())
+            .push(tx);
 
         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
         let rx = rx.map(|content| WrappedContent::map(content));
         let rx = DelayedReply::new(rx);
 
         Ok(rx)
+    }
+
+    pub fn channel(&self) -> &C {
+        &self.channel
+    }
+
+    pub fn keypair(&self) -> &LocalKeypair {
+        &self.keypair
     }
 }
 
@@ -239,156 +263,141 @@ pub struct OutgoingEvent {
 }
 
 #[derive(Debug)]
-pub struct ResponseBuilder {
-    filter: Filter,
-    responses: HashMap<Option<PublicKey>, (Kind, Tags, serde_json::Value)>,
+struct ResponseEntry {
+    pub recepient_keys: Vec<PublicKey>,
+    pub kind: Kind,
+    pub tags: Tags,
+    pub content: serde_json::Value,
 }
 
-impl ResponseBuilder {
+#[derive(Debug, Default)]
+pub struct Response {
+    filter: Filter,
+    responses: Vec<ResponseEntry>,
+    notifications: Vec<serde_json::Value>,
+    finished: bool,
+}
+
+impl Response {
     pub fn new() -> Self {
-        Self {
-            filter: Filter::new(),
-            responses: HashMap::new(),
-        }
+        Self::default()
     }
 
-    pub fn filter(&mut self, filter: Filter) -> &mut Self {
+    pub fn filter(mut self, filter: Filter) -> Self {
         self.filter = filter;
         self
     }
 
-    pub fn reply_all<S: serde::Serialize>(
-        &mut self,
-        kind: Kind,
-        tags: Tags,
-        content: S,
-    ) -> &mut Self {
+    pub fn reply_all<S: serde::Serialize>(mut self, kind: Kind, tags: Tags, content: S) -> Self {
         let content = serde_json::to_value(&content).unwrap();
-        self.responses.insert(None, (kind, tags, content));
+        self.responses.push(ResponseEntry {
+            recepient_keys: vec![],
+            kind,
+            tags,
+            content,
+        });
         self
     }
 
     pub fn reply_to<S: serde::Serialize>(
-        &mut self,
+        mut self,
         pubkey: PublicKey,
         kind: Kind,
         tags: Tags,
         content: S,
-    ) -> &mut Self {
+    ) -> Self {
         let content = serde_json::to_value(&content).unwrap();
-        self.responses.insert(Some(pubkey), (kind, tags, content));
+        self.responses.push(ResponseEntry {
+            recepient_keys: vec![pubkey],
+            kind,
+            tags,
+            content,
+        });
         self
     }
-}
 
-pub trait ConversationTrait {
-    fn on_encrypted_message(
-        &mut self,
-        event: &Event,
-        response: &mut ResponseBuilder,
-    ) -> Result<ConversationState, ConversationError>;
-    fn on_message(
-        &mut self,
-        event: &CleartextEvent,
-        response: &mut ResponseBuilder,
-    ) -> Result<ConversationState, ConversationError>;
-    fn is_expired(&self) -> bool;
-    fn expires_at(&self) -> SystemTime;
-    fn get_involved_keys(&self) -> HashSet<PublicKey>;
-}
-
-impl<T: ServiceRequestInner> ConversationTrait for ServiceRequest<T> {
-    fn on_encrypted_message(
-        &mut self,
-        event: &Event,
-        response: &mut ResponseBuilder,
-    ) -> Result<ConversationState, ConversationError> {
-        self.on_encrypted_message(event, response)
-            .map_err(|e| ConversationError::Inner(Box::new(e)))
+    pub fn notify<S: serde::Serialize>(mut self, data: S) -> Self {
+        let content = serde_json::to_value(&data).unwrap();
+        self.notifications.push(content);
+        self
     }
 
-    fn on_message(
-        &mut self,
-        event: &CleartextEvent,
-        response: &mut ResponseBuilder,
-    ) -> Result<ConversationState, ConversationError> {
-        self.on_message(event, response)
-            .map_err(|e| ConversationError::Inner(Box::new(e)))
+    pub fn finish(mut self) -> Self {
+        self.finished = true;
+        self
+    }
+
+    fn set_recepient_keys(&mut self, user: PublicKey, subkeys: &[PublicKey]) {
+        for response in &mut self.responses {
+            if response.recepient_keys.is_empty() {
+                response.recepient_keys.push(user);
+                response.recepient_keys.extend(subkeys.iter().cloned());
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ConversationMessage {
+    Cleartext(CleartextEvent),
+    Encrypted(Event),
+}
+
+pub trait Conversation {
+    fn on_message(&mut self, message: ConversationMessage) -> Result<Response, ConversationError>;
+    fn is_expired(&self) -> bool;
+    fn init(&self) -> Result<Response, ConversationError> {
+        Ok(Response::default())
+    }
+}
+
+impl<T: MultiKeyTrait> Conversation for MultiKeyProxy<T> {
+    fn on_message(&mut self, message: ConversationMessage) -> Result<Response, ConversationError> {
+        match message {
+            ConversationMessage::Cleartext(event) => {
+                let content = serde_json::from_value(event.content.clone())
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                let mut response = <T as MultiKeyTrait>::on_message(self, &event, &content)
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+                response.set_recepient_keys(self.user, &self.subkeys);
+
+                Ok(response)
+            }
+            ConversationMessage::Encrypted(_event) => {
+                // TODO: handle key switch
+
+                Err(ConversationError::Encrypted)
+            }
+        }
     }
 
     fn is_expired(&self) -> bool {
         self.expires_at < SystemTime::now()
     }
-
-    fn expires_at(&self) -> SystemTime {
-        self.expires_at
-    }
-
-    fn get_involved_keys(&self) -> HashSet<PublicKey> {
-        self.subkeys
-            .iter()
-            .chain(std::iter::once(&self.user))
-            .cloned()
-            .collect()
-    }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationError {
+    #[error("Encrypted messages not supported")]
+    Encrypted,
+
     #[error("Inner error: {0}")]
     Inner(Box<dyn std::error::Error + Send + Sync>),
 }
 
-pub struct ServiceRequest<Inner> {
+pub struct MultiKeyProxy<Inner> {
     pub user: PublicKey,
     pub subkeys: Vec<PublicKey>,
     pub expires_at: SystemTime,
     pub inner: Inner,
 }
 
-impl<Inner: ServiceRequestInner> Deref for ServiceRequest<Inner> {
+impl<Inner: MultiKeyTrait> Deref for MultiKeyProxy<Inner> {
     type Target = Inner;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-impl<Inner: ServiceRequestInner> ServiceRequest<Inner> {
-    pub fn new(
-        user: PublicKey,
-        subkeys: Vec<PublicKey>,
-        args: Inner::Args,
-        response: &mut ResponseBuilder,
-    ) -> Result<Self, Inner::Error> {
-        let inner = Inner::new(args)?;
-        let expires_at = SystemTime::now() + Duration::from_secs(Inner::VALIDITY_SECONDS);
-        let mut s = Self {
-            user,
-            subkeys,
-            expires_at,
-            inner,
-        };
-
-        Inner::init(&mut s, response)?;
-
-        Ok(s)
-    }
-
-    pub fn on_encrypted_message(
-        &mut self,
-        event: &Event,
-        response: &mut ResponseBuilder,
-    ) -> Result<ConversationState, Inner::Error> {
-        Inner::on_encrypted_message(self, event, response)
-    }
-
-    pub fn on_message(
-        &mut self,
-        event: &CleartextEvent,
-        response: &mut ResponseBuilder,
-    ) -> Result<ConversationState, Inner::Error> {
-        Inner::on_message(self, event, response)
     }
 }
 
@@ -415,71 +424,74 @@ impl CleartextEvent {
     }
 }
 
-pub trait ServiceRequestInner: Sized + Send + 'static {
+pub trait MultiKeyTrait: Sized + Send + 'static {
     const VALIDITY_SECONDS: u64;
 
     type Error: std::error::Error + Send + Sync + 'static;
-    type Args;
-
-    fn new(args: Self::Args) -> Result<Self, Self::Error>;
-
-    fn init(
-        _state: &mut ServiceRequest<Self>,
-        _response: &mut ResponseBuilder,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn on_encrypted_message(
-        _state: &mut ServiceRequest<Self>,
-        _event: &Event,
-        _response: &mut ResponseBuilder,
-    ) -> Result<ConversationState, Self::Error> {
-        Ok(ConversationState::Continue)
-    }
+    type Message: DeserializeOwned;
 
     fn on_message(
-        _state: &mut ServiceRequest<Self>,
+        _state: &mut MultiKeyProxy<Self>,
         _event: &CleartextEvent,
-        _response: &mut ResponseBuilder,
-    ) -> Result<ConversationState, Self::Error> {
-        Ok(ConversationState::Continue)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ConversationState {
-    Continue,
-    Finished(WrappedContent<serde_json::Value>),
-}
-
-impl ConversationState {
-    fn finish<T: Serialize>(pubkey: PublicKey, content: T) -> Self {
-        ConversationState::Finished(WrappedContent::new(
-            pubkey,
-            serde_json::to_value(&content).unwrap(),
-        ))
-    }
+        _message: &Self::Message,
+    ) -> Result<Response, Self::Error>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WrappedContent<T: Serialize> {
-    pub pubkey: PublicKey,
     pub content: T,
 }
 
 impl WrappedContent<serde_json::Value> {
-    pub fn new(pubkey: PublicKey, content: serde_json::Value) -> Self {
-        Self { pubkey, content }
+    pub fn new(content: serde_json::Value) -> Self {
+        Self { content }
     }
 }
 
 impl<T: DeserializeOwned + Serialize> WrappedContent<T> {
     pub fn map(s: WrappedContent<serde_json::Value>) -> Result<Self, serde_json::Error> {
         let content = serde_json::from_value(s.content)?;
-        Ok(Self {
-            pubkey: s.pubkey,
-            content,
-        })
+        Ok(Self { content })
+    }
+}
+
+pub trait InnerDelayedReply<T: Serialize>:
+    Stream<Item = Result<WrappedContent<T>, serde_json::Error>> + Send + Unpin + 'static
+{
+}
+impl<S, T: Serialize> InnerDelayedReply<T> for S where
+    S: Stream<Item = Result<WrappedContent<T>, serde_json::Error>> + Send + Unpin + 'static
+{
+}
+
+pub struct DelayedReply<T: Serialize> {
+    stream: Box<dyn InnerDelayedReply<T>>,
+}
+
+impl<T: Serialize> DelayedReply<T> {
+    pub fn new(stream: impl InnerDelayedReply<T>) -> Self {
+        Self {
+            stream: Box::new(stream),
+        }
+    }
+
+    pub async fn await_reply(&mut self) -> Option<Result<WrappedContent<T>, serde_json::Error>> {
+        use futures::StreamExt;
+
+        self.stream.next().await
+    }
+}
+
+impl<T: Serialize> Deref for DelayedReply<T> {
+    type Target = Box<dyn InnerDelayedReply<T>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stream
+    }
+}
+
+impl<T: Serialize> DerefMut for DelayedReply<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.stream
     }
 }

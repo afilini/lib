@@ -4,6 +4,3 @@ pub mod protocol;
 pub mod router;
 pub mod sdk;
 pub mod utils;
-
-#[cfg(test)]
-mod tests;
