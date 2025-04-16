@@ -3,6 +3,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use hex;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "bindings")]
+use bindings::PublicKey;
+#[cfg(not(feature = "bindings"))]
+use nostr::PublicKey;
+
 // Event kind ranges:
 // Authentication: 27000-27999
 // Payments: 28000-28999
@@ -144,11 +149,12 @@ pub mod auth {
     use super::*;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct ServiceInformation {
-        pub service_pubkey: nostr::PublicKey,
+        pub service_pubkey: PublicKey,
         pub relays: Vec<String>,
         pub token: String,
-        pub subkey: Option<nostr::PublicKey>,
+        pub subkey: Option<PublicKey>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -173,8 +179,9 @@ pub mod auth {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct SubkeyProof {
-        pub main_key: nostr::PublicKey,
+        pub main_key: PublicKey,
         pub signature: String,
         pub metadata: SubkeyMetadata,
     }
@@ -280,4 +287,48 @@ pub mod payment {
         pub max_slippage_percent: f64,
         pub reference_rate: f64,
     }
+}
+
+#[cfg(feature = "bindings")]
+pub mod bindings {
+    use std::ops::Deref;
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+
+    #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+    pub struct PublicKey(pub nostr::PublicKey);
+
+    uniffi::custom_type!(PublicKey, String, {
+        try_lift: |val| Ok(PublicKey(nostr::PublicKey::parse(&val)?)),
+        lower: |obj| obj.0.to_string(),
+    });
+
+    impl From<nostr::PublicKey> for PublicKey {
+        fn from(key: nostr::PublicKey) -> Self {
+            PublicKey(key)
+        }
+    }
+    impl Into<nostr::PublicKey> for PublicKey {
+        fn into(self) -> nostr::PublicKey {
+            self.0
+        }
+    }
+
+    impl Deref for PublicKey {
+        type Target = nostr::PublicKey;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    uniffi::custom_type!(Nonce, String, {
+        try_lift: |val| Ok(Nonce(hex::decode(&val)?.try_into().map_err(|_| anyhow::anyhow!("Invalid nonce length"))?)),
+        lower: |obj| hex::encode(obj.0),
+    });
+    uniffi::custom_type!(Timestamp, u64, {
+        try_lift: |val| Ok(Timestamp(val)),
+        lower: |obj| obj.0,
+    });
 }

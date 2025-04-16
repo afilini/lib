@@ -1,12 +1,12 @@
 use std::{fmt, str::FromStr};
 
-use nostr::{
-    PublicKey,
-    nips::nip19::{FromBech32, ToBech32},
-};
+use nostr::nips::nip19::{FromBech32, ToBech32};
 use thiserror::Error;
 
+use super::model::bindings::PublicKey;
+
 #[derive(Debug)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Record))]
 pub struct AuthInitUrl {
     pub main_key: PublicKey,
     pub relays: Vec<String>,
@@ -46,11 +46,11 @@ impl fmt::Display for AuthInitUrl {
 }
 
 impl AuthInitUrl {
-    pub fn send_to(&self) -> PublicKey {
+    pub fn send_to(&self) -> nostr::PublicKey {
         if let Some(subkey) = self.subkey {
-            subkey
+            subkey.into()
         } else {
-            self.main_key
+            self.main_key.into()
         }
     }
 
@@ -79,7 +79,7 @@ impl FromStr for AuthInitUrl {
         let (pubkey, query) = s.split_once('?').ok_or(ParseError::MissingQueryParams)?;
 
         // Parse main pubkey
-        let main_key = PublicKey::from_bech32(pubkey)?;
+        let main_key = nostr::PublicKey::from_bech32(pubkey)?;
 
         // Parse query parameters
         let mut relays = Vec::new();
@@ -100,7 +100,7 @@ impl FromStr for AuthInitUrl {
                         .map_err(|e| ParseError::InvalidRelayUrl(e.to_string()))?;
                 }
                 "token" => token = Some(value.to_string()),
-                "subkey" => subkey = Some(PublicKey::from_bech32(value)?),
+                "subkey" => subkey = Some(nostr::PublicKey::from_bech32(value)?),
                 _ => {
                     return Err(ParseError::InvalidQueryParam(format!(
                         "unknown parameter: {}",
@@ -116,10 +116,10 @@ impl FromStr for AuthInitUrl {
         }
 
         Ok(Self {
-            main_key,
+            main_key: PublicKey::from(main_key),
             relays,
             token,
-            subkey,
+            subkey: subkey.map(|k| PublicKey::from(k)),
         })
     }
 }

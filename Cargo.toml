@@ -1,5 +1,5 @@
 [workspace]
-members = []
+members = [ "app" ]
 
 [package]
 name = "portal"
@@ -22,3 +22,9 @@ log = "0.4.27"
 env_logger = "0.11.8"
 tokio-stream = "0.1.17"
 futures = "0.3.31"
+uniffi = { version = "0.29.1", optional = true }
+anyhow = { version = "1.0.98", optional = true }
+
+[features]
+default = ["bindings"]
+bindings = ["uniffi", "anyhow"]

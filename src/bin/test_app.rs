@@ -2,62 +2,14 @@ use std::{io::Write, str::FromStr, sync::Arc};
 
 use nostr::{
     Keys,
-    event::{Kind, Tag},
     nips::nip19::ToBech32,
 };
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
-    protocol::{
-        LocalKeypair,
-        auth_init::AuthInitUrl,
-        model::{
-            auth::{AuthInitContent, ClientInfo},
-            event_kinds::AUTH_INIT,
-        },
-    },
-    router::{Conversation, MessageRouter, Response},
+    app::handlers::AuthInitConversation, protocol::{
+        auth_init::AuthInitUrl, LocalKeypair
+    }, router::MessageRouter
 };
-
-struct AuthInitConversation {
-    url: AuthInitUrl,
-    relays: Vec<String>,
-}
-
-impl Conversation for AuthInitConversation {
-    fn init(&self) -> Result<portal::router::Response, portal::router::ConversationError> {
-        let content = AuthInitContent {
-            token: self.url.token.clone(),
-            client_info: ClientInfo {
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                name: "Portal".to_string(),
-            },
-            preferred_relays: self.relays.clone(),
-        };
-
-        let tags = self
-            .url
-            .all_keys()
-            .iter()
-            .map(|k| Tag::public_key(*k))
-            .collect();
-        let response = Response::new()
-            .reply_to(self.url.send_to(), Kind::from(AUTH_INIT), tags, content)
-            .finish();
-
-        Ok(response)
-    }
-
-    fn on_message(
-        &mut self,
-        _message: portal::router::ConversationMessage,
-    ) -> Result<portal::router::Response, portal::router::ConversationError> {
-        Ok(Response::default())
-    }
-
-    fn is_expired(&self) -> bool {
-        false
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

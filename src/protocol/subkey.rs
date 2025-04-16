@@ -51,6 +51,7 @@ pub trait PublicSubkeyVerifier {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Record))]
 pub struct SubkeyMetadata {
     pub name: String,
     pub nonce: Nonce,
@@ -79,6 +80,7 @@ impl SubkeyMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
 pub enum SubkeyPermission {
     Auth,
     Payment,

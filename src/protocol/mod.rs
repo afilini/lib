@@ -7,6 +7,8 @@ pub mod identity;
 pub mod model;
 pub mod subkey;
 
+#[cfg_attr(feature = "bindings", derive(uniffi::Object))]
+#[derive(Clone)]
 pub struct LocalKeypair {
     keys: nostr::Keys,
     subkey_proof: Option<SubkeyProof>,
