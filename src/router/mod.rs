@@ -352,6 +352,10 @@ pub trait Conversation {
 }
 
 impl<T: MultiKeyTrait> Conversation for MultiKeyProxy<T> {
+    fn init(&self) -> Result<Response, ConversationError> {
+        <T as MultiKeyTrait>::init(self).map_err(|e| ConversationError::Inner(Box::new(e)))
+    }
+
     fn on_message(&mut self, message: ConversationMessage) -> Result<Response, ConversationError> {
         match message {
             ConversationMessage::Cleartext(event) => {
@@ -360,7 +364,9 @@ impl<T: MultiKeyTrait> Conversation for MultiKeyProxy<T> {
                 let mut response = <T as MultiKeyTrait>::on_message(self, &event, &content)
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-                response.set_recepient_keys(self.user, &self.subkeys);
+                if let Some(user) = self.user {
+                    response.set_recepient_keys(user, &self.subkeys);
+                }
 
                 Ok(response)
             }
@@ -387,10 +393,30 @@ pub enum ConversationError {
 }
 
 pub struct MultiKeyProxy<Inner> {
-    pub user: PublicKey,
+    pub user: Option<PublicKey>,
     pub subkeys: Vec<PublicKey>,
     pub expires_at: SystemTime,
     pub inner: Inner,
+}
+
+impl<Inner: MultiKeyTrait> MultiKeyProxy<Inner> {
+    pub fn new(inner: Inner) -> Self {
+        Self {
+            user: None,
+            subkeys: vec![],
+            expires_at: SystemTime::now() + Duration::from_secs(Inner::VALIDITY_SECONDS),
+            inner,
+        }
+    }
+
+    pub fn new_with_user(user: PublicKey, subkeys: Vec<PublicKey>, inner: Inner) -> Self {
+        Self {
+            user: Some(user),
+            subkeys,
+            expires_at: SystemTime::now() + Duration::from_secs(Inner::VALIDITY_SECONDS),
+            inner,
+        }
+    }
 }
 
 impl<Inner: MultiKeyTrait> Deref for MultiKeyProxy<Inner> {
@@ -429,6 +455,8 @@ pub trait MultiKeyTrait: Sized + Send + 'static {
 
     type Error: std::error::Error + Send + Sync + 'static;
     type Message: DeserializeOwned;
+
+    fn init(_state: &MultiKeyProxy<Self>) -> Result<Response, Self::Error>;
 
     fn on_message(
         _state: &mut MultiKeyProxy<Self>,

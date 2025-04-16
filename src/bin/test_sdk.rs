@@ -5,7 +5,10 @@ use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
     model::{auth::AuthInitContent, event_kinds::AUTH_INIT},
     protocol::{LocalKeypair, auth_init::AuthInitUrl},
-    router::{Conversation, ConversationError, DelayedReply, MessageRouter, Response},
+    router::{
+        Conversation, ConversationError, DelayedReply, MessageRouter, MultiKeyProxy, MultiKeyTrait,
+        Response,
+    },
     utils::random_string,
 };
 // use portal::{protocol::LocalKeypair, router::connector::Connector, sdk::SDKMethods};
@@ -14,40 +17,65 @@ struct AuthInitReceiverConversation {
     token: String,
 }
 
-impl Conversation for AuthInitReceiverConversation {
-    fn init(&self) -> Result<Response, ConversationError> {
+impl MultiKeyTrait for AuthInitReceiverConversation {
+    const VALIDITY_SECONDS: u64 = 60 * 5;
+
+    type Error = ConversationError;
+    type Message = AuthInitContent;
+
+    fn init(_state: &portal::router::MultiKeyProxy<Self>) -> Result<Response, Self::Error> {
         Ok(Response::new().filter(Filter::new().kinds(vec![Kind::from(AUTH_INIT)])))
     }
 
     fn on_message(
-        &mut self,
-        message: portal::router::ConversationMessage,
-    ) -> Result<Response, ConversationError> {
-        log::debug!("Received message: {:?}", message);
-
-        match message {
-            portal::router::ConversationMessage::Encrypted(_) => return Ok(Response::default()),
-            portal::router::ConversationMessage::Cleartext(event) => {
-                let content = serde_json::from_value::<AuthInitContent>(event.content).unwrap();
-                if content.token == self.token {
-                    let response = Response::new()
-                        .notify(serde_json::json!({
-                            "token": self.token,
-                        }))
-                        .finish();
-
-                    return Ok(response);
-                }
-            }
+        _state: &mut portal::router::MultiKeyProxy<Self>,
+        _event: &portal::router::CleartextEvent,
+        message: &Self::Message,
+    ) -> Result<Response, Self::Error> {
+        if message.token == _state.token {
+            return Ok(Response::new().notify(serde_json::json!({
+                "token": _state.token,
+            })));
         }
 
         Ok(Response::default())
     }
-
-    fn is_expired(&self) -> bool {
-        false
-    }
 }
+
+// impl Conversation for AuthInitReceiverConversation {
+//     fn init(&self) -> Result<Response, ConversationError> {
+//         Ok(Response::new().filter(Filter::new().kinds(vec![Kind::from(AUTH_INIT)])))
+//     }
+//
+//     fn on_message(
+//         &mut self,
+//         message: p
+//        > Result<Response, ConversationError> {    lo,
+//     g::debug!("Received message: {:?}", message);
+//
+//         match message {
+//             portal::router::ConversationMessage::Encrypted(_) => return Ok(Response::default()),
+//             portal::router::ConversationMessage::Cleartext(event) => {
+//                 let content = serde_json::from_value::<AuthInitContent>(event.content).unwrap();
+//                 if content.token == self.token {
+//                     let response = Response::new()
+//                         .notify(serde_json::json!({
+//                             "token": self.token,
+//                         }))
+//                         .finish();
+//
+//                     return Ok(response);
+//                 }
+//             }
+//         }
+//
+//         Ok(Response::default())
+//     }
+//
+//     fn is_expired(&self) -> bool {
+//         false
+//     }
+//
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -99,7 +127,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Auth init URL: {}", url);
 
-    let conv = AuthInitReceiverConversation { token };
+    let inner = AuthInitReceiverConversation { token };
+    let conv = MultiKeyProxy::new(inner);
     let id = router.add_conversation(Box::new(conv)).await?;
     log::debug!("Added conversation with id: {}", id);
     let mut event: DelayedReply<serde_json::Value> =
@@ -116,10 +145,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     // Create the authenticator
     //     let authenticator = Connector::new(keypair, relay_pool);
     //
-    //     // Bootstrap the authenticator
+    //
     //     authenticator.bootstrap().await.unwrap();
     //
-    //     // Initialize a new session
+    //
     //     let (session, mut rx) = authenticator.init_session().await;
     //     println!("Session token: {}", session.token);
     //     println!("Portal URL: {}", session.to_string());
@@ -136,14 +165,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //         }
     //     });
     //
-    //     // Process events
+    //
     //     println!("Processing events... Press Ctrl+C to exit");
     //     let _authenticator = Arc::clone(&authenticator);
     //     tokio::spawn(async move {
     //         _authenticator.process_incoming_events().await.unwrap();
     //     });
     //
-    //     authenticator.process_outgoing_events().await.unwrap();
+    //
 
     Ok(())
 }
