@@ -471,6 +471,14 @@ impl<T: DeserializeOwned + Serialize> WrappedContent<T> {
     }
 }
 
+impl<T: Serialize> Deref for WrappedContent<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.content
+    }
+}
+
 pub trait InnerDelayedReply<T: Serialize>:
     Stream<Item = Result<WrappedContent<T>, serde_json::Error>> + Send + Unpin + 'static
 {

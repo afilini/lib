@@ -1,13 +1,15 @@
 use std::{collections::HashSet, ops::Deref};
 
-use nostr::{event::Kind, filter::Filter, key::PublicKey, Tag};
+use nostr::{Tag, event::Kind, filter::Filter, key::PublicKey};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::{
         auth_init::AuthInitUrl,
         model::{
-            auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent, ClientInfo, SubkeyProof},
+            auth::{
+                AuthChallengeContent, AuthInitContent, AuthResponseContent, ClientInfo, SubkeyProof,
+            },
             bindings,
             event_kinds::{AUTH_CHALLENGE, AUTH_INIT, AUTH_RESPONSE},
         },
@@ -54,12 +56,13 @@ impl Conversation for AuthInitConversation {
 }
 
 pub struct AuthChallengeListenerConversation {
+    local_key: PublicKey,
     subkey_proof: Option<SubkeyProof>,
 }
 
 impl AuthChallengeListenerConversation {
-    pub fn new(subkey_proof: Option<SubkeyProof>) -> Self {
-        Self { subkey_proof }
+    pub fn new(local_key: PublicKey, subkey_proof: Option<SubkeyProof>) -> Self {
+        Self { local_key, subkey_proof }
     }
 }
 
@@ -74,13 +77,21 @@ pub struct AuthChallengeEvent {
 }
 
 impl MultiKeyTrait for AuthChallengeListenerConversation {
-    const VALIDITY_SECONDS: u64 = u64::MAX;
+    const VALIDITY_SECONDS: u64 = u32::MAX as u64;
 
     type Error = ConversationError;
     type Message = AuthChallengeContent;
 
-    fn init(_state: &crate::router::MultiKeyProxy<Self>) -> Result<Response, Self::Error> {
-        Ok(Response::new().filter(Filter::new().kinds(vec![Kind::from(AUTH_CHALLENGE)])))
+    fn init(state: &crate::router::MultiKeyProxy<Self>) -> Result<Response, Self::Error> {
+        let mut filter = Filter::new()
+            .kinds(vec![Kind::from(AUTH_CHALLENGE)])
+            .pubkey(state.local_key);
+
+        if let Some(subkey_proof) = &state.subkey_proof {
+            filter = filter.pubkey(subkey_proof.main_key.into());
+        }
+
+        Ok(Response::new().filter(filter))
     }
 
     fn on_message(
@@ -99,7 +110,7 @@ impl MultiKeyTrait for AuthChallengeListenerConversation {
             return Ok(Response::default());
         }
 
-        let service_key= if let Some(subkey_proof) = &content.subkey_proof {
+        let service_key = if let Some(subkey_proof) = &content.subkey_proof {
             if let Err(e) = subkey_proof.verify(&event.pubkey) {
                 log::warn!("Ignoring request with invalid subkey proof: {}", e);
                 return Ok(Response::default());
@@ -129,14 +140,23 @@ pub struct AuthResponseConversation {
 }
 
 impl AuthResponseConversation {
-    pub fn new(event: AuthChallengeEvent, granted_permissions: Vec<String>, subkey_proof: Option<SubkeyProof>) -> Self {
-        Self { event, granted_permissions, subkey_proof }
+    pub fn new(
+        event: AuthChallengeEvent,
+        granted_permissions: Vec<String>,
+        subkey_proof: Option<SubkeyProof>,
+    ) -> Self {
+        Self {
+            event,
+            granted_permissions,
+            subkey_proof,
+        }
     }
 }
 
 impl Conversation for AuthResponseConversation {
     fn init(&self) -> Result<Response, ConversationError> {
         let content = AuthResponseContent {
+            challenge: self.event.challenge.clone(),
             granted_permissions: self.granted_permissions.clone(),
             session_token: "randomlygeneratedtoken".to_string(),
             subkey_proof: self.subkey_proof.clone(),
@@ -148,7 +168,12 @@ impl Conversation for AuthResponseConversation {
 
         let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
         let response = Response::new()
-            .reply_to(self.event.recipient.into(), Kind::from(AUTH_RESPONSE), tags, content)
+            .reply_to(
+                self.event.recipient.into(),
+                Kind::from(AUTH_RESPONSE),
+                tags,
+                content,
+            )
             .finish();
 
         Ok(response)
@@ -162,4 +187,3 @@ impl Conversation for AuthResponseConversation {
         false
     }
 }
-

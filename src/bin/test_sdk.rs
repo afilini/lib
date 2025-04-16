@@ -5,9 +5,12 @@ use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
     protocol::{
         auth_init::AuthInitUrl, model::{auth::AuthInitContent, event_kinds::AUTH_INIT}, LocalKeypair
-    }, router::{
+    },
+    router::{
         ConversationError, DelayedReply, MessageRouter, MultiKeyProxy, MultiKeyTrait, Response,
-    }, sdk::handlers::AuthInitReceiverConversation, utils::random_string
+    },
+    sdk::handlers::{AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent},
+    utils::random_string,
 };
 // use portal::{protocol::LocalKeypair, router::connector::Connector, sdk::SDKMethods};
 
@@ -80,7 +83,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Vec<_>>();
 
     let (main_key, subkey) = if let Some(subkey_proof) = router.keypair().subkey_proof() {
-        (subkey_proof.main_key.into(), Some(router.keypair().public_key()))
+        (
+            subkey_proof.main_key.into(),
+            Some(router.keypair().public_key()),
+        )
     } else {
         (router.keypair().public_key(), None)
     };
@@ -96,17 +102,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Auth init URL: {}", url);
 
-    let inner = AuthInitReceiverConversation::new(token);
-    let conv = MultiKeyProxy::new(inner);
-    let id = router.add_conversation(Box::new(conv)).await?;
+    let inner = AuthInitReceiverConversation::new(router.keypair().public_key(), token);
+    let id = router.add_conversation(Box::new(MultiKeyProxy::new(inner))).await?;
     log::debug!("Added conversation with id: {}", id);
-    let mut event: DelayedReply<serde_json::Value> =
-        router.subscribe_to_service_request(id).await?;
+    let mut event: DelayedReply<AuthInitEvent> = router.subscribe_to_service_request(id).await?;
     log::debug!("Waiting for notification...");
-    log::debug!(
-        "Received notification: {:?}",
-        event.await_reply().await.unwrap()
+    let event = event.await_reply().await.unwrap()?;
+    log::debug!("Received notification: {:?}", event);
+
+    let conv = AuthChallengeSenderConversation::new(
+        event.main_key,
+        vec![],
+        router.keypair().public_key(),
+        router.keypair().subkey_proof().cloned(),
     );
+    let id = router.add_conversation(Box::new(MultiKeyProxy::new(conv))).await?;
+    log::debug!("Added conversation with id: {}", id);
+    let mut event: DelayedReply<AuthResponseEvent> = router.subscribe_to_service_request(id).await?;
+    log::debug!("Waiting for notification...");
+    let event = event.await_reply().await.unwrap()?;
+    log::debug!("Received notification: {:?}", event);
 
     // handle.await?;
 

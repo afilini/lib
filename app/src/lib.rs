@@ -136,13 +136,15 @@ impl PortalApp {
     }
 
     pub async fn listen_for_auth_challenge(&self, evt: Arc<dyn AuthChallengeListener>) -> Result<(), AppError> {
-        let listener = AuthChallengeListenerConversation::new(self.router.keypair().subkey_proof().cloned());
+        let listener = AuthChallengeListenerConversation::new(self.router.keypair().public_key(), self.router.keypair().subkey_proof().cloned());
         let id = self.router.add_conversation(Box::new(MultiKeyProxy::new(listener))).await?;
 
         let mut rx: DelayedReply<AuthChallengeEvent> = self.router.subscribe_to_service_request(id).await?;
         let response = rx.await_reply().await.ok_or(AppError::ListenerDisconnected)?.unwrap();
+        log::debug!("Received auth challenge: {:?}", response);
 
         let result = evt.on_auth_challenge(response.content.clone()).await?;
+        log::debug!("Auth challenge callback result: {:?}", result);
 
         if result {
             let approve = AuthResponseConversation::new(response.content, vec![], self.router.keypair().subkey_proof().cloned());

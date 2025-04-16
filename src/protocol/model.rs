@@ -194,6 +194,7 @@ pub mod auth {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct AuthResponseContent {
+        pub challenge: String,
         pub granted_permissions: Vec<String>,
         pub session_token: String,
         pub subkey_proof: Option<SubkeyProof>,
