@@ -113,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect::<Vec<_>>();
 
     let (main_key, subkey) = if let Some(subkey_proof) = router.keypair().subkey_proof() {
-        (subkey_proof.main_key, Some(router.keypair().public_key()))
+        (subkey_proof.main_key.into(), Some(router.keypair().public_key()))
     } else {
         (router.keypair().public_key(), None)
     };
@@ -121,10 +121,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token = random_string(20);
 
     let url = AuthInitUrl {
-        main_key,
+        main_key: main_key.into(),
         relays,
         token: token.clone(),
-        subkey,
+        subkey: subkey.map(|k| k.into()),
     };
 
     log::info!("Auth init URL: {}", url);
