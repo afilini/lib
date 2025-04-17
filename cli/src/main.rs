@@ -9,6 +9,8 @@ struct ApproveLogin;
 impl AuthChallengeListener for ApproveLogin {
     async fn on_auth_challenge(&self, event: AuthChallengeEvent) -> Result<bool, CallbackError> {
         log::info!("Received auth challenge: {:?}", event);
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        log::info!("Approving login");
         Ok(true)
     }
 }
@@ -19,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let keypair = Keypair::new("nsec1w86jfju9yfpfxtcr6mhqmqrstzdvckkyrthdccdmqhk3xakvt3sqy5ud2k", None)?;
 
-    let app = PortalApp::new(Arc::new(keypair), vec!["wss://relay.nostr.net".to_string()]).await?;
+    let app = PortalApp::new(Arc::new(keypair), vec!["wss://relay.nostr.net".to_string(), "wss://relay.damus.io".to_string()]).await?;
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
         _app.listen().await.unwrap();
