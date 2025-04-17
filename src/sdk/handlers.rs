@@ -1,10 +1,15 @@
-use nostr::{event::{Kind, Tag}, key::PublicKey, Filter};
+use nostr::{
+    Filter,
+    event::{Kind, Tag},
+    key::PublicKey,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::model::{
+        Timestamp,
         auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent, SubkeyProof},
-        event_kinds::*, Timestamp,
+        event_kinds::*,
     },
     router::{ConversationError, MultiKeyTrait, Response},
     utils::random_string,
@@ -47,9 +52,11 @@ impl MultiKeyTrait for AuthInitReceiverConversation {
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
         if message.token == _state.token {
-            return Ok(Response::new().notify(AuthInitEvent {
-                main_key: event.pubkey,
-            }));
+            return Ok(Response::new()
+                .notify(AuthInitEvent {
+                    main_key: event.pubkey,
+                })
+                .finish());
         }
 
         Ok(Response::default())
@@ -162,12 +169,16 @@ impl MultiKeyTrait for AuthChallengeSenderConversation {
             event.pubkey
         };
 
-        Ok(Response::new().notify(AuthResponseEvent {
-            user_key,
-            recipient: event.pubkey.into(),
-            challenge: message.challenge.clone(),
-            granted_permissions: message.granted_permissions.clone(),
-            session_token: message.session_token.clone(),
-        }))
+        log::info!("Notifying auth response event");
+
+        Ok(Response::new()
+            .notify(AuthResponseEvent {
+                user_key,
+                recipient: event.pubkey.into(),
+                challenge: message.challenge.clone(),
+                granted_permissions: message.granted_permissions.clone(),
+                session_token: message.session_token.clone(),
+            })
+            .finish())
     }
 }

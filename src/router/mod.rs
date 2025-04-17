@@ -115,16 +115,12 @@ impl<C: Channel> MessageRouter<C> {
             };
 
             let conversation_id = subscription_id.as_str();
-            match self.conversations.lock().await.get_mut(conversation_id) {
+            let response = match self.conversations.lock().await.get_mut(conversation_id) {
                 Some(conv) => match conv.on_message(message) {
-                    Ok(response) => {
-                        self.process_response(conversation_id, response).await?;
-                    }
+                    Ok(response) => response,
                     Err(e) => {
                         log::warn!("Error in conversation id {:?}: {:?}", conversation_id, e);
-                        self.cleanup_conversation(conversation_id).await?;
-
-                        continue;
+                        Response::new().finish()
                     }
                 },
                 None => {
@@ -133,8 +129,12 @@ impl<C: Channel> MessageRouter<C> {
                         .unsubscribe(conversation_id.to_string())
                         .await
                         .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+                    continue;
                 }
-            }
+            };
+
+            self.process_response(conversation_id, response).await?;
         }
 
         Ok(())
