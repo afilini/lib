@@ -42,7 +42,7 @@
         .qr-container::after {
             content: "Click to copy link";
             position: absolute;
-            bottom: -20px;
+            bottom: -1px;
             left: 0;
             right: 0;
             font-size: 0.8rem;
@@ -116,41 +116,56 @@
         .status.timeout {
             color: #f44336;
         }
+        .welcome-message {
+            color: #666;
+            margin: 1rem 0;
+            font-size: 1.2rem;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
 </head>
 <body>
     <div class="login-container">
         <h1>Login</h1>
-        <div class="instructions">
-            Scan this QR code with your Portal app to login from another device
-        </div>
-        <div class="qr-container">
-            <canvas id="qrcode"></canvas>
-            <div class="copy-feedback">Copied!</div>
-        </div>
-        <div class="instructions">
-            Or click below to login from this device
-        </div>
-        <div class="local-login">
-            <a href="{{ login_url }}" class="login-button">Login with Portal</a>
-        </div>
-        {% if status %}
-        <div class="status {{ status }}">
-            {% if status == "WaitingForInit" %}
-                Waiting for login request...
-            {% elif status == "SendingChallenge" %}
+        {% if status.SendingChallenge %}
+            <div class="welcome-message">
+                Welcome back, {{ status.SendingChallenge }}!
+            </div>
+            <div class="status sending">
                 Sending authentication challenge...
-            {% elif status == "Approved" %}
-                Login approved! Redirecting...
-            {% elif status == "Timeout" %}
-                Login timed out. Please try again.
+            </div>
+        {% else %}
+            <div class="instructions">
+                Scan this QR code with your Portal app to login from another device
+            </div>
+            <div class="qr-container">
+                <canvas id="qrcode"></canvas>
+                <div class="copy-feedback">Copied!</div>
+            </div>
+            <div class="instructions">
+                Or click below to login from this device
+            </div>
+            <div class="local-login">
+                <a href="{{ login_url }}" class="login-button">Login with Portal</a>
+            </div>
+            {% if status and (status.WaitingForInit or status.Approved or status.Timeout) %}
+            <div class="status">
+                {% if status.WaitingForInit %}
+                    Waiting for login request...
+                {% elif status.Approved %}
+                    Login approved! Redirecting...
+                {% elif status.Timeout %}
+                    Login timed out. Please try again.
+                {% endif %}
+            </div>
             {% endif %}
-        </div>
         {% endif %}
     </div>
 
     <script>
+        {% if not status.SendingChallenge %}
         // Generate QR code
         QRCode.toCanvas(document.getElementById('qrcode'), '{{ login_url | safe }}', {
             width: 200,
@@ -177,6 +192,7 @@
                 console.error('Failed to copy URL:', err);
             }
         });
+        {% endif %}
 
         // Poll for status changes
         {% if status %}

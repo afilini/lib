@@ -5,7 +5,7 @@ use portal::{
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
     protocol::{auth_init::AuthInitUrl, model::auth::SubkeyProof},
-    router::{DelayedReply, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter},
+    router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream},
 };
 
 uniffi::setup_scaffolding!();
@@ -127,7 +127,7 @@ impl PortalApp {
             .collect();
         let _id = self
             .router
-            .add_conversation(Box::new(AuthInitConversation { url, relays }))
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(url.send_to(), url.subkey.map(|s| vec![s.into()]).unwrap_or_default(), AuthInitConversation { url, relays })))
             .await?;
         // let rx = self.router.subscribe_to_service_request(id).await?;
         // let response = rx.await_reply().await.map_err(AppError::ConversationError)?;
@@ -137,20 +137,20 @@ impl PortalApp {
 
     pub async fn listen_for_auth_challenge(&self, evt: Arc<dyn AuthChallengeListener>) -> Result<(), AppError> {
         let inner = AuthChallengeListenerConversation::new(self.router.keypair().public_key());
-        let id = self.router.add_conversation(Box::new(MultiKeyListenerAdapter::new(inner, self.router.keypair().subkey_proof().cloned()))).await?;
+        let mut rx = self.router.add_and_subscribe(MultiKeyListenerAdapter::new(inner, self.router.keypair().subkey_proof().cloned())).await?;
 
-        let mut rx: DelayedReply<AuthChallengeEvent> = self.router.subscribe_to_service_request(id).await?;
-        let response = rx.await_reply().await.ok_or(AppError::ListenerDisconnected)?.unwrap();
-        log::debug!("Received auth challenge: {:?}", response);
+        while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
+            log::debug!("Received auth challenge: {:?}", response);
 
-        let result = evt.on_auth_challenge(response.clone()).await?;
-        log::debug!("Auth challenge callback result: {:?}", result);
+            let result = evt.on_auth_challenge(response.clone()).await?;
+            log::debug!("Auth challenge callback result: {:?}", result);
 
-        if result {
-            let approve = AuthResponseConversation::new(response, vec![], self.router.keypair().subkey_proof().cloned());
-            let _ = self.router.add_conversation(Box::new(approve)).await?;
-        } else {
-            // TODO: send explicit rejection
+            if result {
+                let approve = AuthResponseConversation::new(response.clone(), vec![], self.router.keypair().subkey_proof().cloned());
+                self.router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(response.recipient.into(), vec![], approve))).await?;
+            } else {
+                // TODO: send explicit rejection
+            }
         }
 
         Ok(())

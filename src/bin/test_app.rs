@@ -8,7 +8,7 @@ use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
     app::handlers::AuthInitConversation, protocol::{
         auth_init::AuthInitUrl, LocalKeypair
-    }, router::MessageRouter
+    }, router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter}
 };
 
 #[tokio::main]
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|r| r.to_string())
             .collect(),
     };
-    router.add_conversation(Box::new(conv)).await?;
+    router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(conv.url.send_to(), conv.url.subkey.map(|s| vec![s.into()]).unwrap_or_default(), conv))).await?;
 
     Ok(())
     //

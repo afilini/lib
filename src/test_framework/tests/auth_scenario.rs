@@ -3,7 +3,7 @@ use crate::{
     app::handlers::{AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation}, protocol::{
         auth_init::AuthInitUrl,
         LocalKeypair,
-    }, router::{MultiKeyListenerAdapter, MultiKeySenderAdapter}, sdk::handlers::{AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent}, test_framework::ScenarioBuilder, utils::random_string
+    }, router::{adapters::one_shot::OneShotSenderAdapter, MultiKeyListenerAdapter, MultiKeySenderAdapter}, sdk::handlers::{AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent}, test_framework::ScenarioBuilder, utils::random_string
 };
 
 #[tokio::test]
@@ -58,28 +58,28 @@ async fn test_auth_flow() {
         relays: vec!["simulated".to_string()],
     };
     client_router
-        .add_conversation(Box::new(auth_init))
+        .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(auth_init.url.send_to(), auth_init.url.subkey.map(|s| vec![s.into()]).unwrap_or_default(), auth_init)))
         .await
         .unwrap();
 
     // 4. Service receives auth init
-    let auth_init_event = service_notifications.await_reply().await.unwrap().unwrap();
+    let auth_init_event = service_notifications.next().await.unwrap().unwrap();
     assert_eq!(auth_init_event.main_key, client_keys.public_key());
 
     // 5. Service sends auth challenge
     let mut auth_response_event = service_router.add_and_subscribe(MultiKeySenderAdapter::new_with_user(auth_init_event.main_key, vec![], AuthChallengeSenderConversation::new(service_keys.public_key(), None))).await.unwrap();
 
     // 6. Client receives auth challenge
-    let auth_challenge_event = challenge_notifications.await_reply().await.unwrap().unwrap();
+    let auth_challenge_event = challenge_notifications.next().await.unwrap().unwrap();
     assert_eq!(auth_challenge_event.service_key, service_keys.public_key().into());
     assert_eq!(auth_challenge_event.recipient, service_keys.public_key().into());
 
     // 7. Clients accepts requrest
-    let approve = AuthResponseConversation::new(auth_challenge_event, vec![], None);
-    client_router.add_conversation(Box::new(approve)).await.unwrap();
+    let approve = AuthResponseConversation::new(auth_challenge_event.clone(), vec![], None);
+    client_router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(auth_challenge_event.recipient.into(), vec![], approve))).await.unwrap();
 
     // 8. Wait for auth response notification
-    let auth_response_event = auth_response_event.await_reply().await.unwrap().unwrap();
+    let auth_response_event = auth_response_event.next().await.unwrap().unwrap();
     assert_eq!(auth_response_event.user_key, client_keys.public_key());
     assert_eq!(auth_response_event.recipient, client_keys.public_key().into());
 } 

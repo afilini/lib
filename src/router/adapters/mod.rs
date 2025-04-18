@@ -1,9 +1,14 @@
+//! Adapters for conversations
+//!
+//! This module contains adapters for conversations that follow specific patterns.
+
 use serde::{de::DeserializeOwned, Serialize};
 
 use super::Conversation;
 
 pub mod multi_key_listener;
 pub mod multi_key_sender;
+pub mod one_shot;
 
 /// A trait for conversations that send notifications
 ///

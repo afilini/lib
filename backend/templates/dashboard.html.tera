@@ -28,6 +28,8 @@
             font-size: 1.2rem;
             margin-bottom: 2rem;
             color: #666;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
         }
         .logout-button {
             background-color: #f44336;

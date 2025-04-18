@@ -4,7 +4,7 @@ extern crate rocket;
 use portal::nostr::nips::nip19::ToBech32;
 use portal::nostr::Keys;
 use portal::protocol::LocalKeypair;
-use portal::router::{DelayedReply, MultiKeyListenerAdapter, MultiKeySenderAdapter};
+use portal::router::{NotificationStream, MultiKeyListenerAdapter, MultiKeySenderAdapter};
 use portal::sdk::handlers::{
     AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent,
 };
@@ -41,7 +41,7 @@ struct Session {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum LoginStatus {
     WaitingForInit,
-    SendingChallenge,
+    SendingChallenge(String),
     Approved(String),
     Timeout,
 }
@@ -91,25 +91,15 @@ async fn index(
         tokio::spawn(async move {
             let inner =
                 AuthInitReceiverConversation::new(router.keypair().public_key(), _token.clone());
-            let id = router
-                .add_conversation(Box::new(MultiKeyListenerAdapter::new(inner, router.keypair().subkey_proof().cloned())))
-                .await
-                .unwrap();
-            let event: AuthInitEvent = router
-                .subscribe_to_service_request(id)
-                .await
-                .unwrap()
-                .await_reply()
-                .await
-                .unwrap()
-                .unwrap();
+            let mut event = router.add_and_subscribe(MultiKeyListenerAdapter::new(inner, router.keypair().subkey_proof().cloned())).await.unwrap();
+            let event = event.next().await.unwrap().unwrap();
 
             log::info!("Got auth init event");
 
             _login_tokens
                 .lock()
                 .unwrap()
-                .insert(_token.clone(), LoginStatus::SendingChallenge);
+                .insert(_token.clone(), LoginStatus::SendingChallenge(event.main_key.to_bech32().unwrap()));
 
             log::info!("Sending auth challenge");
 
@@ -119,21 +109,8 @@ async fn index(
             );
 
             log::info!("Before adding conversation");
-            let id = router
-                .add_conversation(Box::new(MultiKeySenderAdapter::new_with_user(event.main_key, vec![], conv)))
-                .await
-                .unwrap();
-
-            log::info!("Subscribed to auth response event");
-            let event: AuthResponseEvent = router
-                .subscribe_to_service_request(id)
-                .await
-                .unwrap()
-                .await_reply()
-                .await
-                .unwrap()
-                .unwrap();
-
+            let mut event = router.add_and_subscribe(MultiKeySenderAdapter::new_with_user(event.main_key, vec![], conv)).await.unwrap();
+            let event = event.next().await.unwrap().unwrap();
             log::info!("Got auth response event");
 
             _login_tokens.lock().unwrap().insert(

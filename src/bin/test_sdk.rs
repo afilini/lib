@@ -7,7 +7,7 @@ use portal::{
         auth_init::AuthInitUrl, model::{auth::AuthInitContent, event_kinds::AUTH_INIT}, LocalKeypair
     },
     router::{
-        ConversationError, DelayedReply, MessageRouter, MultiKeyListenerAdapter, MultiKeySender, MultiKeySenderAdapter, Response
+        ConversationError, NotificationStream, MessageRouter, MultiKeyListenerAdapter, MultiKeySender, MultiKeySenderAdapter, Response
     },
     sdk::handlers::{AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent},
     utils::random_string,
@@ -105,9 +105,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let inner = AuthInitReceiverConversation::new(router.keypair().public_key(), token);
     let id = router.add_conversation(Box::new(MultiKeyListenerAdapter::new(inner, router.keypair().subkey_proof().cloned()))).await?;
     log::debug!("Added conversation with id: {}", id);
-    let mut event: DelayedReply<AuthInitEvent> = router.subscribe_to_service_request(id).await?;
+    let mut event: NotificationStream<AuthInitEvent> = router.subscribe_to_service_request(id).await?;
     log::debug!("Waiting for notification...");
-    let event = event.await_reply().await.unwrap()?;
+    let event = event.next().await.unwrap()?;
     log::debug!("Received notification: {:?}", event);
 
     let conv = AuthChallengeSenderConversation::new(
@@ -116,9 +116,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let id = router.add_conversation(Box::new(MultiKeySenderAdapter::new_with_user(event.main_key, vec![], conv))).await?;
     log::debug!("Added conversation with id: {}", id);
-    let mut event: DelayedReply<AuthResponseEvent> = router.subscribe_to_service_request(id).await?;
+    let mut event: NotificationStream<AuthResponseEvent> = router.subscribe_to_service_request(id).await?;
     log::debug!("Waiting for notification...");
-    let event = event.await_reply().await.unwrap()?;
+    let event = event.next().await.unwrap()?;
     log::debug!("Received notification: {:?}", event);
 
     // handle.await?;

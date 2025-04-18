@@ -9,7 +9,7 @@ struct ApproveLogin;
 impl AuthChallengeListener for ApproveLogin {
     async fn on_auth_challenge(&self, event: AuthChallengeEvent) -> Result<bool, CallbackError> {
         log::info!("Received auth challenge: {:?}", event);
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         log::info!("Approving login");
         Ok(true)
     }
@@ -30,12 +30,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     print!("Enter the auth init URL: ");
     std::io::stdout().flush()?;
 
+    let handle = app.listen_for_auth_challenge(Arc::new(ApproveLogin));
+
     let mut auth_init_url = String::new();
     std::io::stdin().read_line(&mut auth_init_url)?;
     let url = AuthInitUrl::from_str(auth_init_url.trim())?;
     app.send_auth_init(url).await?;
 
-    app.listen_for_auth_challenge(Arc::new(ApproveLogin)).await?;
-
+    handle.await?;
     Ok(())
 }

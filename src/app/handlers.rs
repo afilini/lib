@@ -14,7 +14,7 @@ use crate::{
             event_kinds::{AUTH_CHALLENGE, AUTH_INIT, AUTH_RESPONSE},
         },
     },
-    router::{adapters::ConversationWithNotification, Conversation, ConversationError, ConversationMessage, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender, Response},
+    router::{adapters::{one_shot::OneShotSender, ConversationWithNotification}, Conversation, ConversationError, ConversationMessage, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender, Response},
 };
 
 pub struct AuthInitConversation {
@@ -22,36 +22,31 @@ pub struct AuthInitConversation {
     pub relays: Vec<String>,
 }
 
-impl Conversation for AuthInitConversation {
-    fn init(&mut self) -> Result<Response, ConversationError> {
-        let content = AuthInitContent {
-            token: self.url.token.clone(),
+impl OneShotSender for AuthInitConversation {
+    type Error = ConversationError;
+
+    fn send(state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>) -> Result<Response, Self::Error> {
+         let content = AuthInitContent {
+            token: state.url.token.clone(),
             client_info: ClientInfo {
                 version: env!("CARGO_PKG_VERSION").to_string(),
                 name: "Portal".to_string(),
             },
-            preferred_relays: self.relays.clone(),
+            preferred_relays: state.relays.clone(),
         };
 
-        let tags = self
+        let tags = state
             .url
             .all_keys()
             .iter()
             .map(|k| Tag::public_key(*k.deref()))
             .collect();
         let response = Response::new()
-            .reply_to(self.url.send_to(), Kind::from(AUTH_INIT), tags, content)
+            .reply_to(state.url.send_to(), Kind::from(AUTH_INIT), tags, content)
             .finish();
 
         Ok(response)
-    }
-
-    fn on_message(&mut self, _message: ConversationMessage) -> Result<Response, ConversationError> {
-        Ok(Response::default())
-    }
-
-    fn is_expired(&self) -> bool {
-        false
+       
     }
 }
 
@@ -94,7 +89,7 @@ impl MultiKeyListener for AuthChallengeListenerConversation {
     }
 
     fn on_message(
-            state: &mut crate::router::MultiKeyListenerAdapter<Self>,
+            _state: &mut crate::router::MultiKeyListenerAdapter<Self>,
             event: &crate::router::CleartextEvent,
             content: &Self::Message,
         ) -> Result<Response, Self::Error> {
@@ -156,23 +151,25 @@ impl AuthResponseConversation {
     }
 }
 
-impl Conversation for AuthResponseConversation {
-    fn init(&mut self) -> Result<Response, ConversationError> {
+impl OneShotSender for AuthResponseConversation {
+    type Error = ConversationError;
+    
+    fn send(state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>) -> Result<Response, Self::Error> {
         let content = AuthResponseContent {
-            challenge: self.event.challenge.clone(),
-            granted_permissions: self.granted_permissions.clone(),
+            challenge: state.event.challenge.clone(),
+            granted_permissions: state.granted_permissions.clone(),
             session_token: "randomlygeneratedtoken".to_string(),
-            subkey_proof: self.subkey_proof.clone(),
+            subkey_proof: state.subkey_proof.clone(),
         };
 
         let mut keys = HashSet::new();
-        keys.insert(self.event.service_key);
-        keys.insert(self.event.recipient);
+        keys.insert(state.event.service_key);
+        keys.insert(state.event.recipient);
 
         let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
         let response = Response::new()
             .reply_to(
-                self.event.recipient.into(),
+                state.event.recipient.into(),
                 Kind::from(AUTH_RESPONSE),
                 tags,
                 content,
@@ -180,13 +177,5 @@ impl Conversation for AuthResponseConversation {
             .finish();
 
         Ok(response)
-    }
-
-    fn on_message(&mut self, _message: ConversationMessage) -> Result<Response, ConversationError> {
-        Ok(Response::default())
-    }
-
-    fn is_expired(&self) -> bool {
-        false
     }
 }
