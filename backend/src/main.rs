@@ -4,7 +4,7 @@ extern crate rocket;
 use portal::nostr::nips::nip19::ToBech32;
 use portal::nostr::Keys;
 use portal::protocol::LocalKeypair;
-use portal::router::{DelayedReply, MultiKeyProxy};
+use portal::router::{DelayedReply, MultiKeySenderAdapter};
 use portal::sdk::handlers::{
     AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent,
 };
@@ -89,10 +89,10 @@ async fn index(
         let _login_tokens = Arc::clone(&login_tokens);
         let _token = new_token.clone();
         tokio::spawn(async move {
-            let inner =
+            let receiver =
                 AuthInitReceiverConversation::new(router.keypair().public_key(), _token.clone());
             let id = router
-                .add_conversation(Box::new(MultiKeyProxy::new(inner)))
+                .add_conversation(Box::new(receiver))
                 .await
                 .unwrap();
             let event: AuthInitEvent = router
@@ -114,15 +114,13 @@ async fn index(
             log::info!("Sending auth challenge");
 
             let conv = AuthChallengeSenderConversation::new(
-                event.main_key,
-                vec![],
                 router.keypair().public_key(),
                 router.keypair().subkey_proof().cloned(),
             );
 
             log::info!("Before adding conversation");
             let id = router
-                .add_conversation(Box::new(MultiKeyProxy::new(conv)))
+                .add_conversation(Box::new(MultiKeySenderAdapter::new_with_user(event.main_key, vec![], conv)))
                 .await
                 .unwrap();
 

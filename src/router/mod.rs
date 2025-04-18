@@ -1,13 +1,12 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
-    time::{Duration, SystemTime},
 };
 
 use channel::Channel;
 use futures::{Stream, StreamExt};
 use nostr_relay_pool::RelayPoolNotification;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 use tokio::sync::{Mutex, mpsc};
 
 use nostr::{
@@ -21,6 +20,9 @@ use nostr::{
 use crate::{protocol::LocalKeypair, utils::random_string};
 
 pub mod channel;
+pub mod adapters;
+
+pub use adapters::{MultiKeySender, MultiKeySenderAdapter};
 
 const MAX_CLIENTS: usize = 8;
 
@@ -206,7 +208,7 @@ impl<C: Channel> MessageRouter<C> {
 
     pub async fn add_conversation(
         &self,
-        conversation: Box<dyn Conversation + Send>,
+        mut conversation: Box<dyn Conversation + Send>,
     ) -> Result<String, ConversationError> {
         let conversation_id = random_string(32);
 
@@ -315,13 +317,17 @@ impl Response {
         self
     }
 
-    fn set_recepient_keys(&mut self, user: PublicKey, subkeys: &[PublicKey]) {
+    fn set_recepient_keys(&mut self, user: PublicKey, subkeys: &HashSet<PublicKey>) {
         for response in &mut self.responses {
             if response.recepient_keys.is_empty() {
                 response.recepient_keys.push(user);
                 response.recepient_keys.extend(subkeys.iter().cloned());
             }
         }
+    }
+
+    fn extend_responses(&mut self, response: Response) {
+        self.responses.extend(response.responses);
     }
 }
 
@@ -331,89 +337,26 @@ pub enum ConversationMessage {
     Encrypted(Event),
 }
 
-pub trait Conversation {
-    fn on_message(&mut self, message: ConversationMessage) -> Result<Response, ConversationError>;
-    fn is_expired(&self) -> bool;
-    fn init(&self) -> Result<Response, ConversationError> {
-        Ok(Response::default())
-    }
-}
-
-impl<T: MultiKeyTrait> Conversation for MultiKeyProxy<T> {
-    fn init(&self) -> Result<Response, ConversationError> {
-        <T as MultiKeyTrait>::init(self).map_err(|e| ConversationError::Inner(Box::new(e)))
-    }
-
-    fn on_message(&mut self, message: ConversationMessage) -> Result<Response, ConversationError> {
-        match message {
-            ConversationMessage::Cleartext(event) => {
-                let content = serde_json::from_value(event.content.clone())
-                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-                let mut response = <T as MultiKeyTrait>::on_message(self, &event, &content)
-                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-
-                if let Some(user) = self.user {
-                    response.set_recepient_keys(user, &self.subkeys);
-                }
-
-                Ok(response)
-            }
-            ConversationMessage::Encrypted(_event) => {
-                // TODO: handle key switch
-
-                Err(ConversationError::Encrypted)
-            }
-        }
-    }
-
-    fn is_expired(&self) -> bool {
-        self.expires_at < SystemTime::now()
-    }
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum ConversationError {
     #[error("Encrypted messages not supported")]
     Encrypted,
 
+    #[error("User not set")]
+    UserNotSet,
+
     #[error("Inner error: {0}")]
     Inner(Box<dyn std::error::Error + Send + Sync>),
 }
 
-pub struct MultiKeyProxy<Inner> {
-    pub user: Option<PublicKey>,
-    pub subkeys: Vec<PublicKey>,
-    pub expires_at: SystemTime,
-    pub inner: Inner,
-}
-
-impl<Inner: MultiKeyTrait> MultiKeyProxy<Inner> {
-    pub fn new(inner: Inner) -> Self {
-        Self {
-            user: None,
-            subkeys: vec![],
-            expires_at: SystemTime::now() + Duration::from_secs(Inner::VALIDITY_SECONDS),
-            inner,
-        }
-    }
-
-    pub fn new_with_user(user: PublicKey, subkeys: Vec<PublicKey>, inner: Inner) -> Self {
-        Self {
-            user: Some(user),
-            subkeys,
-            expires_at: SystemTime::now() + Duration::from_secs(Inner::VALIDITY_SECONDS),
-            inner,
-        }
+pub trait Conversation {
+    fn on_message(&mut self, message: ConversationMessage) -> Result<Response, ConversationError>;
+    fn is_expired(&self) -> bool;
+    fn init(&mut self) -> Result<Response, ConversationError> {
+        Ok(Response::default())
     }
 }
 
-impl<Inner: MultiKeyTrait> Deref for MultiKeyProxy<Inner> {
-    type Target = Inner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct CleartextEvent {
@@ -438,20 +381,6 @@ impl CleartextEvent {
     }
 }
 
-pub trait MultiKeyTrait: Sized + Send + 'static {
-    const VALIDITY_SECONDS: u64;
-
-    type Error: std::error::Error + Send + Sync + 'static;
-    type Message: DeserializeOwned;
-
-    fn init(_state: &MultiKeyProxy<Self>) -> Result<Response, Self::Error>;
-
-    fn on_message(
-        _state: &mut MultiKeyProxy<Self>,
-        _event: &CleartextEvent,
-        _message: &Self::Message,
-    ) -> Result<Response, Self::Error>;
-}
 
 pub trait InnerDelayedReply<T: Serialize>:
     Stream<Item = Result<T, serde_json::Error>> + Send + Unpin + 'static

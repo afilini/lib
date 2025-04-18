@@ -7,7 +7,7 @@ use portal::{
         auth_init::AuthInitUrl, model::{auth::AuthInitContent, event_kinds::AUTH_INIT}, LocalKeypair
     },
     router::{
-        ConversationError, DelayedReply, MessageRouter, MultiKeyProxy, MultiKeyTrait, Response,
+        ConversationError, DelayedReply, MessageRouter, MultiKeySenderAdapter, MultiKeySender, Response,
     },
     sdk::handlers::{AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent},
     utils::random_string,
@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Auth init URL: {}", url);
 
     let inner = AuthInitReceiverConversation::new(router.keypair().public_key(), token);
-    let id = router.add_conversation(Box::new(MultiKeyProxy::new(inner))).await?;
+    let id = router.add_conversation(Box::new(inner)).await?;
     log::debug!("Added conversation with id: {}", id);
     let mut event: DelayedReply<AuthInitEvent> = router.subscribe_to_service_request(id).await?;
     log::debug!("Waiting for notification...");
@@ -111,12 +111,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::debug!("Received notification: {:?}", event);
 
     let conv = AuthChallengeSenderConversation::new(
-        event.main_key,
-        vec![],
         router.keypair().public_key(),
         router.keypair().subkey_proof().cloned(),
     );
-    let id = router.add_conversation(Box::new(MultiKeyProxy::new(conv))).await?;
+    let id = router.add_conversation(Box::new(MultiKeySenderAdapter::new_with_user(event.main_key, vec![], conv))).await?;
     log::debug!("Added conversation with id: {}", id);
     let mut event: DelayedReply<AuthResponseEvent> = router.subscribe_to_service_request(id).await?;
     log::debug!("Waiting for notification...");
