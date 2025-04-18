@@ -3,6 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use adapters::ConversationWithNotification;
 use channel::Channel;
 use futures::{Stream, StreamExt};
 use nostr_relay_pool::RelayPoolNotification;
@@ -205,19 +206,24 @@ impl<C: Channel> MessageRouter<C> {
         Ok(())
     }
 
-    pub async fn add_conversation(
-        &self,
-        mut conversation: Box<dyn Conversation + Send>,
-    ) -> Result<String, ConversationError> {
-        let conversation_id = random_string(32);
-
+    async fn internal_add_with_id(&self, id: &str, mut conversation: Box<dyn Conversation + Send>) -> Result<Response, ConversationError> {
         let response = conversation.init()?;
 
         self.conversations
             .lock()
             .await
-            .insert(conversation_id.clone(), conversation);
+            .insert(id.to_string(), conversation);
 
+        Ok(response)
+    }
+
+    pub async fn add_conversation(
+        &self,
+        conversation: Box<dyn Conversation + Send>,
+    ) -> Result<String, ConversationError> {
+        let conversation_id = random_string(32);
+
+        let response = self.internal_add_with_id(&conversation_id, conversation).await?;
         self.process_response(&conversation_id, response).await?;
 
         Ok(conversation_id)
@@ -240,6 +246,18 @@ impl<C: Channel> MessageRouter<C> {
         let rx = DelayedReply::new(rx);
 
         Ok(rx)
+    }
+
+    pub async fn add_and_subscribe<Conv: ConversationWithNotification + Send + 'static>(
+        &self,
+        conversation: Conv,
+    ) -> Result<DelayedReply<Conv::Notification>, ConversationError> {
+        let conversation_id = random_string(32);
+        let delayed_reply = self.subscribe_to_service_request::<Conv::Notification>(conversation_id.clone()).await?;
+        let response = self.internal_add_with_id(&conversation_id, Box::new(conversation)).await?;
+        self.process_response(&conversation_id, response).await?;
+
+        Ok(delayed_reply)
     }
 
     pub fn channel(&self) -> &C {

@@ -14,7 +14,7 @@ use crate::{
             event_kinds::{AUTH_CHALLENGE, AUTH_INIT, AUTH_RESPONSE},
         },
     },
-    router::{Conversation, ConversationError, ConversationMessage, MultiKeyListener, MultiKeySender, Response},
+    router::{adapters::ConversationWithNotification, Conversation, ConversationError, ConversationMessage, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender, Response},
 };
 
 pub struct AuthInitConversation {
@@ -130,6 +130,10 @@ impl MultiKeyListener for AuthChallengeListenerConversation {
 
         Ok(response)
     }
+}
+
+impl ConversationWithNotification for MultiKeyListenerAdapter<AuthChallengeListenerConversation> {
+    type Notification = AuthChallengeEvent;
 }
 
 pub struct AuthResponseConversation {

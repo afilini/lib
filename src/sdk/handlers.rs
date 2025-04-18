@@ -11,7 +11,7 @@ use crate::{
     protocol::model::{
         auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent, SubkeyProof}, event_kinds::*, Timestamp
     },
-    router::{ConversationError, MultiKeyListener, MultiKeySender, Response},
+    router::{adapters::ConversationWithNotification, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender, MultiKeySenderAdapter, Response},
     utils::random_string,
 };
 
@@ -64,6 +64,10 @@ impl MultiKeyListener for AuthInitReceiverConversation {
             Ok(Response::default())
         }
     }
+}
+
+impl ConversationWithNotification for MultiKeyListenerAdapter<AuthInitReceiverConversation> {
+    type Notification = AuthInitEvent;
 }
 
 pub struct AuthChallengeSenderConversation {
@@ -194,4 +198,8 @@ impl MultiKeySender for AuthChallengeSenderConversation {
             })
             .finish())
     }
+}
+
+impl ConversationWithNotification for MultiKeySenderAdapter<AuthChallengeSenderConversation> {
+    type Notification = AuthResponseEvent;
 }
