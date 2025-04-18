@@ -13,7 +13,7 @@ use nostr::{
 
 use crate::protocol::model::{auth::SubkeyProof, event_kinds::SUBKEY_PROOF};
 
-use super::{CleartextEvent, Conversation, ConversationError, ConversationMessage, Response};
+use crate::router::{CleartextEvent, Conversation, ConversationError, ConversationMessage, Response};
 
 pub trait MultiKeySender: Sized + Send + 'static {
     const VALIDITY_SECONDS: u64;

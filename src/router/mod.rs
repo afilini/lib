@@ -22,7 +22,7 @@ use crate::{protocol::LocalKeypair, utils::random_string};
 pub mod channel;
 pub mod adapters;
 
-pub use adapters::{MultiKeySender, MultiKeySenderAdapter};
+pub use adapters::multi_key_sender::{MultiKeySender, MultiKeySenderAdapter};
 
 const MAX_CLIENTS: usize = 8;
 
