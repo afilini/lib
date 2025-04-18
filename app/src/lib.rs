@@ -5,7 +5,7 @@ use portal::{
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
     protocol::{auth_init::AuthInitUrl, model::auth::SubkeyProof},
-    router::{DelayedReply, MessageRouter, MultiKeyProxy, WrappedContent},
+    router::{DelayedReply, MessageRouter, MultiKeyProxy},
 };
 
 uniffi::setup_scaffolding!();
@@ -143,11 +143,11 @@ impl PortalApp {
         let response = rx.await_reply().await.ok_or(AppError::ListenerDisconnected)?.unwrap();
         log::debug!("Received auth challenge: {:?}", response);
 
-        let result = evt.on_auth_challenge(response.content.clone()).await?;
+        let result = evt.on_auth_challenge(response.clone()).await?;
         log::debug!("Auth challenge callback result: {:?}", result);
 
         if result {
-            let approve = AuthResponseConversation::new(response.content, vec![], self.router.keypair().subkey_proof().cloned());
+            let approve = AuthResponseConversation::new(response, vec![], self.router.keypair().subkey_proof().cloned());
             let _ = self.router.add_conversation(Box::new(approve)).await?;
         } else {
             // TODO: send explicit rejection

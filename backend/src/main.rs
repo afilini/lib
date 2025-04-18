@@ -4,7 +4,7 @@ extern crate rocket;
 use portal::nostr::nips::nip19::ToBech32;
 use portal::nostr::Keys;
 use portal::protocol::LocalKeypair;
-use portal::router::{DelayedReply, MultiKeyProxy, WrappedContent};
+use portal::router::{DelayedReply, MultiKeyProxy};
 use portal::sdk::handlers::{
     AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent,
 };
@@ -95,7 +95,7 @@ async fn index(
                 .add_conversation(Box::new(MultiKeyProxy::new(inner)))
                 .await
                 .unwrap();
-            let event: WrappedContent<AuthInitEvent> = router
+            let event: AuthInitEvent = router
                 .subscribe_to_service_request(id)
                 .await
                 .unwrap()
@@ -127,7 +127,7 @@ async fn index(
                 .unwrap();
 
             log::info!("Subscribed to auth response event");
-            let event: WrappedContent<AuthResponseEvent> = router
+            let event: AuthResponseEvent = router
                 .subscribe_to_service_request(id)
                 .await
                 .unwrap()

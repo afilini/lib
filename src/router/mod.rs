@@ -30,7 +30,7 @@ pub struct MessageRouter<C: Channel> {
     channel: C,
     keypair: LocalKeypair,
     conversations: Mutex<HashMap<String, Box<dyn Conversation + Send>>>,
-    subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<WrappedContent<serde_json::Value>>>>>,
+    subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<serde_json::Value>>>>,
 }
 
 impl<C: Channel> MessageRouter<C> {
@@ -192,7 +192,7 @@ impl<C: Channel> MessageRouter<C> {
             let mut lock = self.subscribers.lock().await;
             if let Some(senders) = lock.get_mut(id) {
                 for sender in senders.iter_mut() {
-                    let _ = sender.send(WrappedContent::new(notification.clone())).await;
+                    let _ = sender.send(notification.clone()).await;
                 }
             }
         }
@@ -235,7 +235,7 @@ impl<C: Channel> MessageRouter<C> {
             .push(tx);
 
         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
-        let rx = rx.map(|content| WrappedContent::map(content));
+        let rx = rx.map(|content| serde_json::from_value(content));
         let rx = DelayedReply::new(rx);
 
         Ok(rx)
@@ -453,38 +453,12 @@ pub trait MultiKeyTrait: Sized + Send + 'static {
     ) -> Result<Response, Self::Error>;
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WrappedContent<T: Serialize> {
-    pub content: T,
-}
-
-impl WrappedContent<serde_json::Value> {
-    pub fn new(content: serde_json::Value) -> Self {
-        Self { content }
-    }
-}
-
-impl<T: DeserializeOwned + Serialize> WrappedContent<T> {
-    pub fn map(s: WrappedContent<serde_json::Value>) -> Result<Self, serde_json::Error> {
-        let content = serde_json::from_value(s.content)?;
-        Ok(Self { content })
-    }
-}
-
-impl<T: Serialize> Deref for WrappedContent<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.content
-    }
-}
-
 pub trait InnerDelayedReply<T: Serialize>:
-    Stream<Item = Result<WrappedContent<T>, serde_json::Error>> + Send + Unpin + 'static
+    Stream<Item = Result<T, serde_json::Error>> + Send + Unpin + 'static
 {
 }
 impl<S, T: Serialize> InnerDelayedReply<T> for S where
-    S: Stream<Item = Result<WrappedContent<T>, serde_json::Error>> + Send + Unpin + 'static
+    S: Stream<Item = Result<T, serde_json::Error>> + Send + Unpin + 'static
 {
 }
 
@@ -499,7 +473,7 @@ impl<T: Serialize> DelayedReply<T> {
         }
     }
 
-    pub async fn await_reply(&mut self) -> Option<Result<WrappedContent<T>, serde_json::Error>> {
+    pub async fn await_reply(&mut self) -> Option<Result<T, serde_json::Error>> {
         use futures::StreamExt;
 
         self.stream.next().await
