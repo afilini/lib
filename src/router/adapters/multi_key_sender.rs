@@ -15,6 +15,8 @@ use crate::protocol::model::{auth::SubkeyProof, event_kinds::SUBKEY_PROOF};
 
 use crate::router::{CleartextEvent, Conversation, ConversationError, ConversationMessage, Response};
 
+const MAX_CLIENTS: usize = 8;
+
 pub trait MultiKeySender: Sized + Send + 'static {
     const VALIDITY_SECONDS: u64;
 
@@ -60,6 +62,9 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
         let initial_message = <T as MultiKeySender>::build_initial_message(self, None).map_err(|e| ConversationError::Inner(Box::new(e)))?;
         response.extend_responses(initial_message);
 
+        // Also listen for SUBKEY_PROOF messages
+        response.filter = response.filter.kind(Kind::Custom(SUBKEY_PROOF));
+
         response.set_recepient_keys(self.user, &self.subkeys);
 
         Ok(response)
@@ -80,6 +85,11 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
                             return Ok(Response::default());
                         }
                     };
+
+                    if self.subkeys.len() >= MAX_CLIENTS {
+                        log::warn!("Too many subkeys, refusing to process the request from {:?}", event.pubkey);
+                        return Ok(Response::default());
+                    }
 
                     if let Err(e) = proof.verify(&event.pubkey) {
                         log::warn!("Invalid proof: {:?}", e);

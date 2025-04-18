@@ -23,8 +23,7 @@ pub mod channel;
 pub mod adapters;
 
 pub use adapters::multi_key_sender::{MultiKeySender, MultiKeySenderAdapter};
-
-const MAX_CLIENTS: usize = 8;
+pub use adapters::multi_key_listener::{MultiKeyListener, MultiKeyListenerAdapter};
 
 // TODO: update expiry at every message
 

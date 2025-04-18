@@ -14,7 +14,7 @@ use crate::{
             event_kinds::{AUTH_CHALLENGE, AUTH_INIT, AUTH_RESPONSE},
         },
     },
-    router::{Conversation, ConversationError, ConversationMessage, MultiKeySender, Response},
+    router::{Conversation, ConversationError, ConversationMessage, MultiKeyListener, MultiKeySender, Response},
 };
 
 pub struct AuthInitConversation {
@@ -57,13 +57,11 @@ impl Conversation for AuthInitConversation {
 
 pub struct AuthChallengeListenerConversation {
     local_key: PublicKey,
-    subkey_proof: Option<SubkeyProof>,
-    expires_at: SystemTime,
 }
 
 impl AuthChallengeListenerConversation {
-    pub fn new(local_key: PublicKey, subkey_proof: Option<SubkeyProof>) -> Self {
-        Self { local_key, subkey_proof, expires_at: SystemTime::now() + Duration::from_secs(60 * 5) }
+    pub fn new(local_key: PublicKey) -> Self {
+        Self { local_key }
     }
 }
 
@@ -77,30 +75,29 @@ pub struct AuthChallengeEvent {
     pub required_permissions: Vec<String>,
 }
 
-impl Conversation for AuthChallengeListenerConversation {
-    fn init(&mut self) -> Result<Response, ConversationError> {
-        let mut filter = Filter::new()
-            .kinds(vec![Kind::from(AUTH_CHALLENGE)])
-            .pubkey(self.local_key);
+impl MultiKeyListener for AuthChallengeListenerConversation {
+    const VALIDITY_SECONDS: u64 = 60 * 5;
 
-        if let Some(subkey_proof) = &self.subkey_proof {
+    type Error = ConversationError;
+    type Message = AuthChallengeContent;
+
+    fn init(state: &crate::router::MultiKeyListenerAdapter<Self>) -> Result<Response, Self::Error> {
+         let mut filter = Filter::new()
+            .kinds(vec![Kind::from(AUTH_CHALLENGE)])
+            .pubkey(state.local_key);
+
+        if let Some(subkey_proof) = &state.subkey_proof {
             filter = filter.pubkey(subkey_proof.main_key.into());
         }
 
         Ok(Response::new().filter(filter))
     }
 
-    fn on_message(&mut self, message: ConversationMessage) -> Result<Response, ConversationError> {
-        let event = match message {
-            ConversationMessage::Cleartext(event) => event,
-            ConversationMessage::Encrypted(_) => return Ok(Response::default()),
-        };
-
-        let content = match serde_json::from_value::<AuthChallengeContent>(event.content) {
-            Ok(content) => content,
-            Err(_) => return Ok(Response::default()),
-        };
-
+    fn on_message(
+            state: &mut crate::router::MultiKeyListenerAdapter<Self>,
+            event: &crate::router::CleartextEvent,
+            content: &Self::Message,
+        ) -> Result<Response, Self::Error> {
         log::debug!(
             "Received auth challenge from {}: {:?}",
             event.pubkey,
@@ -132,10 +129,6 @@ impl Conversation for AuthChallengeListenerConversation {
         });
 
         Ok(response)
-    }
-
-    fn is_expired(&self) -> bool {
-        self.expires_at > SystemTime::now()
     }
 }
 

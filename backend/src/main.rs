@@ -4,7 +4,7 @@ extern crate rocket;
 use portal::nostr::nips::nip19::ToBech32;
 use portal::nostr::Keys;
 use portal::protocol::LocalKeypair;
-use portal::router::{DelayedReply, MultiKeySenderAdapter};
+use portal::router::{DelayedReply, MultiKeyListenerAdapter, MultiKeySenderAdapter};
 use portal::sdk::handlers::{
     AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent,
 };
@@ -89,10 +89,10 @@ async fn index(
         let _login_tokens = Arc::clone(&login_tokens);
         let _token = new_token.clone();
         tokio::spawn(async move {
-            let receiver =
+            let inner =
                 AuthInitReceiverConversation::new(router.keypair().public_key(), _token.clone());
             let id = router
-                .add_conversation(Box::new(receiver))
+                .add_conversation(Box::new(MultiKeyListenerAdapter::new(inner, router.keypair().subkey_proof().cloned())))
                 .await
                 .unwrap();
             let event: AuthInitEvent = router

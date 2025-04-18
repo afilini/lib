@@ -5,7 +5,7 @@ use portal::{
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
     protocol::{auth_init::AuthInitUrl, model::auth::SubkeyProof},
-    router::{DelayedReply, MessageRouter, MultiKeySenderAdapter},
+    router::{DelayedReply, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter},
 };
 
 uniffi::setup_scaffolding!();
@@ -136,8 +136,8 @@ impl PortalApp {
     }
 
     pub async fn listen_for_auth_challenge(&self, evt: Arc<dyn AuthChallengeListener>) -> Result<(), AppError> {
-        let listener = AuthChallengeListenerConversation::new(self.router.keypair().public_key(), self.router.keypair().subkey_proof().cloned());
-        let id = self.router.add_conversation(Box::new(listener)).await?;
+        let inner = AuthChallengeListenerConversation::new(self.router.keypair().public_key());
+        let id = self.router.add_conversation(Box::new(MultiKeyListenerAdapter::new(inner, self.router.keypair().subkey_proof().cloned()))).await?;
 
         let mut rx: DelayedReply<AuthChallengeEvent> = self.router.subscribe_to_service_request(id).await?;
         let response = rx.await_reply().await.ok_or(AppError::ListenerDisconnected)?.unwrap();
