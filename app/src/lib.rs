@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bitcoin::bip32;
 use portal::{
     app::handlers::{AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation},
     nostr::nips::nip19::ToBech32,
@@ -24,6 +25,59 @@ pub fn init_logger() {
 
 pub use portal::app::*;
 
+#[uniffi::export]
+pub fn generate_mnemonic() -> Result<Mnemonic, MnemonicError> {
+    let inner = bip39::Mnemonic::generate(12).map_err(|_| MnemonicError::InvalidMnemonic)?;
+    Ok(Mnemonic { inner })
+}
+
+#[derive(uniffi::Object)]
+pub struct Mnemonic {
+    inner: bip39::Mnemonic,
+}
+
+#[uniffi::export]
+impl Mnemonic {
+    #[uniffi::constructor]
+    pub fn new(words: &str) -> Result<Self, MnemonicError> {
+        let inner = bip39::Mnemonic::parse(words).map_err(|_| MnemonicError::InvalidMnemonic)?;
+        Ok(Self { inner })
+    }
+
+    pub fn get_keypair(&self) -> Result<Keypair, MnemonicError> {
+        let secp = bitcoin::secp256k1::Secp256k1::new();
+
+        let seed = self.inner.to_seed("");
+        let path = format!("m/44'/1237'/0'/0/0");
+        let xprv = bip32::Xpriv::new_master(bitcoin::Network::Bitcoin, &seed)
+            .map_err(|_| MnemonicError::InvalidMnemonic)?;
+        let private_key = xprv.derive_priv(&secp, &path.parse::<bip32::DerivationPath>().unwrap())
+            .map_err(|_| MnemonicError::InvalidMnemonic)?
+            .to_priv();
+
+        let keys = portal::nostr::Keys::new(portal::nostr::SecretKey::from_slice(&private_key.to_bytes()).unwrap());
+        Ok(Keypair {
+            inner: portal::protocol::LocalKeypair::new(keys, None),
+        })
+    }
+
+    pub fn to_string(&self) -> String {
+        self.inner.to_string()
+    }
+}
+
+#[derive(Debug, PartialEq, thiserror::Error, uniffi::Error)]
+pub enum MnemonicError {
+    #[error("Invalid mnemonic")]
+    InvalidMnemonic,
+}
+
+impl From<bip39::Error> for MnemonicError {
+    fn from(_: bip39::Error) -> Self {
+        MnemonicError::InvalidMnemonic
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct Keypair {
     inner: portal::protocol::LocalKeypair,
@@ -32,10 +86,9 @@ pub struct Keypair {
 #[uniffi::export]
 impl Keypair {
     #[uniffi::constructor]
-    pub fn new(nsec: &str, subkey_proof: Option<SubkeyProof>) -> Result<Self, KeypairError> {
-        let keys = portal::nostr::Keys::parse(nsec).map_err(|_| KeypairError::InvalidNsec)?;
+    pub fn new(keypair: Arc<Keypair>) -> Result<Self, KeypairError> {
         Ok(Self {
-            inner: portal::protocol::LocalKeypair::new(keys, subkey_proof),
+            inner: keypair.inner.clone(),
         })
     }
 

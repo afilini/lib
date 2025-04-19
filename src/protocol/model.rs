@@ -293,6 +293,7 @@ pub mod payment {
 #[cfg(feature = "bindings")]
 pub mod bindings {
     use std::ops::Deref;
+    use nostr::nips::nip19::ToBech32;
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -302,7 +303,7 @@ pub mod bindings {
 
     uniffi::custom_type!(PublicKey, String, {
         try_lift: |val| Ok(PublicKey(nostr::PublicKey::parse(&val)?)),
-        lower: |obj| obj.0.to_string(),
+        lower: |obj| obj.0.to_bech32().unwrap(),
     });
 
     impl From<nostr::PublicKey> for PublicKey {

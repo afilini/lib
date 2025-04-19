@@ -1,24 +1,25 @@
-import { View, StyleSheet, Button } from 'react-native';
-import { PortalApp, Keypair, parseAuthInitUrl, initLogger, AuthChallengeEvent, type AuthChallengeListener } from 'portal-app-lib';
+import { View, StyleSheet, Button, TextInput } from 'react-native';
+import { PortalApp, Keypair, parseAuthInitUrl, initLogger, AuthChallengeEvent, type AuthChallengeListener, Mnemonic, generateMnemonic } from 'portal-app-lib';
+import { useState } from 'react';
 
-let appListener: Promise<void> | null = null;
-
-async function main() {
+async function main(authInitUrl: string) {
   initLogger();
 
-  const keypair = new Keypair("nsec1w86jfju9yfpfxtcr6mhqmqrstzdvckkyrthdccdmqhk3xakvt3sqy5ud2k", undefined);
-  console.log(keypair.publicKey());
-  const url = parseAuthInitUrl("portal://npub1tzas2qztuv0hu86y9d6n04zkt32uadjqkdtgheudecqf7rl9n3escvl445?relays=wss%3A%2F%2Frelay.damus.io,wss%3A%2F%2Frelay.nostr.net&token=fJUx7w4eVaqLVJHyNAfn");
-  console.log(url);
   try {
-    if (appListener) {
-      // TODO: Cancel the previous listener
-      appListener = null;
-    }
+    // Generate a new random mnemonic
+    const mnemonic = generateMnemonic();
+    // Or load a mnemonic from a string
+    // const mnemonic = new Mnemonic("ocean citizen innocent sheriff kit much involve addict machine fine hill zone");
 
+    // Get a nostr keypair object (right now we only support master keys)
+    const keypair = mnemonic.getKeypair();
+    console.log(keypair.publicKey());
+
+    // Construct the app
     const app = await PortalApp.create(keypair, ["wss://relay.nostr.net"]);
-    appListener = app.listen(); // No await here because we want to listen in the background
+    app.listen(); // No await here because we want to listen in the background
 
+    // Setup the listener for auth challenges (login requests)
     class AuthChallengeListenerImpl implements AuthChallengeListener {
       async onAuthChallenge(event: AuthChallengeEvent): Promise<boolean> {
         console.log("Auth challenge received", event);
@@ -27,6 +28,11 @@ async function main() {
     }
     app.listenForAuthChallenge(new AuthChallengeListenerImpl());
 
+    // Parse the auth init url
+    const url = parseAuthInitUrl(authInitUrl);
+    console.log(url);
+
+    // Send the auth init request to the service
     await app.sendAuthInit(url);
     console.log("Auth init sent");
   } catch (error) {
@@ -35,10 +41,13 @@ async function main() {
 }
 
 export default function App() {
+  const [authInitUrl, setAuthInitUrl] = useState("");
+
   return (
     <View style={styles.container}>
+      <TextInput placeholder="Enter the auth init url" value={authInitUrl} onChangeText={setAuthInitUrl} />
       <Button title="Send Auth Init" onPress={() => {
-        main()
+        main(authInitUrl);
       }} />
     </View>
   );

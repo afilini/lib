@@ -15,3 +15,5 @@ android_logger = "0.15.0"
 log = "0.4.27"
 async = "0.0.0"
 async-trait = "0.1.88"
+bip39 = { version = "2.1.0", features = ["rand"] }
+bitcoin = "0.32.5"
