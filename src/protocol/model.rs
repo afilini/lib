@@ -219,7 +219,7 @@ pub mod identity {
 }
 
 pub mod payment {
-    use crate::protocol::calendar::Calendar;
+    use crate::protocol::calendar::CalendarWrapper;
 
     use super::{auth::SubkeyProof, *};
 
@@ -281,7 +281,7 @@ pub mod payment {
     #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct RecurrenceInfo {
         pub until: Option<Timestamp>,
-        pub calendar: Calendar,
+        pub calendar: CalendarWrapper,
         pub max_payments: Option<u32>,
         pub first_payment_due: Timestamp,
     }

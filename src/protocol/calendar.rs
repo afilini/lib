@@ -2,11 +2,13 @@ use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 use thiserror::Error;
 
 use super::model::Timestamp;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Object))]
 pub struct Calendar {
     /// Optional weekday specification (Mon,Tue..Fri)
     weekdays: Option<Vec<Weekday>>,
@@ -26,11 +28,36 @@ pub struct Calendar {
     timezone: Option<chrono_tz::Tz>,
 }
 
-#[cfg(feature = "bindings")]
-uniffi::custom_type!(Calendar, String, {
-    lower: |s| s.to_string(),
-    try_lift: |s| Ok(Calendar::from_str(&s)?),
-});
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+pub struct CalendarWrapper {
+    inner: Arc<Calendar>,
+}
+
+impl Serialize for CalendarWrapper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.inner.serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for CalendarWrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(CalendarWrapper {
+            inner: Arc::new(Calendar::deserialize(deserializer)?),
+        })
+    }
+}
+
+// #[cfg(feature = "bindings")]
+// uniffi::custom_type!(Calendar, String, {
+//     lower: |s| s.to_string(),
+//     try_lift: |s| Ok(Calendar::from_str(&s)?),
+// });
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TimeComponent<const MIN: u32, const MAX: u32> {
@@ -165,7 +192,6 @@ impl<const MIN: u32, const MAX: u32> TimeComponent<MIN, MAX> {
 // }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
 pub enum Weekday {
     Mon = 0,
     Tue = 1,
@@ -328,13 +354,13 @@ impl<const MIN: u32, const MAX: u32> fmt::Display for TimeComponent<MIN, MAX> {
             TimeComponent::Values(values) => {
                 let s = values
                     .iter()
-                    .map(|v| v.to_string())
+                    .map(|v| format!("{:02}", v))
                     .collect::<Vec<_>>()
                     .join(",");
                 write!(f, "{}", s)
             }
             TimeComponent::Range { start, end, step } => {
-                write!(f, "{}..{}", start, end)?;
+                write!(f, "{:02}..{:02}", start, end)?;
                 if let Some(step) = step {
                     write!(f, "/{}", step)?;
                 }
@@ -449,6 +475,112 @@ impl Calendar {
         }
     }
 
+    fn get_named_pattern(&self) -> Option<&str> {
+        // Check if this matches any of our named patterns
+        if self == &Self::minutely(self.timezone) {
+            return Some("Every minute");
+        }
+        if self == &Self::hourly(self.timezone) {
+            return Some("Every hour");
+        }
+        if self == &Self::daily(self.timezone) {
+            return Some("Daily");
+        }
+        if self == &Self::weekly(self.timezone) {
+            return Some("Weekly");
+        }
+        if self == &Self::monthly(self.timezone) {
+            return Some("Monthly");
+        }
+        if self == &Self::yearly(self.timezone) {
+            return Some("Yearly");
+        }
+        if self == &Self::quarterly(self.timezone) {
+            return Some("Quarterly");
+        }
+        if self == &Self::semiannually(self.timezone) {
+            return Some("Semi-annually");
+        }
+        None
+    }
+
+    fn get_frequency_text(&self) -> Option<String> {
+        // If not following a specific pattern, describe the recurring schedule
+        // Based on what components are Any vs specific
+        if matches!(self.day, TimeComponent::Any)
+            && matches!(self.month, TimeComponent::Any)
+            && matches!(self.year, TimeComponent::Any)
+        {
+            return Some("Every day".to_string());
+        }
+
+        // Check for specific day of month
+        if let TimeComponent::Values(ref days) = self.day {
+            if days.len() == 1 {
+                return Some(format!(
+                    "On the {} day of each month",
+                    Self::ordinal(days[0])
+                ));
+            }
+        }
+
+        // For more complex patterns
+        Some("On a custom schedule".to_string())
+    }
+
+    // Helper function to convert numbers to ordinals (1st, 2nd, 3rd, etc.)
+    fn ordinal(n: u32) -> String {
+        let suffix = match (n % 10, n % 100) {
+            (1, 11) | (2, 12) | (3, 13) => "th",
+            (1, _) => "st",
+            (2, _) => "nd",
+            (3, _) => "rd",
+            _ => "th",
+        };
+
+        format!("{}{}", n, suffix)
+    }
+
+    fn get_time_text(&self) -> Option<String> {
+        // For simple time patterns
+        if let (
+            TimeComponent::Values(hours),
+            TimeComponent::Values(mins),
+            TimeComponent::Values(secs),
+        ) = (&self.hour, &self.minute, &self.second)
+        {
+            if hours.len() == 1 && mins.len() == 1 && secs.len() == 1 {
+                let h = hours[0];
+                let m = mins[0];
+
+                // Special names for common times
+                if h == 12 && m == 0 {
+                    return Some("noon".to_string());
+                }
+                if h == 0 && m == 0 {
+                    return Some("midnight".to_string());
+                }
+
+                // Use AM/PM format
+                let period = if h >= 12 { "PM" } else { "AM" };
+                let h12 = if h == 0 {
+                    12
+                } else if h > 12 {
+                    h - 12
+                } else {
+                    h
+                };
+
+                return Some(format!("{:02}:{:02} {}", h12, m, period));
+            }
+        }
+
+        None
+    }
+}
+
+#[cfg_attr(feature = "bindings", uniffi::export)]
+impl Calendar {
     pub fn next_occurrence(&self, from: Timestamp) -> Option<Timestamp> {
         let timezone = self.timezone.as_ref().unwrap_or(&chrono_tz::Tz::UTC);
 
@@ -470,7 +602,8 @@ impl Calendar {
             _ => unreachable!(),
         };
 
-        self.year.iter(Some(from.year() as u32))
+        self.year
+            .iter(Some(from.year() as u32))
             .map(|y| {
                 let from = (y == from.year() as u32).then_some(from.month());
                 self.month.iter(from).map(move |m| (y, m))
@@ -519,6 +652,51 @@ impl Calendar {
             })
             .map(|dt| Timestamp::new(dt.timestamp() as u64))
             .next()
+    }
+
+    /// Convert a calendar to a human-readable description
+    ///
+    /// * `show_timezone` - Whether to include the timezone in the description (defaults to true)
+    pub fn to_human_readable(&self, show_timezone: bool) -> String {
+        // Special case for common patterns
+        if let Some(keyword) = self.get_named_pattern() {
+            return keyword.to_string();
+        }
+
+        let mut parts = Vec::new();
+
+        // Handle frequency: daily, weekly, monthly, etc.
+        if let Some(frequency) = self.get_frequency_text() {
+            parts.push(frequency);
+        }
+
+        // Specific days
+        if let Some(ref weekdays) = self.weekdays {
+            if weekdays.len() == 1 {
+                parts.push(format!("on {}", weekdays[0]));
+            } else {
+                let days = weekdays
+                    .iter()
+                    .map(|d| d.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                parts.push(format!("on {}", days));
+            }
+        }
+
+        // Specific time
+        if let Some(time_text) = self.get_time_text() {
+            parts.push(format!("at {}", time_text));
+        }
+
+        // Add timezone if present and requested
+        if show_timezone {
+            if let Some(tz) = &self.timezone {
+                parts.push(format!("({})", tz));
+            }
+        }
+
+        parts.join(" ")
     }
 }
 
@@ -650,6 +828,25 @@ impl fmt::Display for Calendar {
 
         // Time part
         write!(f, "{}:{}:{}", self.hour, self.minute, self.second)
+    }
+}
+
+impl Serialize for Calendar {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Calendar {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
 
@@ -828,6 +1025,182 @@ mod tests {
             chrono::DateTime::from_timestamp(last_occurrence.unwrap().as_u64() as i64, 0)
                 .unwrap()
                 .with_timezone(&chrono_tz::Europe::Rome)
+        );
+    }
+
+    #[test]
+    fn test_serialize() {
+        let cal = Calendar::minutely(None);
+        let s = serde_json::to_string(&cal).unwrap();
+        dbg!(&s);
+    }
+
+    #[test]
+    fn test_human_readable_formats() {
+        // Test standard named patterns
+        assert_eq!(
+            Calendar::minutely(None).to_human_readable(true),
+            "Every minute"
+        );
+        assert_eq!(Calendar::hourly(None).to_human_readable(true), "Every hour");
+        assert_eq!(Calendar::daily(None).to_human_readable(true), "Daily");
+        assert_eq!(Calendar::weekly(None).to_human_readable(true), "Weekly");
+        assert_eq!(Calendar::monthly(None).to_human_readable(true), "Monthly");
+        assert_eq!(Calendar::yearly(None).to_human_readable(true), "Yearly");
+        assert_eq!(
+            Calendar::quarterly(None).to_human_readable(true),
+            "Quarterly"
+        );
+        assert_eq!(
+            Calendar::semiannually(None).to_human_readable(true),
+            "Semi-annually"
+        );
+
+        // Test with timezone
+        let tz = Some(chrono_tz::US::Eastern);
+        assert_eq!(Calendar::daily(tz.clone()).to_human_readable(true), "Daily");
+
+        // Test timezone parameter
+        let cal_with_tz = Calendar {
+            weekdays: None,
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Values(vec![15]),
+            hour: TimeComponent::Values(vec![14]),
+            minute: TimeComponent::Values(vec![30]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: tz,
+        };
+        assert_eq!(
+            cal_with_tz.to_human_readable(true),
+            "On the 15th day of each month at 02:30 PM (US/Eastern)"
+        );
+        assert_eq!(
+            cal_with_tz.to_human_readable(false),
+            "On the 15th day of each month at 02:30 PM"
+        );
+
+        // Test ordinal day formats
+        let cal_1st = Calendar {
+            weekdays: None,
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Values(vec![1]),
+            hour: TimeComponent::Values(vec![9]),
+            minute: TimeComponent::Values(vec![0]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: None,
+        };
+        assert_eq!(
+            cal_1st.to_human_readable(true),
+            "On the 1st day of each month at 09:00 AM"
+        );
+
+        let cal_2nd = Calendar {
+            weekdays: None,
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Values(vec![2]),
+            hour: TimeComponent::Values(vec![14]),
+            minute: TimeComponent::Values(vec![30]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: None,
+        };
+        assert_eq!(
+            cal_2nd.to_human_readable(true),
+            "On the 2nd day of each month at 02:30 PM"
+        );
+
+        let cal_3rd = Calendar {
+            weekdays: None,
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Values(vec![3]),
+            hour: TimeComponent::Values(vec![0]),
+            minute: TimeComponent::Values(vec![0]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: None,
+        };
+        assert_eq!(
+            cal_3rd.to_human_readable(true),
+            "On the 3rd day of each month at midnight"
+        );
+
+        let cal_4th = Calendar {
+            weekdays: None,
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Values(vec![4]),
+            hour: TimeComponent::Values(vec![12]),
+            minute: TimeComponent::Values(vec![0]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: None,
+        };
+        assert_eq!(
+            cal_4th.to_human_readable(true),
+            "On the 4th day of each month at noon"
+        );
+
+        let cal_11th = Calendar {
+            weekdays: None,
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Values(vec![11]),
+            hour: TimeComponent::Values(vec![9]),
+            minute: TimeComponent::Values(vec![15]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: None,
+        };
+        assert_eq!(
+            cal_11th.to_human_readable(true),
+            "On the 11th day of each month at 09:15 AM"
+        );
+
+        let cal_21st = Calendar {
+            weekdays: None,
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Values(vec![21]),
+            hour: TimeComponent::Values(vec![9]),
+            minute: TimeComponent::Values(vec![15]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: None,
+        };
+        assert_eq!(
+            cal_21st.to_human_readable(true),
+            "On the 21st day of each month at 09:15 AM"
+        );
+
+        // Test weekday formatting
+        let cal_weekday = Calendar {
+            weekdays: Some(vec![Weekday::Mon, Weekday::Wed, Weekday::Fri]),
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Any,
+            hour: TimeComponent::Values(vec![17]),
+            minute: TimeComponent::Values(vec![0]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: None,
+        };
+        assert_eq!(
+            cal_weekday.to_human_readable(true),
+            "Every day on Mon, Wed, Fri at 05:00 PM"
+        );
+
+        // Test with timezone
+        let cal_tz = Calendar {
+            weekdays: None,
+            year: TimeComponent::Any,
+            month: TimeComponent::Any,
+            day: TimeComponent::Values(vec![15]),
+            hour: TimeComponent::Values(vec![14]),
+            minute: TimeComponent::Values(vec![30]),
+            second: TimeComponent::Values(vec![0]),
+            timezone: Some(chrono_tz::Europe::London),
+        };
+        assert_eq!(
+            cal_tz.to_human_readable(true),
+            "On the 15th day of each month at 02:30 PM (Europe/London)"
         );
     }
 }
