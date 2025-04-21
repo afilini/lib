@@ -91,7 +91,7 @@ impl<'de> Deserialize<'de> for Nonce {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Timestamp(u64);
 
 impl Timestamp {
