@@ -18,7 +18,7 @@ use nostr::{
     nips::nip44,
 };
 
-use crate::{protocol::LocalKeypair, utils::random_string};
+use crate::{protocol::{model::event_kinds::SUBKEY_PROOF, LocalKeypair}, utils::random_string};
 
 pub mod channel;
 pub mod adapters;
@@ -39,6 +39,7 @@ pub struct MessageRouter<C: Channel> {
     channel: C,
     keypair: LocalKeypair,
     conversations: Mutex<HashMap<String, Box<dyn Conversation + Send>>>,
+    aliases: Mutex<HashMap<String, Vec<u64>>>,
     subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<serde_json::Value>>>>,
 }
 
@@ -56,6 +57,7 @@ impl<C: Channel> MessageRouter<C> {
             channel,
             keypair,
             conversations: Mutex::new(HashMap::new()),
+            aliases: Mutex::new(HashMap::new()),
             subscribers: Mutex::new(HashMap::new()),
         }
     }
@@ -64,6 +66,7 @@ impl<C: Channel> MessageRouter<C> {
         // Remove conversation state
         self.conversations.lock().await.remove(conversation);
         self.subscribers.lock().await.remove(conversation);
+        let aliases = self.aliases.lock().await.remove(conversation);
 
         // Remove filters from relays
         self.channel
@@ -71,12 +74,21 @@ impl<C: Channel> MessageRouter<C> {
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
+        if let Some(aliases) = aliases {
+            for alias in aliases {
+                self.channel
+                    .unsubscribe(format!("{}_{}", conversation, alias))
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            }
+        }
         Ok(())
     }
 
     pub async fn purge(&mut self) {
         self.conversations.lock().await.clear();
         self.subscribers.lock().await.clear();
+        self.aliases.lock().await.clear();
     }
 
     /// Starts listening for incoming messages and routes them to the appropriate conversations.
@@ -139,6 +151,12 @@ impl<C: Channel> MessageRouter<C> {
             };
 
             let conversation_id = subscription_id.as_str();
+            let conversation_id = if let Some((id, _)) = conversation_id.split_once("_") {
+                id
+            } else {
+                conversation_id
+            };
+
             let response = match self.conversations.lock().await.get_mut(conversation_id) {
                 Some(conv) => match conv.on_message(message) {
                     Ok(response) => response,
@@ -178,6 +196,7 @@ impl<C: Channel> MessageRouter<C> {
                 .map_err(|e| ConversationError::Inner(Box::new(e)))?;
         }
 
+        let mut events_to_broadcast = vec![];
         for response in response.responses.iter() {
             log::trace!(
                 "Sending event of kind {:?} to {:?}",
@@ -202,14 +221,8 @@ impl<C: Channel> MessageRouter<C> {
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
                 log::trace!("Encrypted event: {:?}", event);
-
-                // TODO: should only send to selected relays
-                self.channel
-                    .broadcast(event)
-                    .await
-                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-                // TODO: wait for confirmation from relays
-            }
+                events_to_broadcast.push(event);
+           }
         }
 
         for notification in response.notifications.iter() {
@@ -219,6 +232,27 @@ impl<C: Channel> MessageRouter<C> {
                     let _ = sender.send(notification.clone()).await;
                 }
             }
+        }
+
+        if response.subscribe_to_subkey_proofs {
+            let alias_num = rand::random::<u64>();
+
+            self.aliases.lock().await.entry(id.to_string()).or_default().push(alias_num);
+
+            let filter = Filter::new().kinds(vec![Kind::Custom(SUBKEY_PROOF)]).events(events_to_broadcast.iter().map(|e| e.id));
+            self.channel
+                .subscribe(format!("{}_{}", id, alias_num), filter)
+                .await
+                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        }
+
+        for event in events_to_broadcast {
+            // TODO: should only send to selected relays
+            self.channel
+                .broadcast(event)
+                .await
+                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            // TODO: wait for confirmation from relays
         }
 
         if response.finished {
@@ -364,6 +398,7 @@ pub struct Response {
     responses: Vec<ResponseEntry>,
     notifications: Vec<serde_json::Value>,
     finished: bool,
+    subscribe_to_subkey_proofs: bool,
 }
 
 impl Response {
@@ -442,6 +477,12 @@ impl Response {
         self
     }
 
+    /// Subscribe to events that tag our replies via the event_id
+    pub fn subscribe_to_subkey_proofs(mut self) -> Self {
+        self.subscribe_to_subkey_proofs = true;
+        self
+    }
+
     fn set_recepient_keys(&mut self, user: PublicKey, subkeys: &HashSet<PublicKey>) {
         for response in &mut self.responses {
             if response.recepient_keys.is_empty() {
@@ -451,8 +492,9 @@ impl Response {
         }
     }
 
-    fn extend_responses(&mut self, response: Response) {
+    fn extend(&mut self, response: Response) {
         self.responses.extend(response.responses);
+        self.subscribe_to_subkey_proofs |= response.subscribe_to_subkey_proofs;
     }
 }
 

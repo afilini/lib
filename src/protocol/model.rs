@@ -182,7 +182,6 @@ pub mod auth {
     #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct SubkeyProof {
         pub main_key: PublicKey,
-        pub signature: String,
         pub metadata: SubkeyMetadata,
     }
 

@@ -78,7 +78,7 @@ impl<T: MultiKeyListener> Conversation for MultiKeyListenerAdapter<T> {
                     Ok(Response::new()
                         .reply_to(
                             event.pubkey.into(),
-                            Kind::from(SUBKEY_PROOF),
+                            Kind::Custom(SUBKEY_PROOF),
                             tags,
                             subkey_proof,
                         ))

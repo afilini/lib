@@ -7,8 +7,7 @@ use std::{
 use serde::de::DeserializeOwned;
 
 use nostr::{
-    event::Kind,
-    key::PublicKey,
+    event::Kind, filter::Filter, key::PublicKey
 };
 
 use crate::protocol::model::{auth::SubkeyProof, event_kinds::SUBKEY_PROOF};
@@ -23,7 +22,7 @@ pub trait MultiKeySender: Sized + Send + 'static {
     type Error: std::error::Error + Send + Sync + 'static;
     type Message: DeserializeOwned;
 
-    fn init(_state: &MultiKeySenderAdapter<Self>) -> Result<Response, Self::Error>;
+    fn get_filter(_state: &MultiKeySenderAdapter<Self>) -> Result<Filter, Self::Error>;
 
     fn build_initial_message(
         _state: &mut MultiKeySenderAdapter<Self>,
@@ -55,15 +54,14 @@ pub struct MultiKeySenderAdapter<Inner> {
 
 impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
     fn init(&mut self) -> Result<Response, ConversationError> {
-        // Call init first, this normally sets up the filters
-        let mut response = <T as MultiKeySender>::init(self).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        // Make a call to get the filter
+        let filter = <T as MultiKeySender>::get_filter(self).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        // Also listen for SUBKEY_PROOF messages
+        let filter = filter.kind(Kind::Custom(SUBKEY_PROOF));
 
         // Then build the initial message, this will be sent to the user
-        let initial_message = <T as MultiKeySender>::build_initial_message(self, None).map_err(|e| ConversationError::Inner(Box::new(e)))?;
-        response.extend_responses(initial_message);
-
-        // Also listen for SUBKEY_PROOF messages
-        response.filter = response.filter.kind(Kind::Custom(SUBKEY_PROOF));
+        let mut response = <T as MultiKeySender>::build_initial_message(self, None).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        response.filter = filter;
 
         response.set_recepient_keys(self.user, &self.subkeys);
 
@@ -115,7 +113,13 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
                         <T as MultiKeySender>::build_initial_message(self, Some(event.pubkey))
                     };
 
-                    response_result.map_err(|e| ConversationError::Inner(Box::new(e)))
+                    let mut response = response_result.map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                    // Update the filter to reflect the new subkeys
+                    response.filter = <T as MultiKeySender>::get_filter(self).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                    // Add the SUBKEY_PROOF kind to the filter
+                    response.filter = response.filter.kinds(vec![Kind::Custom(SUBKEY_PROOF)]);
+
+                    Ok(response)
                 } else {
                     Ok(Response::default())
                 }

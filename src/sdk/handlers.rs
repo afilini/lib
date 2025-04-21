@@ -105,7 +105,7 @@ impl MultiKeySender for AuthChallengeSenderConversation {
     type Error = ConversationError;
     type Message = AuthResponseContent;
 
-    fn init(state: &crate::router::MultiKeySenderAdapter<Self>) -> Result<Response, Self::Error> {
+    fn get_filter(state: &crate::router::MultiKeySenderAdapter<Self>) -> Result<Filter, Self::Error> {
         let mut filter = Filter::new()
             .kinds(vec![Kind::from(AUTH_RESPONSE)])
             .authors(
@@ -121,7 +121,7 @@ impl MultiKeySender for AuthChallengeSenderConversation {
             filter = filter.pubkey(subkey_proof.main_key.into());
         }
 
-        Ok(Response::new().filter(filter))
+        Ok(filter)
     }
 
     fn build_initial_message(
@@ -143,14 +143,14 @@ impl MultiKeySender for AuthChallengeSenderConversation {
             .collect();
 
         if let Some(new_key) = new_key {
-            Ok(Response::new().reply_to(
+            Ok(Response::new().subscribe_to_subkey_proofs().reply_to(
                 new_key,
                 Kind::from(AUTH_CHALLENGE),
                 tags,
                 content,
             ))
         } else {
-            Ok(Response::new().reply_all(
+            Ok(Response::new().subscribe_to_subkey_proofs().reply_all(
                 Kind::from(AUTH_CHALLENGE),
                 tags,
                 content,

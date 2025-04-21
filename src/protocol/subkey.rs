@@ -9,11 +9,14 @@ use std::ops::Deref;
 
 use crate::protocol::model::{Nonce, Timestamp};
 
+use super::model::auth::SubkeyProof;
+
 /// A subkey with its associated metadata
 #[derive(Debug, Clone)]
 pub struct Subkey {
     key: Keys,
     metadata: SubkeyMetadata,
+    master_public: PublicKey,
 }
 
 impl Deref for Subkey {
@@ -25,12 +28,19 @@ impl Deref for Subkey {
 }
 
 impl Subkey {
-    pub fn new(key: Keys, metadata: SubkeyMetadata) -> Self {
-        Self { key, metadata }
+    pub fn new(key: Keys, metadata: SubkeyMetadata, master_public: PublicKey) -> Self {
+        Self { key, metadata, master_public }
     }
 
     pub fn metadata(&self) -> &SubkeyMetadata {
         &self.metadata
+    }
+
+    pub fn split(self) -> (Keys, SubkeyProof) {
+        (self.key, SubkeyProof {
+            main_key: self.master_public.into(),
+            metadata: self.metadata,
+        })
     }
 }
 
@@ -116,7 +126,9 @@ impl PrivateSubkeyManager for Keys {
         let tweaked_key = secret_key.add_tweak(&tweak)?;
         let key_pair = Keys::new(nostr::SecretKey::from(tweaked_key));
 
-        Ok(Subkey::new(key_pair, metadata.clone()))
+        let master_public = self.public_key();
+
+        Ok(Subkey::new(key_pair, metadata.clone(), master_public))
     }
 }
 

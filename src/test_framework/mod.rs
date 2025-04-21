@@ -17,6 +17,8 @@ use crate::{
     router::{Conversation, ConversationError, MessageRouter, channel::Channel},
 };
 
+pub mod logger;
+
 /// A simulated channel that broadcasts messages to all connected nodes
 pub struct SimulatedChannel {
     subscribers: Arc<RwLock<HashMap<String, (Filter, mpsc::Sender<RelayPoolNotification>)>>>,
@@ -68,7 +70,7 @@ impl Channel for SimulatedChannel {
 
     async fn subscribe(&self, id: String, filter: Filter) -> Result<(), Self::Error> {
         // Use the first sender for subscribers
-        self.subscribers.write().await.entry(id.clone()).or_insert((filter, self.my_sender.clone()));
+        self.subscribers.write().await.insert(id.clone(), (filter, self.my_sender.clone()));
 
         // Send any existing messages that match the filter
         // let messages = self.messages.lock().await;
