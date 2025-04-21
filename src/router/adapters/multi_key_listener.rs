@@ -13,7 +13,9 @@ use nostr::{
 
 use crate::protocol::model::{auth::SubkeyProof, event_kinds::SUBKEY_PROOF};
 
-use crate::router::{CleartextEvent, Conversation, ConversationError, ConversationMessage, Response};
+use crate::router::{
+    CleartextEvent, Conversation, ConversationError, ConversationMessage, Response,
+};
 
 pub trait MultiKeyListener: Sized + Send + 'static {
     const VALIDITY_SECONDS: u64;
@@ -31,7 +33,7 @@ pub trait MultiKeyListener: Sized + Send + 'static {
 }
 
 /// A listener conversation wrapper that handles key switching
-/// 
+///
 /// This is specifically used for listeners which follow this pattern:
 ///   1. Set some filters to listen for messages of a specific kind
 ///   2. Potentially receive an encrypted message because it was sent to the main key or another subkey
@@ -47,7 +49,8 @@ pub struct MultiKeyListenerAdapter<Inner> {
 impl<T: MultiKeyListener> Conversation for MultiKeyListenerAdapter<T> {
     fn init(&mut self) -> Result<Response, ConversationError> {
         // Call init first, this normally sets up the filters
-        let mut response = <T as MultiKeyListener>::init(self).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        let mut response = <T as MultiKeyListener>::init(self)
+            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
         if let Some(user) = self.user {
             response.set_recepient_keys(user, &HashSet::new());
@@ -74,14 +77,15 @@ impl<T: MultiKeyListener> Conversation for MultiKeyListenerAdapter<T> {
             }
             ConversationMessage::Encrypted(event) => {
                 if let Some(subkey_proof) = self.subkey_proof.clone() {
-                    let tags = vec![Tag::public_key(event.pubkey), Tag::event(event.id)].into_iter().collect();
-                    Ok(Response::new()
-                        .reply_to(
-                            event.pubkey.into(),
-                            Kind::Custom(SUBKEY_PROOF),
-                            tags,
-                            subkey_proof,
-                        ))
+                    let tags = vec![Tag::public_key(event.pubkey), Tag::event(event.id)]
+                        .into_iter()
+                        .collect();
+                    Ok(Response::new().reply_to(
+                        event.pubkey.into(),
+                        Kind::Custom(SUBKEY_PROOF),
+                        tags,
+                        subkey_proof,
+                    ))
                 } else {
                     Ok(Response::default())
                 }

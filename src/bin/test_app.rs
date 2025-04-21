@@ -1,14 +1,11 @@
 use std::{io::Write, str::FromStr, sync::Arc};
 
-use nostr::{
-    Keys,
-    nips::nip19::ToBech32,
-};
+use nostr::{Keys, nips::nip19::ToBech32};
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
-    app::auth::AuthInitConversation, protocol::{
-        auth_init::AuthInitUrl, LocalKeypair
-    }, router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter}
+    app::auth::AuthInitConversation,
+    protocol::{LocalKeypair, auth_init::AuthInitUrl},
+    router::{MessageRouter, adapters::one_shot::OneShotSenderAdapter},
 };
 
 #[tokio::main]
@@ -55,7 +52,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map(|r| r.to_string())
             .collect(),
     };
-    router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(conv.url.send_to(), conv.url.subkey.map(|s| vec![s.into()]).unwrap_or_default(), conv))).await?;
+    router
+        .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+            conv.url.send_to(),
+            conv.url.subkey.map(|s| vec![s.into()]).unwrap_or_default(),
+            conv,
+        )))
+        .await?;
 
     Ok(())
     //

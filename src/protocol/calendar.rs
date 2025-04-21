@@ -1,8 +1,8 @@
+use chrono::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
-use serde::{Serialize, Deserialize};
-use chrono::prelude::*;
 
 use super::model::Timestamp;
 
@@ -73,11 +73,11 @@ impl<const MIN: u32, const MAX: u32> TimeComponent<MIN, MAX> {
                     Err(i) => i,
                 };
                 Box::new(values.clone().into_iter().take(pos))
-            },
+            }
             TimeComponent::Range { start, end, step } => {
                 let step = step.unwrap_or(1);
                 let mut range_start = std::cmp::max(*start, from.unwrap_or(MIN));
-                let round_factor =  (*start % step) as i32 - (range_start % step) as i32;
+                let round_factor = (*start % step) as i32 - (range_start % step) as i32;
                 if round_factor < 0 {
                     range_start += (step as i32 + round_factor) as u32;
                 } else {
@@ -97,7 +97,7 @@ impl<const MIN: u32, const MAX: u32> TimeComponent<MIN, MAX> {
 //         pub struct $name(pub TimeComponent<$min, $max>);
 //         impl Deref for $name {
 //             type Target = TimeComponent<$min, $max>;
-// 
+//
 //             fn deref(&self) -> &Self::Target {
 //                 &self.0
 //             }
@@ -112,7 +112,7 @@ impl<const MIN: u32, const MAX: u32> TimeComponent<MIN, MAX> {
 //                 write!(f, "{}", self.0)
 //             }
 //         }
-// 
+//
 //         uniffi::custom_type!($name, TimeComponent<0, 2099>, {
 //             lower: |s| s.lower(),
 //             try_lift: |s| Ok($name(s.try_lift()?)),
@@ -244,17 +244,23 @@ impl<const MIN: u32, const MAX: u32> FromStr for TimeComponent<MIN, MAX> {
             let start = parts[0].parse().map_err(|_| {
                 CalendarError::InvalidTimeComponent(format!("Invalid start value: {}", parts[0]))
             })?;
-            
+
             let (end, step) = if parts[1].contains('/') {
                 let step_parts: Vec<&str> = parts[1].split('/').collect();
                 if step_parts.len() != 2 {
                     return Err(CalendarError::InvalidTimeComponent(s.to_string()));
                 }
                 let end = step_parts[0].parse().map_err(|_| {
-                    CalendarError::InvalidTimeComponent(format!("Invalid end value: {}", step_parts[0]))
+                    CalendarError::InvalidTimeComponent(format!(
+                        "Invalid end value: {}",
+                        step_parts[0]
+                    ))
                 })?;
                 let step = step_parts[1].parse().map_err(|_| {
-                    CalendarError::InvalidTimeComponent(format!("Invalid step value: {}", step_parts[1]))
+                    CalendarError::InvalidTimeComponent(format!(
+                        "Invalid step value: {}",
+                        step_parts[1]
+                    ))
                 })?;
                 (end, Some(step))
             } else {
@@ -269,7 +275,10 @@ impl<const MIN: u32, const MAX: u32> FromStr for TimeComponent<MIN, MAX> {
             }
 
             if start < MIN || end > MAX {
-                return Err(CalendarError::InvalidTimeComponent(format!("Range {}-{} is out of range", start, end)));
+                return Err(CalendarError::InvalidTimeComponent(format!(
+                    "Range {}-{} is out of range",
+                    start, end
+                )));
             }
 
             Ok(TimeComponent::Range { start, end, step })
@@ -277,15 +286,20 @@ impl<const MIN: u32, const MAX: u32> FromStr for TimeComponent<MIN, MAX> {
             let mut values = s
                 .split(',')
                 .map(|v| {
-                    v.parse::<u32>().map_err(|_| {
-                        CalendarError::InvalidTimeComponent(format!("Invalid value: {}", v))
-                    }).and_then(|v| {
-                        if v < MIN || v > MAX {
-                            Err(CalendarError::InvalidTimeComponent(format!("Value {} is out of range", v)))
-                        } else {
-                            Ok(v)
-                        }
-                    })
+                    v.parse::<u32>()
+                        .map_err(|_| {
+                            CalendarError::InvalidTimeComponent(format!("Invalid value: {}", v))
+                        })
+                        .and_then(|v| {
+                            if v < MIN || v > MAX {
+                                Err(CalendarError::InvalidTimeComponent(format!(
+                                    "Value {} is out of range",
+                                    v
+                                )))
+                            } else {
+                                Ok(v)
+                            }
+                        })
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             values.sort();
@@ -296,7 +310,10 @@ impl<const MIN: u32, const MAX: u32> FromStr for TimeComponent<MIN, MAX> {
             })?;
 
             if value < MIN || value > MAX {
-                return Err(CalendarError::InvalidTimeComponent(format!("Value {} is out of range", value)));
+                return Err(CalendarError::InvalidTimeComponent(format!(
+                    "Value {} is out of range",
+                    value
+                )));
             }
 
             Ok(TimeComponent::Values(vec![value]))
@@ -429,7 +446,7 @@ impl Calendar {
             minute: TimeComponent::Values(vec![0]).into(),
             second: TimeComponent::Values(vec![0]).into(),
             timezone,
-            }
+        }
     }
 
     pub fn next_occurrence(&self, from: Timestamp) -> Option<Timestamp> {
@@ -440,50 +457,68 @@ impl Calendar {
             .with_timezone(timezone);
 
         let is_leap_year = |year: u32| year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-        let days_in_month = |year: u32, month: u32| {
-            match month {
-                1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-                4 | 6 | 9 | 11 => 30,
-                2 => if is_leap_year(year) { 29 } else { 28 },
-                _ => unreachable!(),
+        let days_in_month = |year: u32, month: u32| match month {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 => {
+                if is_leap_year(year) {
+                    29
+                } else {
+                    28
+                }
             }
+            _ => unreachable!(),
         };
 
-        let years = self.year.iter(Some(from.year() as u32));
-        years.map(|y| {
-            let from = if y == from.year() as u32 { Some(from.month() as u32) } else { None };
-            let months = self.month.iter(from).map(move |m| (y, m));
-            months
-        }).flatten().map(|(y, m)| {
-            let from = if m == from.month() as u32 { Some(from.day() as u32) } else { None };
-            let days_in_month = days_in_month(y, m);
-            let days = self.day.iter(from).map(move |d| (y, m, d)).filter(move |(_, _, d)| *d <= days_in_month);
-            days
-        })
-        .flatten()
-        .filter(|(y, m, d)| {
-            let weekday = NaiveDate::from_ymd_opt(*y as i32, *m as u32, *d as u32).expect("Invalid date").weekday() as u8;
-            self.weekdays.as_ref().map(|l| l.iter().any(|d| *d as u8 == weekday)).unwrap_or(true)
-        })
-        .map(|(y, m, d)| {
-            let from = if d == from.day() as u32 { Some(from.hour() as u32) } else { None };
-            let hours = self.hour.iter(from).map(move |h| (y, m, d, h));
-            hours
-        }).flatten().map(|(y, m, d, h)| {
-            let from = if h == from.hour() as u32 { Some(from.minute() as u32) } else { None };
-            let minutes = self.minute.iter(from).map(move |mi| (y, m, d, h, mi));
-            minutes
-        }).flatten().map(|(y, m, d, h, mi)| {
-            let from = if mi == from.minute() as u32 { Some(from.second() as u32) } else { None };
-            let seconds = self.second.iter(from).map(move |s| (y, m, d, h, mi, s));
-            seconds
-        })
-        .flatten()
-        .filter_map(|(y, m, d, h, mi, s)| {
-            NaiveDateTime::new(NaiveDate::from_ymd_opt(y as i32, m as u32, d as u32)
-                .expect("Invalid date"), NaiveTime::from_hms_opt(h as u32, mi as u32, s as u32).expect("Invalid time")).and_local_timezone(*timezone)
+        self.year.iter(Some(from.year() as u32))
+            .map(|y| {
+                let from = (y == from.year() as u32).then_some(from.month());
+                self.month.iter(from).map(move |m| (y, m))
+            })
+            .flatten()
+            .map(|(y, m)| {
+                let from = (m == from.month()).then_some(from.day());
+                let days_in_month = days_in_month(y, m);
+                self.day
+                    .iter(from)
+                    .map(move |d| (y, m, d))
+                    .filter(move |(_, _, d)| *d <= days_in_month)
+            })
+            .flatten()
+            .filter(|(y, m, d)| {
+                let weekday = NaiveDate::from_ymd_opt(*y as i32, *m, *d)
+                    .expect("Invalid date")
+                    .weekday() as u8;
+                self.weekdays
+                    .as_ref()
+                    .map(|l| l.iter().any(|d| *d as u8 == weekday))
+                    .unwrap_or(true)
+            })
+            .map(|(y, m, d)| {
+                let from = (d == from.day()).then_some(from.hour());
+                self.hour.iter(from).map(move |h| (y, m, d, h))
+            })
+            .flatten()
+            .map(|(y, m, d, h)| {
+                let from = (h == from.hour()).then_some(from.minute());
+                self.minute.iter(from).map(move |mi| (y, m, d, h, mi))
+            })
+            .flatten()
+            .map(|(y, m, d, h, mi)| {
+                let from = (mi == from.minute()).then_some(from.second());
+                self.second.iter(from).map(move |s| (y, m, d, h, mi, s))
+            })
+            .flatten()
+            .filter_map(|(y, m, d, h, mi, s)| {
+                NaiveDateTime::new(
+                    NaiveDate::from_ymd_opt(y as i32, m as u32, d as u32).expect("Invalid date"),
+                    NaiveTime::from_hms_opt(h as u32, mi as u32, s as u32).expect("Invalid time"),
+                )
+                .and_local_timezone(*timezone)
                 .earliest()
-        }).next().map(|dt| Timestamp::new(dt.timestamp() as u64))
+            })
+            .map(|dt| Timestamp::new(dt.timestamp() as u64))
+            .next()
     }
 }
 
@@ -550,9 +585,10 @@ impl FromStr for Calendar {
                 weekdays = Some(weekday_list);
             } else if time_parts.is_some() {
                 // Could be the timezone, but it only comes after the time
-                timezone = Some(part
-                    .parse::<chrono_tz::Tz>()
-                    .map_err(|_| CalendarError::InvalidTimezone(part.to_string()))?);
+                timezone = Some(
+                    part.parse::<chrono_tz::Tz>()
+                        .map_err(|_| CalendarError::InvalidTimezone(part.to_string()))?,
+                );
             } else {
                 return Err(CalendarError::InvalidFormat);
             }
@@ -575,7 +611,7 @@ impl FromStr for Calendar {
                 let hour = parts.get(0).unwrap_or(&"*").parse()?;
                 let minute = parts.get(1).unwrap_or(&"*").parse()?;
                 let second = parts.get(2).unwrap_or(&"0").parse()?;
-                
+
                 (hour, minute, second)
             }
             None => (
@@ -647,7 +683,10 @@ mod tests {
 
     #[test]
     fn test_parse_time_component() {
-        assert_eq!(TimeComponent::<0, 23>::from_str("*").unwrap(), TimeComponent::Any);
+        assert_eq!(
+            TimeComponent::<0, 23>::from_str("*").unwrap(),
+            TimeComponent::Any
+        );
         assert_eq!(
             TimeComponent::<0, 23>::from_str("1,2,3").unwrap(),
             TimeComponent::Values(vec![1, 2, 3])
@@ -672,12 +711,27 @@ mod tests {
 
     #[test]
     fn test_parse_special_keywords() {
-        assert_eq!(Calendar::from_str("minutely").unwrap(), Calendar::minutely(None));
-        assert_eq!(Calendar::from_str("hourly").unwrap(), Calendar::hourly(None));
+        assert_eq!(
+            Calendar::from_str("minutely").unwrap(),
+            Calendar::minutely(None)
+        );
+        assert_eq!(
+            Calendar::from_str("hourly").unwrap(),
+            Calendar::hourly(None)
+        );
         assert_eq!(Calendar::from_str("daily").unwrap(), Calendar::daily(None));
-        assert_eq!(Calendar::from_str("weekly").unwrap(), Calendar::weekly(None));
-        assert_eq!(Calendar::from_str("monthly").unwrap(), Calendar::monthly(None));
-        assert_eq!(Calendar::from_str("yearly").unwrap(), Calendar::yearly(None));
+        assert_eq!(
+            Calendar::from_str("weekly").unwrap(),
+            Calendar::weekly(None)
+        );
+        assert_eq!(
+            Calendar::from_str("monthly").unwrap(),
+            Calendar::monthly(None)
+        );
+        assert_eq!(
+            Calendar::from_str("yearly").unwrap(),
+            Calendar::yearly(None)
+        );
         assert_eq!(
             Calendar::from_str("quarterly").unwrap(),
             Calendar::quarterly(None)
@@ -756,11 +810,24 @@ mod tests {
 
     #[test]
     fn test_next_occurrence() {
-        let s =  "Mon,Wed 2020..2030/2-03..06/3-01,05,06 08..09/3:00,30:00 Europe/Rome";
+        let s = "Mon,Wed 2020..2030/2-03..06/3-01,05,06 08..09/3:00,30:00 Europe/Rome";
         dbg!(&s);
         let cal: Calendar = s.parse().unwrap();
         let last_occurrence = cal.next_occurrence(Timestamp::new(1744993853));
         assert_eq!(last_occurrence, Some(Timestamp::new(1780293600)));
-        dbg!(chrono::DateTime::from_timestamp(last_occurrence.unwrap().as_u64() as i64, 0).unwrap().with_timezone(&chrono_tz::Europe::Rome));
+        dbg!(
+            chrono::DateTime::from_timestamp(last_occurrence.unwrap().as_u64() as i64, 0)
+                .unwrap()
+                .with_timezone(&chrono_tz::Europe::Rome)
+        );
+
+        let cal = dbg!("Thu *-02-29").parse::<Calendar>().unwrap();
+        let last_occurrence = cal.next_occurrence(Timestamp::new(1744993853));
+        assert_eq!(last_occurrence, Some(Timestamp::new(2592777600)));
+        dbg!(
+            chrono::DateTime::from_timestamp(last_occurrence.unwrap().as_u64() as i64, 0)
+                .unwrap()
+                .with_timezone(&chrono_tz::Europe::Rome)
+        );
     }
-} 
+}

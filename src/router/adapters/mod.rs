@@ -2,7 +2,7 @@
 //!
 //! This module contains adapters for conversations that follow specific patterns.
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use super::Conversation;
 

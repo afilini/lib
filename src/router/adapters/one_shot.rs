@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    ops::Deref,
-};
+use std::{collections::HashSet, ops::Deref};
 
 use nostr::key::PublicKey;
 
@@ -23,7 +20,8 @@ pub struct OneShotSenderAdapter<Inner> {
 impl<T: OneShotSender> Conversation for OneShotSenderAdapter<T> {
     fn init(&mut self) -> Result<Response, ConversationError> {
         // Call init first, this normally sets up the filters
-        let mut response = <T as OneShotSender>::send(self).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        let mut response =
+            <T as OneShotSender>::send(self).map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
         // Force the conversation to close immediately
         response = response.finish();

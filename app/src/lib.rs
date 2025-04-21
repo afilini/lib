@@ -2,23 +2,27 @@ use std::sync::Arc;
 
 use bitcoin::bip32;
 use portal::{
-    app::handlers::{AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation},
+    app::handlers::{
+        AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation,
+        AuthResponseConversation,
+    },
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
     protocol::{auth_init::AuthInitUrl, model::auth::SubkeyProof},
-    router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream},
+    router::{
+        MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream,
+        adapters::one_shot::OneShotSenderAdapter,
+    },
 };
 
 uniffi::setup_scaffolding!();
 
 #[uniffi::export]
 pub fn init_logger() {
-    use log::LevelFilter;
     use android_logger::Config;
+    use log::LevelFilter;
 
-    android_logger::init_once(
-        Config::default().with_max_level(LevelFilter::Trace),
-    );
+    android_logger::init_once(Config::default().with_max_level(LevelFilter::Trace));
 
     log::info!("Logger initialized");
 }
@@ -51,11 +55,14 @@ impl Mnemonic {
         let path = format!("m/44'/1237'/0'/0/0");
         let xprv = bip32::Xpriv::new_master(bitcoin::Network::Bitcoin, &seed)
             .map_err(|_| MnemonicError::InvalidMnemonic)?;
-        let private_key = xprv.derive_priv(&secp, &path.parse::<bip32::DerivationPath>().unwrap())
+        let private_key = xprv
+            .derive_priv(&secp, &path.parse::<bip32::DerivationPath>().unwrap())
             .map_err(|_| MnemonicError::InvalidMnemonic)?
             .to_priv();
 
-        let keys = portal::nostr::Keys::new(portal::nostr::SecretKey::from_slice(&private_key.to_bytes()).unwrap());
+        let keys = portal::nostr::Keys::new(
+            portal::nostr::SecretKey::from_slice(&private_key.to_bytes()).unwrap(),
+        );
         Ok(Keypair {
             inner: portal::protocol::LocalKeypair::new(keys, None),
         })
@@ -118,7 +125,6 @@ pub struct PortalApp {
     router: Arc<MessageRouter<RelayPool>>,
 }
 
-
 #[uniffi::export]
 pub fn parse_auth_init_url(url: &str) -> Result<AuthInitUrl, ParseError> {
     use std::str::FromStr;
@@ -180,7 +186,11 @@ impl PortalApp {
             .collect();
         let _id = self
             .router
-            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(url.send_to(), url.subkey.map(|s| vec![s.into()]).unwrap_or_default(), AuthInitConversation { url, relays })))
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                url.send_to(),
+                url.subkey.map(|s| vec![s.into()]).unwrap_or_default(),
+                AuthInitConversation { url, relays },
+            )))
             .await?;
         // let rx = self.router.subscribe_to_service_request(id).await?;
         // let response = rx.await_reply().await.map_err(AppError::ConversationError)?;
@@ -188,9 +198,18 @@ impl PortalApp {
         Ok(())
     }
 
-    pub async fn listen_for_auth_challenge(&self, evt: Arc<dyn AuthChallengeListener>) -> Result<(), AppError> {
+    pub async fn listen_for_auth_challenge(
+        &self,
+        evt: Arc<dyn AuthChallengeListener>,
+    ) -> Result<(), AppError> {
         let inner = AuthChallengeListenerConversation::new(self.router.keypair().public_key());
-        let mut rx = self.router.add_and_subscribe(MultiKeyListenerAdapter::new(inner, self.router.keypair().subkey_proof().cloned())).await?;
+        let mut rx = self
+            .router
+            .add_and_subscribe(MultiKeyListenerAdapter::new(
+                inner,
+                self.router.keypair().subkey_proof().cloned(),
+            ))
+            .await?;
 
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             log::debug!("Received auth challenge: {:?}", response);
@@ -199,8 +218,18 @@ impl PortalApp {
             log::debug!("Auth challenge callback result: {:?}", result);
 
             if result {
-                let approve = AuthResponseConversation::new(response.clone(), vec![], self.router.keypair().subkey_proof().cloned());
-                self.router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(response.recipient.into(), vec![], approve))).await?;
+                let approve = AuthResponseConversation::new(
+                    response.clone(),
+                    vec![],
+                    self.router.keypair().subkey_proof().cloned(),
+                );
+                self.router
+                    .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                        response.recipient.into(),
+                        vec![],
+                        approve,
+                    )))
+                    .await?;
             } else {
                 // TODO: send explicit rejection
             }

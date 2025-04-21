@@ -29,7 +29,11 @@ impl Deref for Subkey {
 
 impl Subkey {
     pub fn new(key: Keys, metadata: SubkeyMetadata, master_public: PublicKey) -> Self {
-        Self { key, metadata, master_public }
+        Self {
+            key,
+            metadata,
+            master_public,
+        }
     }
 
     pub fn metadata(&self) -> &SubkeyMetadata {
@@ -37,10 +41,13 @@ impl Subkey {
     }
 
     pub fn split(self) -> (Keys, SubkeyProof) {
-        (self.key, SubkeyProof {
-            main_key: self.master_public.into(),
-            metadata: self.metadata,
-        })
+        (
+            self.key,
+            SubkeyProof {
+                main_key: self.master_public.into(),
+                metadata: self.metadata,
+            },
+        )
     }
 }
 

@@ -1,16 +1,8 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
-use nostr::{
-    event::Event,
-    filter::Filter,
-    message::SubscriptionId,
-    RelayUrl,
-};
+use nostr::{RelayUrl, event::Event, filter::Filter, message::SubscriptionId};
 use nostr_relay_pool::RelayPoolNotification;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 
 use crate::{
     protocol::LocalKeypair,
@@ -44,11 +36,11 @@ impl SimulatedChannel {
 impl SimulatedChannel {
     async fn clone(&self) -> Self {
         let (tx, rx) = mpsc::channel(32);
-        
+
         // Add the new sender and receiver to their respective lists
         let mut senders = self.senders.lock().await;
         senders.push(tx.clone());
-        
+
         Self {
             subscribers: self.subscribers.clone(),
             messages: self.messages.clone(),
@@ -70,7 +62,10 @@ impl Channel for SimulatedChannel {
 
     async fn subscribe(&self, id: String, filter: Filter) -> Result<(), Self::Error> {
         // Use the first sender for subscribers
-        self.subscribers.write().await.insert(id.clone(), (filter, self.my_sender.clone()));
+        self.subscribers
+            .write()
+            .await
+            .insert(id.clone(), (filter, self.my_sender.clone()));
 
         // Send any existing messages that match the filter
         // let messages = self.messages.lock().await;
@@ -141,7 +136,11 @@ impl SimulatedNetwork {
     }
 
     /// Add a new node to the network
-    pub async fn add_node(&mut self, id: String, keypair: LocalKeypair) -> Arc<MessageRouter<SimulatedChannel>> {
+    pub async fn add_node(
+        &mut self,
+        id: String,
+        keypair: LocalKeypair,
+    ) -> Arc<MessageRouter<SimulatedChannel>> {
         let router = Arc::new(MessageRouter::new(self.channel.clone().await, keypair));
         self.nodes.insert(id, Arc::clone(&router));
         router
@@ -209,8 +208,10 @@ mod tests {
         let keys2 = Keys::generate();
 
         let network = ScenarioBuilder::new()
-            .with_node("node1".to_string(), LocalKeypair::new(keys1, None)).await
-            .with_node("node2".to_string(), LocalKeypair::new(keys2, None)).await
+            .with_node("node1".to_string(), LocalKeypair::new(keys1, None))
+            .await
+            .with_node("node2".to_string(), LocalKeypair::new(keys2, None))
+            .await
             .run()
             .await;
 
@@ -220,4 +221,4 @@ mod tests {
     }
 
     pub mod auth_scenario;
-} 
+}

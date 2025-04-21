@@ -18,13 +18,16 @@ use nostr::{
     nips::nip44,
 };
 
-use crate::{protocol::{model::event_kinds::SUBKEY_PROOF, LocalKeypair}, utils::random_string};
+use crate::{
+    protocol::{LocalKeypair, model::event_kinds::SUBKEY_PROOF},
+    utils::random_string,
+};
 
-pub mod channel;
 pub mod adapters;
+pub mod channel;
 
-pub use adapters::multi_key_sender::{MultiKeySender, MultiKeySenderAdapter};
 pub use adapters::multi_key_listener::{MultiKeyListener, MultiKeyListenerAdapter};
+pub use adapters::multi_key_sender::{MultiKeySender, MultiKeySenderAdapter};
 
 // TODO: update expiry at every message
 
@@ -222,7 +225,7 @@ impl<C: Channel> MessageRouter<C> {
 
                 log::trace!("Encrypted event: {:?}", event);
                 events_to_broadcast.push(event);
-           }
+            }
         }
 
         for notification in response.notifications.iter() {
@@ -237,9 +240,16 @@ impl<C: Channel> MessageRouter<C> {
         if response.subscribe_to_subkey_proofs {
             let alias_num = rand::random::<u64>();
 
-            self.aliases.lock().await.entry(id.to_string()).or_default().push(alias_num);
+            self.aliases
+                .lock()
+                .await
+                .entry(id.to_string())
+                .or_default()
+                .push(alias_num);
 
-            let filter = Filter::new().kinds(vec![Kind::Custom(SUBKEY_PROOF)]).events(events_to_broadcast.iter().map(|e| e.id));
+            let filter = Filter::new()
+                .kinds(vec![Kind::Custom(SUBKEY_PROOF)])
+                .events(events_to_broadcast.iter().map(|e| e.id));
             self.channel
                 .subscribe(format!("{}_{}", id, alias_num), filter)
                 .await
@@ -262,7 +272,11 @@ impl<C: Channel> MessageRouter<C> {
         Ok(())
     }
 
-    async fn internal_add_with_id(&self, id: &str, mut conversation: Box<dyn Conversation + Send>) -> Result<Response, ConversationError> {
+    async fn internal_add_with_id(
+        &self,
+        id: &str,
+        mut conversation: Box<dyn Conversation + Send>,
+    ) -> Result<Response, ConversationError> {
         let response = conversation.init()?;
 
         self.conversations
@@ -289,7 +303,9 @@ impl<C: Channel> MessageRouter<C> {
     ) -> Result<String, ConversationError> {
         let conversation_id = random_string(32);
 
-        let response = self.internal_add_with_id(&conversation_id, conversation).await?;
+        let response = self
+            .internal_add_with_id(&conversation_id, conversation)
+            .await?;
         self.process_response(&conversation_id, response).await?;
 
         Ok(conversation_id)
@@ -329,7 +345,7 @@ impl<C: Channel> MessageRouter<C> {
     ///
     /// This is a convenience method that combines `add_conversation` and `subscribe_to_service_request`
     /// for conversations that implement `ConversationWithNotification`.
-    /// 
+    ///
     /// It also performs the subscription *before* adding the conversation to the router,
     /// so the subscriber will not miss any notifications.
     ///
@@ -347,8 +363,12 @@ impl<C: Channel> MessageRouter<C> {
         conversation: Conv,
     ) -> Result<NotificationStream<Conv::Notification>, ConversationError> {
         let conversation_id = random_string(32);
-        let delayed_reply = self.subscribe_to_service_request::<Conv::Notification>(conversation_id.clone()).await?;
-        let response = self.internal_add_with_id(&conversation_id, Box::new(conversation)).await?;
+        let delayed_reply = self
+            .subscribe_to_service_request::<Conv::Notification>(conversation_id.clone())
+            .await?;
+        let response = self
+            .internal_add_with_id(&conversation_id, Box::new(conversation))
+            .await?;
         self.process_response(&conversation_id, response).await?;
 
         Ok(delayed_reply)
@@ -470,7 +490,7 @@ impl Response {
     }
 
     /// Marks the conversation as finished.
-    /// 
+    ///
     /// When a conversation is finished, it will be removed from the router.
     pub fn finish(mut self) -> Self {
         self.finished = true;
@@ -524,7 +544,6 @@ pub trait Conversation {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct CleartextEvent {
     pub id: EventId,
@@ -548,9 +567,8 @@ impl CleartextEvent {
     }
 }
 
-
 /// Convenience wrapper around a stream of notifications.
-/// 
+///
 /// It's automatically implemented for any stream that implements `Stream<Item = Result<T, serde_json::Error>> + Send + Unpin + 'static`.
 pub trait InnerNotificationStream<T: Serialize>:
     Stream<Item = Result<T, serde_json::Error>> + Send + Unpin + 'static

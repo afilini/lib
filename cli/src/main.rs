@@ -1,6 +1,8 @@
 use std::{io::Write, str::FromStr, sync::Arc};
 
-use app::{handlers::AuthChallengeEvent, AuthChallengeListener, CallbackError, Mnemonic, PortalApp};
+use app::{
+    AuthChallengeListener, CallbackError, Mnemonic, PortalApp, handlers::AuthChallengeEvent,
+};
 use portal::{nostr::nips::nip19::ToBech32, protocol::auth_init::AuthInitUrl};
 
 struct ApproveLogin;
@@ -19,12 +21,24 @@ impl AuthChallengeListener for ApproveLogin {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let mnemonic = Mnemonic::new("mass derive myself benefit shed true girl orange family spawn device theme")?;
+    let mnemonic = Mnemonic::new(
+        "mass derive myself benefit shed true girl orange family spawn device theme",
+    )?;
     let keypair = mnemonic.get_keypair()?;
 
-    log::info!("Public key: {:?}", keypair.public_key().to_bech32().unwrap());
+    log::info!(
+        "Public key: {:?}",
+        keypair.public_key().to_bech32().unwrap()
+    );
 
-    let app = PortalApp::new(Arc::new(keypair), vec!["wss://relay.nostr.net".to_string(), "wss://relay.damus.io".to_string()]).await?;
+    let app = PortalApp::new(
+        Arc::new(keypair),
+        vec![
+            "wss://relay.nostr.net".to_string(),
+            "wss://relay.damus.io".to_string(),
+        ],
+    )
+    .await?;
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
         _app.listen().await.unwrap();

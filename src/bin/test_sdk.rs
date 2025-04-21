@@ -4,12 +4,18 @@ use nostr::{Keys, event::Kind, filter::Filter};
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
     protocol::{
-        auth_init::AuthInitUrl, model::{auth::AuthInitContent, event_kinds::AUTH_INIT}, LocalKeypair
+        LocalKeypair,
+        auth_init::AuthInitUrl,
+        model::{auth::AuthInitContent, event_kinds::AUTH_INIT},
     },
     router::{
-        ConversationError, NotificationStream, MessageRouter, MultiKeyListenerAdapter, MultiKeySender, MultiKeySenderAdapter, Response
+        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySender,
+        MultiKeySenderAdapter, NotificationStream, Response,
     },
-    sdk::handlers::{AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent},
+    sdk::handlers::{
+        AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation,
+        AuthResponseEvent,
+    },
     utils::random_string,
 };
 // use portal::{protocol::LocalKeypair, router::connector::Connector, sdk::SDKMethods};
@@ -103,9 +109,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("Auth init URL: {}", url);
 
     let inner = AuthInitReceiverConversation::new(router.keypair().public_key(), token);
-    let id = router.add_conversation(Box::new(MultiKeyListenerAdapter::new(inner, router.keypair().subkey_proof().cloned()))).await?;
+    let id = router
+        .add_conversation(Box::new(MultiKeyListenerAdapter::new(
+            inner,
+            router.keypair().subkey_proof().cloned(),
+        )))
+        .await?;
     log::debug!("Added conversation with id: {}", id);
-    let mut event: NotificationStream<AuthInitEvent> = router.subscribe_to_service_request(id).await?;
+    let mut event: NotificationStream<AuthInitEvent> =
+        router.subscribe_to_service_request(id).await?;
     log::debug!("Waiting for notification...");
     let event = event.next().await.unwrap()?;
     log::debug!("Received notification: {:?}", event);
@@ -114,9 +126,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         router.keypair().public_key(),
         router.keypair().subkey_proof().cloned(),
     );
-    let id = router.add_conversation(Box::new(MultiKeySenderAdapter::new_with_user(event.main_key, vec![], conv))).await?;
+    let id = router
+        .add_conversation(Box::new(MultiKeySenderAdapter::new_with_user(
+            event.main_key,
+            vec![],
+            conv,
+        )))
+        .await?;
     log::debug!("Added conversation with id: {}", id);
-    let mut event: NotificationStream<AuthResponseEvent> = router.subscribe_to_service_request(id).await?;
+    let mut event: NotificationStream<AuthResponseEvent> =
+        router.subscribe_to_service_request(id).await?;
     log::debug!("Waiting for notification...");
     let event = event.next().await.unwrap()?;
     log::debug!("Received notification: {:?}", event);

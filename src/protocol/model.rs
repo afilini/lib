@@ -305,9 +305,9 @@ pub mod payment {
 
 #[cfg(feature = "bindings")]
 pub mod bindings {
-    use std::ops::Deref;
     use nostr::nips::nip19::ToBech32;
     use serde::{Deserialize, Serialize};
+    use std::ops::Deref;
 
     use super::*;
 

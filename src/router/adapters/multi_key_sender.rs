@@ -6,13 +6,13 @@ use std::{
 
 use serde::de::DeserializeOwned;
 
-use nostr::{
-    event::Kind, filter::Filter, key::PublicKey
-};
+use nostr::{event::Kind, filter::Filter, key::PublicKey};
 
 use crate::protocol::model::{auth::SubkeyProof, event_kinds::SUBKEY_PROOF};
 
-use crate::router::{CleartextEvent, Conversation, ConversationError, ConversationMessage, Response};
+use crate::router::{
+    CleartextEvent, Conversation, ConversationError, ConversationMessage, Response,
+};
 
 const MAX_CLIENTS: usize = 8;
 
@@ -39,7 +39,7 @@ pub trait MultiKeySender: Sized + Send + 'static {
 }
 
 /// A conversation wrapper that handles key switching
-/// 
+///
 /// This is specifically used for senders which follow this pattern:
 ///   1. Send out a message to a key (or if already known also to all subkeys)
 ///   2. Receive SUBKEY_PROOF messages asking to switch to a new key
@@ -55,12 +55,14 @@ pub struct MultiKeySenderAdapter<Inner> {
 impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
     fn init(&mut self) -> Result<Response, ConversationError> {
         // Make a call to get the filter
-        let filter = <T as MultiKeySender>::get_filter(self).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        let filter = <T as MultiKeySender>::get_filter(self)
+            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
         // Also listen for SUBKEY_PROOF messages
         let filter = filter.kind(Kind::Custom(SUBKEY_PROOF));
 
         // Then build the initial message, this will be sent to the user
-        let mut response = <T as MultiKeySender>::build_initial_message(self, None).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        let mut response = <T as MultiKeySender>::build_initial_message(self, None)
+            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
         response.filter = filter;
 
         response.set_recepient_keys(self.user, &self.subkeys);
@@ -85,7 +87,10 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
                     };
 
                     if self.subkeys.len() >= MAX_CLIENTS {
-                        log::warn!("Too many subkeys, refusing to process the request from {:?}", event.pubkey);
+                        log::warn!(
+                            "Too many subkeys, refusing to process the request from {:?}",
+                            event.pubkey
+                        );
                         return Ok(Response::default());
                     }
 
@@ -96,7 +101,11 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
 
                     let response_result = if event.pubkey == self.user {
                         // We only knew about a subkey and we thought it was the main key. Switching it now
-                        log::debug!("Switching {:?} to new main key: {:?}", event.pubkey, proof.main_key);
+                        log::debug!(
+                            "Switching {:?} to new main key: {:?}",
+                            event.pubkey,
+                            proof.main_key
+                        );
 
                         self.subkeys.insert(event.pubkey);
                         self.user = proof.main_key.into();
@@ -104,7 +113,11 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
                         <T as MultiKeySender>::build_initial_message(self, Some(self.user))
                     } else {
                         // We already knew about the main key, but we got a proof for a new subkey
-                        log::debug!("Learned about a new subkey for {:?}: {:?}", self.user, event.pubkey);
+                        log::debug!(
+                            "Learned about a new subkey for {:?}: {:?}",
+                            self.user,
+                            event.pubkey
+                        );
 
                         assert!(self.user == proof.main_key.into());
 
@@ -113,9 +126,11 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
                         <T as MultiKeySender>::build_initial_message(self, Some(event.pubkey))
                     };
 
-                    let mut response = response_result.map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                    let mut response =
+                        response_result.map_err(|e| ConversationError::Inner(Box::new(e)))?;
                     // Update the filter to reflect the new subkeys
-                    response.filter = <T as MultiKeySender>::get_filter(self).map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                    response.filter = <T as MultiKeySender>::get_filter(self)
+                        .map_err(|e| ConversationError::Inner(Box::new(e)))?;
                     // Add the SUBKEY_PROOF kind to the filter
                     response.filter = response.filter.kinds(vec![Kind::Custom(SUBKEY_PROOF)]);
 
@@ -124,9 +139,7 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
                     Ok(Response::default())
                 }
             }
-            ConversationMessage::Encrypted(_event) => {
-                Ok(Response::default())
-            }
+            ConversationMessage::Encrypted(_event) => Ok(Response::default()),
         }
     }
 

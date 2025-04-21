@@ -1,4 +1,8 @@
-use std::{collections::HashSet, ops::Deref, time::{Duration, SystemTime}};
+use std::{
+    collections::HashSet,
+    ops::Deref,
+    time::{Duration, SystemTime},
+};
 
 use nostr::{Tag, event::Kind, filter::Filter, key::PublicKey};
 use serde::{Deserialize, Serialize};
@@ -14,7 +18,11 @@ use crate::{
             event_kinds::{AUTH_CHALLENGE, AUTH_INIT, AUTH_RESPONSE},
         },
     },
-    router::{adapters::{one_shot::OneShotSender, ConversationWithNotification}, Conversation, ConversationError, ConversationMessage, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender, Response},
+    router::{
+        Conversation, ConversationError, ConversationMessage, MultiKeyListener,
+        MultiKeyListenerAdapter, MultiKeySender, Response,
+        adapters::{ConversationWithNotification, one_shot::OneShotSender},
+    },
 };
 
 pub struct AuthInitConversation {
@@ -25,8 +33,10 @@ pub struct AuthInitConversation {
 impl OneShotSender for AuthInitConversation {
     type Error = ConversationError;
 
-    fn send(state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>) -> Result<Response, Self::Error> {
-         let content = AuthInitContent {
+    fn send(
+        state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>,
+    ) -> Result<Response, Self::Error> {
+        let content = AuthInitContent {
             token: state.url.token.clone(),
             client_info: ClientInfo {
                 version: env!("CARGO_PKG_VERSION").to_string(),
@@ -46,7 +56,6 @@ impl OneShotSender for AuthInitConversation {
             .finish();
 
         Ok(response)
-       
     }
 }
 
@@ -77,7 +86,7 @@ impl MultiKeyListener for AuthChallengeListenerConversation {
     type Message = AuthChallengeContent;
 
     fn init(state: &crate::router::MultiKeyListenerAdapter<Self>) -> Result<Response, Self::Error> {
-         let mut filter = Filter::new()
+        let mut filter = Filter::new()
             .kinds(vec![Kind::from(AUTH_CHALLENGE)])
             .pubkey(state.local_key);
 
@@ -89,10 +98,10 @@ impl MultiKeyListener for AuthChallengeListenerConversation {
     }
 
     fn on_message(
-            _state: &mut crate::router::MultiKeyListenerAdapter<Self>,
-            event: &crate::router::CleartextEvent,
-            content: &Self::Message,
-        ) -> Result<Response, Self::Error> {
+        _state: &mut crate::router::MultiKeyListenerAdapter<Self>,
+        event: &crate::router::CleartextEvent,
+        content: &Self::Message,
+    ) -> Result<Response, Self::Error> {
         log::debug!(
             "Received auth challenge from {}: {:?}",
             event.pubkey,
@@ -153,8 +162,10 @@ impl AuthResponseConversation {
 
 impl OneShotSender for AuthResponseConversation {
     type Error = ConversationError;
-    
-    fn send(state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>) -> Result<Response, Self::Error> {
+
+    fn send(
+        state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>,
+    ) -> Result<Response, Self::Error> {
         let content = AuthResponseContent {
             challenge: state.event.challenge.clone(),
             granted_permissions: state.granted_permissions.clone(),

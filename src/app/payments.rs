@@ -1,12 +1,18 @@
-
 use nostr::{event::Kind, filter::Filter, key::PublicKey};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::model::{
-            auth::SubkeyProof, bindings, event_kinds::{PAYMENT_REQUEST, RECURRING_PAYMENT_REQUEST}, payment::{RecurringPaymentRequestContent, SinglePaymentRequestContent}, Timestamp
-        },
-    router::{adapters::ConversationWithNotification, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response},
+        Timestamp,
+        auth::SubkeyProof,
+        bindings,
+        event_kinds::{PAYMENT_REQUEST, RECURRING_PAYMENT_REQUEST},
+        payment::{RecurringPaymentRequestContent, SinglePaymentRequestContent},
+    },
+    router::{
+        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
+        adapters::ConversationWithNotification,
+    },
 };
 
 pub struct PaymentRequestListenerConversation {
@@ -26,8 +32,11 @@ impl MultiKeyListener for PaymentRequestListenerConversation {
     type Message = PaymentRequestContent;
 
     fn init(state: &crate::router::MultiKeyListenerAdapter<Self>) -> Result<Response, Self::Error> {
-         let mut filter = Filter::new()
-            .kinds(vec![Kind::Custom(PAYMENT_REQUEST), Kind::Custom(RECURRING_PAYMENT_REQUEST)])
+        let mut filter = Filter::new()
+            .kinds(vec![
+                Kind::Custom(PAYMENT_REQUEST),
+                Kind::Custom(RECURRING_PAYMENT_REQUEST),
+            ])
             .pubkey(state.local_key);
 
         if let Some(subkey_proof) = &state.subkey_proof {
@@ -38,10 +47,10 @@ impl MultiKeyListener for PaymentRequestListenerConversation {
     }
 
     fn on_message(
-            _state: &mut crate::router::MultiKeyListenerAdapter<Self>,
-            event: &crate::router::CleartextEvent,
-            content: &Self::Message,
-        ) -> Result<Response, Self::Error> {
+        _state: &mut crate::router::MultiKeyListenerAdapter<Self>,
+        event: &crate::router::CleartextEvent,
+        content: &Self::Message,
+    ) -> Result<Response, Self::Error> {
         log::debug!(
             "Received payment request from {}: {:?}",
             event.pubkey,

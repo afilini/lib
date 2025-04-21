@@ -9,9 +9,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::model::{
-        auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent, SubkeyProof}, event_kinds::*, Timestamp
+        Timestamp,
+        auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent, SubkeyProof},
+        event_kinds::*,
     },
-    router::{adapters::ConversationWithNotification, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender, MultiKeySenderAdapter, Response},
+    router::{
+        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender,
+        MultiKeySenderAdapter, Response, adapters::ConversationWithNotification,
+    },
     utils::random_string,
 };
 
@@ -38,9 +43,9 @@ impl MultiKeyListener for AuthInitReceiverConversation {
     type Message = AuthInitContent;
 
     fn init(state: &crate::router::MultiKeyListenerAdapter<Self>) -> Result<Response, Self::Error> {
-        let mut filter =             Filter::new()
-                .kinds(vec![Kind::from(AUTH_INIT)])
-                .pubkey(state.local_key);
+        let mut filter = Filter::new()
+            .kinds(vec![Kind::from(AUTH_INIT)])
+            .pubkey(state.local_key);
 
         if let Some(subkey_proof) = &state.subkey_proof {
             filter = filter.pubkey(subkey_proof.main_key.into());
@@ -78,10 +83,7 @@ pub struct AuthChallengeSenderConversation {
 }
 
 impl AuthChallengeSenderConversation {
-    pub fn new(
-        local_key: PublicKey,
-        subkey_proof: Option<SubkeyProof>,
-    ) -> Self {
+    pub fn new(local_key: PublicKey, subkey_proof: Option<SubkeyProof>) -> Self {
         Self {
             local_key,
             subkey_proof,
@@ -105,16 +107,12 @@ impl MultiKeySender for AuthChallengeSenderConversation {
     type Error = ConversationError;
     type Message = AuthResponseContent;
 
-    fn get_filter(state: &crate::router::MultiKeySenderAdapter<Self>) -> Result<Filter, Self::Error> {
+    fn get_filter(
+        state: &crate::router::MultiKeySenderAdapter<Self>,
+    ) -> Result<Filter, Self::Error> {
         let mut filter = Filter::new()
             .kinds(vec![Kind::from(AUTH_RESPONSE)])
-            .authors(
-                state
-                    .subkeys
-                    .iter()
-                    .chain([&state.user])
-                    .cloned(),
-            )
+            .authors(state.subkeys.iter().chain([&state.user]).cloned())
             .pubkey(state.local_key);
 
         if let Some(subkey_proof) = &state.subkey_proof {
@@ -125,9 +123,9 @@ impl MultiKeySender for AuthChallengeSenderConversation {
     }
 
     fn build_initial_message(
-            state: &mut crate::router::MultiKeySenderAdapter<Self>,
-            new_key: Option<PublicKey>,
-        ) -> Result<Response, Self::Error> {
+        state: &mut crate::router::MultiKeySenderAdapter<Self>,
+        new_key: Option<PublicKey>,
+    ) -> Result<Response, Self::Error> {
         let content = AuthChallengeContent {
             challenge: state.challenge.clone(),
             expires_at: Timestamp::now_plus_seconds(60 * 5), // TODO: should take it from state.expires_at
