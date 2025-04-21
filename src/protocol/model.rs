@@ -220,15 +220,19 @@ pub mod identity {
 }
 
 pub mod payment {
+    use crate::protocol::calendar::Calendar;
+
     use super::*;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct SinglePaymentRequestContent {
         pub payment_type: String,
         pub amount: u64,
-        pub currency: String,
+        pub currency: Currency,
+        pub current_exchange_rate: Option<ExchangeRate>,
         pub invoice: String,
         pub auth_token: Option<String>,
+        pub subscription_id: Option<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,32 +249,40 @@ pub mod payment {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(untagged)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
+    pub enum Currency {
+        Millisats,
+        Fiat(String),
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct RecurringPaymentRequestContent {
         pub payment_type: String,
-        pub subscription_id: String,
         pub amount: u64,
-        pub currency: String,
-        pub exchange_rate: Option<ExchangeRate>,
+        pub currency: Currency,
         pub recurrence: RecurrenceInfo,
-        pub request_expires_at: u64,
+        pub current_exchange_rate: Option<ExchangeRate>,
+        pub expires_at: u64,
         pub auth_token: Option<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct ExchangeRate {
         pub rate: f64,
         pub source: String,
-        pub timestamp: u64,
+        pub time: Timestamp,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct RecurrenceInfo {
-        pub interval: String,
-        pub interval_count: u32,
-        pub start_date: u64,
-        pub end_date: Option<u64>,
+        pub until: Option<Timestamp>,
+        pub calendar: Calendar,
         pub max_payments: Option<u32>,
-        pub trial_period_days: Option<u32>,
+        pub first_payment_due: Timestamp,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,7 +290,7 @@ pub mod payment {
         pub subscription_id: String,
         pub status: String,
         pub authorized_amount: u64,
-        pub authorized_currency: String,
+        pub authorized_currency: Currency,
         pub exchange_rate_limit: Option<ExchangeRateLimit>,
         pub authorized_recurrence: RecurrenceInfo,
     }
