@@ -221,17 +221,19 @@ pub mod identity {
 pub mod payment {
     use crate::protocol::calendar::Calendar;
 
-    use super::*;
+    use super::{auth::SubkeyProof, *};
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct SinglePaymentRequestContent {
-        pub payment_type: String,
         pub amount: u64,
         pub currency: Currency,
         pub current_exchange_rate: Option<ExchangeRate>,
         pub invoice: String,
         pub auth_token: Option<String>,
+        pub expires_at: Timestamp,
         pub subscription_id: Option<String>,
+        pub subkey_proof: Option<SubkeyProof>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,13 +260,13 @@ pub mod payment {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct RecurringPaymentRequestContent {
-        pub payment_type: String,
         pub amount: u64,
         pub currency: Currency,
         pub recurrence: RecurrenceInfo,
         pub current_exchange_rate: Option<ExchangeRate>,
-        pub expires_at: u64,
+        pub expires_at: Timestamp,
         pub auth_token: Option<String>,
+        pub subkey_proof: Option<SubkeyProof>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

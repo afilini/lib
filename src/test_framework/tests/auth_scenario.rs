@@ -1,8 +1,8 @@
 use nostr::Keys;
 use crate::{
-    app::handlers::{AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation}, protocol::{
+    app::auth::{AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation}, protocol::{
         auth_init::AuthInitUrl, model::{Nonce, Timestamp}, subkey::{PrivateSubkeyManager, SubkeyMetadata}, LocalKeypair
-    }, router::{adapters::one_shot::OneShotSenderAdapter, MultiKeyListenerAdapter, MultiKeySenderAdapter}, sdk::handlers::{AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent}, test_framework::{logger::init_logger, ScenarioBuilder}, utils::random_string
+    }, router::{adapters::one_shot::OneShotSenderAdapter, MultiKeyListenerAdapter, MultiKeySenderAdapter}, sdk::handlers::{AuthChallengeSenderConversation, AuthInitReceiverConversation}, test_framework::{logger::init_logger, ScenarioBuilder}, utils::random_string
 };
 
 #[tokio::test]

@@ -6,7 +6,7 @@ use nostr::{
 };
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
-    app::handlers::AuthInitConversation, protocol::{
+    app::auth::AuthInitConversation, protocol::{
         auth_init::AuthInitUrl, LocalKeypair
     }, router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter}
 };
