@@ -3,9 +3,9 @@ use std::{io::Write, str::FromStr, sync::Arc};
 use nostr::{Keys, nips::nip19::ToBech32};
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
-    app::auth::AuthInitConversation,
-    protocol::{LocalKeypair, auth_init::AuthInitUrl},
-    router::{MessageRouter, adapters::one_shot::OneShotSenderAdapter},
+    app::auth::{AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation},
+    protocol::{auth_init::AuthInitUrl, LocalKeypair},
+    router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter},
 };
 
 #[tokio::main]
@@ -42,6 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::io::stdin().read_line(&mut auth_init_url)?;
     let auth_init_url = AuthInitUrl::from_str(auth_init_url.trim())?;
 
+
+    // send auth init
     let conv = AuthInitConversation {
         url: auth_init_url,
         relays: router
@@ -59,6 +61,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             conv,
         )))
         .await?;
+    // auth init sent
+
+
+    let inner = AuthChallengeListenerConversation::new(router.keypair().public_key());
+    let mut rx = router
+        .add_and_subscribe(MultiKeyListenerAdapter::new( inner,router.keypair().subkey_proof().cloned() ))
+        .await?;
+
+    while let Ok(response) = rx.next().await.unwrap() {
+        log::debug!("Received auth challenge: {:?}", response);
+
+        // ask the user to approve or reject the auth challenge
+        print!("Approve auth challenge? (y/n): ");
+        std::io::stdout().flush()?;
+        let mut approve = String::new();
+        std::io::stdin().read_line(&mut approve)?;
+        let approve = approve.trim().to_lowercase() == "y";
+
+        // let result = evt.on_auth_challenge(response.clone()).await?;
+
+
+        log::debug!("Auth challenge callback result: {:?}", approve);
+
+        if approve {
+            let approve = AuthResponseConversation::new(
+                response.clone(),
+                vec![],
+                router.keypair().subkey_proof().cloned(),
+            );
+            router
+                .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                    response.recipient.into(),
+                    vec![],
+                    approve,
+                )))
+                .await?;
+        } else {
+            // TODO: send explicit rejection
+        }
+    }    
+    
+
+
 
     Ok(())
     //
