@@ -2,9 +2,12 @@ use std::sync::Arc;
 
 use bitcoin::bip32;
 use portal::{
-    app::handlers::{
+    app::auth::{
         AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation,
         AuthResponseConversation,
+    },
+    app::payments::{
+        PaymentRequestEvent, PaymentRequestListenerConversation,
     },
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
@@ -154,6 +157,12 @@ pub trait AuthChallengeListener: Send + Sync {
     async fn on_auth_challenge(&self, event: AuthChallengeEvent) -> Result<bool, CallbackError>;
 }
 
+#[uniffi::export(with_foreign)]
+#[async_trait::async_trait]
+pub trait PaymentRequestListener: Send + Sync {
+    async fn on_payment_request(&self, event: PaymentRequestEvent) -> Result<bool, CallbackError>;
+}
+
 #[uniffi::export]
 impl PortalApp {
     #[uniffi::constructor]
@@ -237,6 +246,43 @@ impl PortalApp {
 
         Ok(())
     }
+
+        pub async fn listen_for_payment_request(
+            &self,
+            evt: Arc<dyn PaymentRequestListener>,
+        ) -> Result<(), AppError> {
+            let inner = PaymentRequestListenerConversation::new(self.router.keypair().public_key());
+            let mut rx = self
+                .router
+                .add_and_subscribe(MultiKeyListenerAdapter::new(
+                    inner,
+                    self.router.keypair().subkey_proof().cloned(),
+                ))
+                .await?;
+
+            while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
+                let result = evt.on_payment_request(response.clone()).await?;
+
+                if result {
+                    // let approve = PaymentResponseConversation::new(
+                    //     response.clone(),
+                    //     vec![],
+                    //     self.router.keypair().subkey_proof().cloned(),
+                    // );
+                    // self.router
+                    //     .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                    //         response.recipient.into(),
+                    //         vec![],
+                    //         approve,
+                    //     )))
+                    //     .await?;
+                } else {
+                    // TODO: send explicit rejection
+                }
+            }
+
+            Ok(())
+        }
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
