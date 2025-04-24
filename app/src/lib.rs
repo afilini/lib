@@ -2,19 +2,17 @@ use std::sync::Arc;
 
 use bitcoin::bip32;
 use portal::{
-    app::auth::{
+    app::{auth::{
         AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation,
         AuthResponseConversation,
-    },
-    app::payments::{
-        PaymentRequestEvent, PaymentRequestListenerConversation,
-    },
+    }, payments::{
+        PaymentRequestContent, PaymentRequestEvent, PaymentRequestListenerConversation, PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation
+    }},
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
-    protocol::{auth_init::AuthInitUrl, model::auth::SubkeyProof},
+    protocol::{auth_init::AuthInitUrl, model::{auth::SubkeyProof, bindings::PublicKey, payment::{PaymentStatusContent, RecurringPaymentRequestContent, RecurringPaymentStatusContent, SinglePaymentRequestContent}, Timestamp}},
     router::{
-        MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream,
-        adapters::one_shot::OneShotSenderAdapter,
+        adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
     },
 };
 
@@ -160,7 +158,8 @@ pub trait AuthChallengeListener: Send + Sync {
 #[uniffi::export(with_foreign)]
 #[async_trait::async_trait]
 pub trait PaymentRequestListener: Send + Sync {
-    async fn on_payment_request(&self, event: PaymentRequestEvent) -> Result<bool, CallbackError>;
+    async fn on_single_payment_request(&self, event: SinglePaymentRequest) -> Result<PaymentStatusContent, CallbackError>;
+    async fn on_recurring_payment_request(&self, event: RecurringPaymentRequest) -> Result<RecurringPaymentStatusContent, CallbackError>;
 }
 
 #[uniffi::export]
@@ -261,28 +260,96 @@ impl PortalApp {
                 .await?;
 
             while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
-                let result = evt.on_payment_request(response.clone()).await?;
-
-                if result {
-                    // let approve = PaymentResponseConversation::new(
-                    //     response.clone(),
-                    //     vec![],
-                    //     self.router.keypair().subkey_proof().cloned(),
-                    // );
-                    // self.router
-                    //     .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-                    //         response.recipient.into(),
-                    //         vec![],
-                    //         approve,
-                    //     )))
-                    //     .await?;
-                } else {
-                    // TODO: send explicit rejection
+                match &response.content {
+                    PaymentRequestContent::Single(content) => {
+                        let req = SinglePaymentRequest {
+                            service_key: response.service_key,
+                            recipient: response.recipient,
+                            expires_at: response.expires_at,
+                            content: content.clone(),
+                        };
+                        let status = evt.on_single_payment_request(req).await?;
+                        let conv = PaymentStatusSenderConversation::new(
+                            response.clone(),
+                            status,
+                        );
+                        self.router
+                            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                                response.recipient.into(),
+                                vec![],
+                                conv,
+                            )))
+                            .await?;
+                    }
+                    PaymentRequestContent::Recurring(content) => {
+                        let req = RecurringPaymentRequest {
+                            service_key: response.service_key,
+                            recipient: response.recipient,
+                            expires_at: response.expires_at,
+                            content: content.clone(),
+                        };
+                        let status = evt.on_recurring_payment_request(req).await?;
+                        let conv = RecurringPaymentStatusSenderConversation::new(
+                            response.clone(),
+                            status,
+                        );
+                        self.router
+                            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                                response.recipient.into(),
+                                vec![],
+                                conv,
+                            )))
+                            .await?;
+                    }
                 }
             }
 
             Ok(())
         }
+}
+
+#[derive(Debug, uniffi::Record)]
+pub struct SinglePaymentRequest {
+    pub service_key: PublicKey,
+    pub recipient: PublicKey,
+    pub expires_at: Timestamp,
+    pub content: SinglePaymentRequestContent,
+}
+
+#[derive(Debug, uniffi::Record)]
+pub struct RecurringPaymentRequest {
+    pub service_key: PublicKey,
+    pub recipient: PublicKey,
+    pub expires_at: Timestamp,
+    pub content: RecurringPaymentRequestContent,
+}
+
+#[derive(uniffi::Object)]
+pub struct NWC {
+    inner: nwc::NWC,
+}
+
+#[uniffi::export]
+impl NWC {
+    #[uniffi::constructor]
+    pub fn new(uri: String) -> Result<Self, AppError> {
+        Ok(Self { inner: nwc::NWC::new(uri.parse().map_err(|_| AppError::NWC("Invalid NWC URL".to_string()))?) })
+    }
+
+    pub async fn pay_invoice(&self, invoice: String) -> Result<(), AppError> {
+        self.inner.pay_invoice(portal::nostr::nips::nip47::PayInvoiceRequest::new(invoice)).await?;
+
+        Ok(())
+    }
+
+    pub async fn lookup_invoice(&self, invoice: String) -> Result<(), AppError> {
+        self.inner.lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
+            invoice: None,
+            payment_hash: Some(invoice),
+        }).await?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -295,6 +362,9 @@ pub enum AppError {
 
     #[error("Listener disconnected")]
     ListenerDisconnected,
+
+    #[error("NWC error: {0}")]
+    NWC(String),
 
     #[error("Callback error: {0}")]
     CallbackError(#[from] CallbackError),
@@ -309,5 +379,11 @@ impl From<portal::router::ConversationError> for AppError {
 impl From<portal::nostr_relay_pool::pool::Error> for AppError {
     fn from(error: portal::nostr_relay_pool::pool::Error) -> Self {
         AppError::RelayError(error.to_string())
+    }
+}
+
+impl From<nwc::Error> for AppError {
+    fn from(error: nwc::Error) -> Self {
+        AppError::NWC(error.to_string())
     }
 }

@@ -7,11 +7,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-nostr = { version = "0.40.0", features = ["nip44"] }
+nostr = { version = "0.41.0", features = ["nip44"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 hex = "0.4"
-nostr-relay-pool = "0.40.1"
+nostr-relay-pool = "0.41.0"
 rand = "0.8"
 sha2 = "0.10"
 thiserror = "1.0"
@@ -30,3 +30,6 @@ chrono-tz = { version = "0.10.3", features = ["serde"] }
 [features]
 default = ["bindings"]
 bindings = ["uniffi", "anyhow"]
+
+# [patch.crates-io]
+# nostr = { path = "../git/nostr/crates/nostr" }

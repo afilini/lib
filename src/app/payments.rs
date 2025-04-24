@@ -1,17 +1,14 @@
-use nostr::{event::Kind, filter::Filter, key::PublicKey};
+use std::{collections::HashSet, ops::Deref};
+
+use nostr::{event::{Kind, Tag}, filter::Filter, key::PublicKey};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::model::{
-        Timestamp,
-        auth::SubkeyProof,
-        bindings,
-        event_kinds::{PAYMENT_REQUEST, RECURRING_PAYMENT_REQUEST},
-        payment::{RecurringPaymentRequestContent, SinglePaymentRequestContent},
+        bindings, event_kinds::{PAYMENT_REQUEST, PAYMENT_RESPONSE, RECURRING_PAYMENT_REQUEST, RECURRING_PAYMENT_RESPONSE}, payment::{PaymentStatusContent, RecurringPaymentRequestContent, RecurringPaymentStatusContent, SinglePaymentRequestContent}, Timestamp
     },
     router::{
-        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
-        adapters::ConversationWithNotification,
+        adapters::{one_shot::OneShotSender, ConversationWithNotification}, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response
     },
 };
 
@@ -47,7 +44,7 @@ impl MultiKeyListener for PaymentRequestListenerConversation {
     }
 
     fn on_message(
-        _state: &mut crate::router::MultiKeyListenerAdapter<Self>,
+        state: &mut crate::router::MultiKeyListenerAdapter<Self>,
         event: &crate::router::CleartextEvent,
         content: &Self::Message,
     ) -> Result<Response, Self::Error> {
@@ -62,7 +59,7 @@ impl MultiKeyListener for PaymentRequestListenerConversation {
             return Ok(Response::default());
         }
 
-        let service_key = if let Some(subkey_proof) = content.subkey_proof() {
+        let service_key = if let Some(subkey_proof) = state.subkey_proof.clone() {
             if let Err(e) = subkey_proof.verify(&event.pubkey) {
                 log::warn!("Ignoring request with invalid subkey proof: {}", e);
                 return Ok(Response::default());
@@ -112,11 +109,87 @@ impl PaymentRequestContent {
             Self::Recurring(content) => content.expires_at,
         }
     }
+}
 
-    pub fn subkey_proof(&self) -> Option<&SubkeyProof> {
-        match self {
-            Self::Single(content) => content.subkey_proof.as_ref(),
-            Self::Recurring(content) => content.subkey_proof.as_ref(),
+pub struct PaymentStatusSenderConversation {
+    event: PaymentRequestEvent,
+    status: PaymentStatusContent,
+}
+
+impl PaymentStatusSenderConversation {
+    pub fn new(
+        event: PaymentRequestEvent,
+        status: PaymentStatusContent,
+    ) -> Self {
+        Self {
+            event,
+            status,
         }
     }
 }
+
+impl OneShotSender for PaymentStatusSenderConversation {
+    type Error = ConversationError;
+
+    fn send(
+        state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>,
+    ) -> Result<Response, Self::Error> {
+        let mut keys = HashSet::new();
+        keys.insert(state.event.service_key);
+        keys.insert(state.event.recipient);
+
+        let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
+        let response = Response::new()
+            .reply_to(
+                state.event.recipient.into(),
+                Kind::from(PAYMENT_RESPONSE),
+                tags,
+                state.status.clone(),
+            )
+            .finish();
+
+        Ok(response)
+    }
+}
+
+pub struct RecurringPaymentStatusSenderConversation {
+    event: PaymentRequestEvent,
+    status: RecurringPaymentStatusContent,
+}
+
+impl RecurringPaymentStatusSenderConversation {
+    pub fn new(
+        event: PaymentRequestEvent,
+        status: RecurringPaymentStatusContent,
+    ) -> Self {
+        Self {
+            event,
+            status,
+        }
+    }
+}
+
+impl OneShotSender for RecurringPaymentStatusSenderConversation {
+    type Error = ConversationError;
+
+    fn send(
+        state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>,
+    ) -> Result<Response, Self::Error> {
+        let mut keys = HashSet::new();
+        keys.insert(state.event.service_key);
+        keys.insert(state.event.recipient);
+
+        let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
+        let response = Response::new()
+            .reply_to(
+                state.event.recipient.into(),
+                Kind::from(RECURRING_PAYMENT_RESPONSE),
+                tags,
+                state.status.clone(),
+            )
+            .finish();
+
+        Ok(response)
+    }
+}
+

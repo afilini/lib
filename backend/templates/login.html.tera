@@ -150,6 +150,9 @@
             <div class="local-login">
                 <a href="{{ login_url }}" class="login-button">Login with Portal</a>
             </div>
+            <div class="local-login" style="margin-top: 1rem;">
+                <a href="/debug-login" class="login-button" style="background-color: #ff9800;">Debug Login</a>
+            </div>
             {% if status and (status.WaitingForInit or status.Approved or status.Timeout) %}
             <div class="status">
                 {% if status.WaitingForInit %}

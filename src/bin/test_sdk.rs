@@ -12,7 +12,7 @@ use portal::{
         ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySender,
         MultiKeySenderAdapter, NotificationStream, Response,
     },
-    sdk::handlers::{
+    sdk::auth::{
         AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation,
         AuthResponseEvent,
     },

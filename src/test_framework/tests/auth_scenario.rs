@@ -11,7 +11,7 @@ use crate::{
     router::{
         MultiKeyListenerAdapter, MultiKeySenderAdapter, adapters::one_shot::OneShotSenderAdapter,
     },
-    sdk::handlers::{AuthChallengeSenderConversation, AuthInitReceiverConversation},
+    sdk::auth::{AuthChallengeSenderConversation, AuthInitReceiverConversation},
     test_framework::{ScenarioBuilder, logger::init_logger},
     utils::random_string,
 };

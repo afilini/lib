@@ -27,7 +27,7 @@ pub mod event_kinds {
     pub const PAYMENT_ERROR: u16 = 28003;
     pub const PAYMENT_RECEIPT: u16 = 28004;
     pub const RECURRING_PAYMENT_REQUEST: u16 = 28005;
-    pub const RECURRING_PAYMENT_AUTH: u16 = 28006;
+    pub const RECURRING_PAYMENT_RESPONSE: u16 = 28006;
     pub const RECURRING_PAYMENT_CANCEL: u16 = 28007;
 
     // Identity events (29000-29999)
@@ -233,7 +233,6 @@ pub mod payment {
         pub auth_token: Option<String>,
         pub expires_at: Timestamp,
         pub subscription_id: Option<String>,
-        pub subkey_proof: Option<SubkeyProof>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -243,10 +242,12 @@ pub mod payment {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct PaymentConfirmationContent {
-        pub status: String,
-        pub payment_hash: String,
-        pub preimage: String,
+    #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
+    pub enum PaymentStatusContent {
+        Pending,
+        Failed {
+            reason: Option<String>,
+        },
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,7 +267,6 @@ pub mod payment {
         pub current_exchange_rate: Option<ExchangeRate>,
         pub expires_at: Timestamp,
         pub auth_token: Option<String>,
-        pub subkey_proof: Option<SubkeyProof>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,19 +287,21 @@ pub mod payment {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct RecurringPaymentAuthorizationContent {
-        pub subscription_id: String,
-        pub status: String,
-        pub authorized_amount: u64,
-        pub authorized_currency: Currency,
-        pub exchange_rate_limit: Option<ExchangeRateLimit>,
-        pub authorized_recurrence: RecurrenceInfo,
-    }
-
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct ExchangeRateLimit {
-        pub max_slippage_percent: f64,
-        pub reference_rate: f64,
+    #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
+    pub enum RecurringPaymentStatusContent {
+        Confirmed {
+            subscription_id: String,
+            authorized_amount: u64,
+            authorized_currency: Currency,
+            authorized_recurrence: RecurrenceInfo,
+        },
+        Rejected {
+            reason: Option<String>,
+        },
+        Cancelled {
+            subscription_id: String,
+            reason: Option<String>,
+        },
     }
 }
 

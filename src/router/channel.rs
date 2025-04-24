@@ -50,6 +50,6 @@ impl Channel for RelayPool {
         self.notifications()
             .recv()
             .await
-            .map_err(|_| nostr_relay_pool::pool::Error::Failed)
+            .map_err(|_| nostr_relay_pool::pool::Error::Shutdown)
     }
 }

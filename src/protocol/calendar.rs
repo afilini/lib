@@ -34,6 +34,18 @@ pub struct CalendarWrapper {
     inner: Arc<Calendar>,
 }
 
+impl CalendarWrapper {
+    pub fn new(calendar: Calendar) -> Self {
+        Self {
+            inner: Arc::new(calendar),
+        }
+    }
+
+    pub fn get_calendar(&self) -> &Calendar {
+        &self.inner
+    }
+}
+
 impl Serialize for CalendarWrapper {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -95,23 +107,17 @@ impl<const MIN: u32, const MAX: u32> TimeComponent<MIN, MAX> {
         match self {
             TimeComponent::Any => Box::new((from.unwrap_or(MIN)..=MAX).into_iter()),
             TimeComponent::Values(values) => {
-                let pos = match values.binary_search(&from.unwrap_or(MAX)) {
+                let pos = match values.binary_search(&from.unwrap_or(MIN)) {
                     Ok(i) => i,
                     Err(i) => i,
                 };
-                Box::new(values.clone().into_iter().take(pos))
+                Box::new(values.clone().into_iter().skip(pos))
             }
             TimeComponent::Range { start, end, step } => {
-                let step = step.unwrap_or(1);
-                let mut range_start = std::cmp::max(*start, from.unwrap_or(MIN));
-                let round_factor = (*start % step) as i32 - (range_start % step) as i32;
-                if round_factor < 0 {
-                    range_start += (step as i32 + round_factor) as u32;
-                } else {
-                    range_start += round_factor as u32;
-                }
-
-                Box::new((range_start..=*end).step_by(step as usize))
+                let range = (*start..=*end)
+                    .step_by(step.unwrap_or(1) as usize)
+                    .filter(move |v| *v >= from.unwrap_or(MIN));
+                Box::new(range)
             }
         }
     }
@@ -605,20 +611,22 @@ impl Calendar {
         self.year
             .iter(Some(from.year() as u32))
             .map(|y| {
-                let from = (y == from.year() as u32).then_some(from.month());
-                self.month.iter(from).map(move |m| (y, m))
+                let is_current_year = y == from.year() as u32;
+                let from = (is_current_year).then_some(from.month());
+                self.month.iter(from).map(move |m| (is_current_year, y, m))
             })
             .flatten()
-            .map(|(y, m)| {
-                let from = (m == from.month()).then_some(from.day());
+            .map(|(is_current_year, y, m)| {
+                let is_current_month = is_current_year && m == from.month();
+                let from = (is_current_month).then_some(from.day());
                 let days_in_month = days_in_month(y, m);
                 self.day
                     .iter(from)
-                    .map(move |d| (y, m, d))
-                    .filter(move |(_, _, d)| *d <= days_in_month)
+                    .map(move |d| (is_current_month, y, m, d))
+                    .filter(move |(_, _, _, d)| *d <= days_in_month)
             })
             .flatten()
-            .filter(|(y, m, d)| {
+            .filter(|(_, y, m, d)| {
                 let weekday = NaiveDate::from_ymd_opt(*y as i32, *m, *d)
                     .expect("Invalid date")
                     .weekday() as u8;
@@ -627,22 +635,25 @@ impl Calendar {
                     .map(|l| l.iter().any(|d| *d as u8 == weekday))
                     .unwrap_or(true)
             })
-            .map(|(y, m, d)| {
-                let from = (d == from.day()).then_some(from.hour());
-                self.hour.iter(from).map(move |h| (y, m, d, h))
+            .map(|(is_current_month, y, m, d)| {
+                let is_current_day = is_current_month && d == from.day();
+                let from = (is_current_day).then_some(from.hour());
+                self.hour.iter(from).map(move |h| (is_current_day, y, m, d, h))
             })
             .flatten()
-            .map(|(y, m, d, h)| {
-                let from = (h == from.hour()).then_some(from.minute());
-                self.minute.iter(from).map(move |mi| (y, m, d, h, mi))
+            .map(|(is_current_day, y, m, d, h)| {
+                let is_current_hour = is_current_day && h == from.hour();
+                let from = (is_current_hour).then_some(from.minute());
+                self.minute.iter(from).map(move |mi| (is_current_hour, y, m, d, h, mi))
             })
             .flatten()
-            .map(|(y, m, d, h, mi)| {
-                let from = (mi == from.minute()).then_some(from.second());
-                self.second.iter(from).map(move |s| (y, m, d, h, mi, s))
+            .map(|(is_current_hour, y, m, d, h, mi)| {
+                let is_current_minute = is_current_hour && mi == from.minute();
+                let from = (is_current_minute).then_some(from.second());
+                self.second.iter(from).map(move |s| (is_current_minute, y, m, d, h, mi, s))
             })
             .flatten()
-            .filter_map(|(y, m, d, h, mi, s)| {
+            .filter_map(|(_, y, m, d, h, mi, s)| {
                 NaiveDateTime::new(
                     NaiveDate::from_ymd_opt(y as i32, m as u32, d as u32).expect("Invalid date"),
                     NaiveTime::from_hms_opt(h as u32, mi as u32, s as u32).expect("Invalid time"),
@@ -1026,6 +1037,11 @@ mod tests {
                 .unwrap()
                 .with_timezone(&chrono_tz::Europe::Rome)
         );
+
+        let x = 1745499045;
+        let cal = dbg!("*-*-* *:*:00").parse::<Calendar>().unwrap();
+        let next_occurrence = cal.next_occurrence(Timestamp::new(x));
+        assert!(next_occurrence.unwrap() > Timestamp::new(x));
     }
 
     #[test]
