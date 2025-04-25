@@ -221,7 +221,7 @@ pub mod identity {
 pub mod payment {
     use crate::protocol::calendar::CalendarWrapper;
 
-    use super::{auth::SubkeyProof, *};
+    use super::*;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[cfg_attr(feature = "bindings", derive(uniffi::Record))]

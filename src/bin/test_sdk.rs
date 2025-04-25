@@ -1,16 +1,15 @@
 use std::sync::Arc;
 
-use nostr::{Keys, event::Kind, filter::Filter};
+use nostr::Keys;
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
     protocol::{
         LocalKeypair,
         auth_init::AuthInitUrl,
-        model::{auth::AuthInitContent, event_kinds::AUTH_INIT},
     },
     router::{
-        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySender,
-        MultiKeySenderAdapter, NotificationStream, Response,
+        MessageRouter, MultiKeyListenerAdapter,
+        MultiKeySenderAdapter, NotificationStream,
     },
     sdk::auth::{
         AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation,

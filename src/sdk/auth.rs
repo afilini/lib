@@ -1,4 +1,3 @@
-use std::time::{Duration, SystemTime};
 
 use nostr::{
     Filter,

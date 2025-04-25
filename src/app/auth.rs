@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     ops::Deref,
-    time::{Duration, SystemTime},
 };
 
 use nostr::{Tag, event::Kind, filter::Filter, key::PublicKey};
@@ -19,8 +18,8 @@ use crate::{
         },
     },
     router::{
-        Conversation, ConversationError, ConversationMessage, MultiKeyListener,
-        MultiKeyListenerAdapter, MultiKeySender, Response,
+        ConversationError, MultiKeyListener,
+        MultiKeyListenerAdapter, Response,
         adapters::{ConversationWithNotification, one_shot::OneShotSender},
     },
 };
