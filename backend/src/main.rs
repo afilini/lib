@@ -165,14 +165,11 @@ async fn index(
                 LoginStatus::SendingChallenge(event.main_key.to_bech32().unwrap()),
             );
 
-            log::info!("Sending auth challenge");
-
             let conv = AuthChallengeSenderConversation::new(
                 router.keypair().public_key(),
                 router.keypair().subkey_proof().cloned(),
             );
 
-            log::info!("Before adding conversation");
             let mut event = router
                 .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
                     event.main_key,

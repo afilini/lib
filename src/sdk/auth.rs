@@ -1,4 +1,3 @@
-
 use nostr::{
     Filter,
     event::{Kind, Tag},

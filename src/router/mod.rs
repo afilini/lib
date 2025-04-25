@@ -122,7 +122,7 @@ impl<C: Channel> MessageRouter<C> {
                 _ => continue,
             };
 
-            if event.pubkey == self.keypair.public_key() {
+            if event.pubkey == self.keypair.public_key() && event.kind != Kind::Metadata {
                 log::trace!("Ignoring event from self");
                 continue;
             }
@@ -148,6 +148,9 @@ impl<C: Channel> MessageRouter<C> {
                 log::trace!("Decrypted event: {:?}", cleartext);
 
                 ConversationMessage::Cleartext(cleartext)
+            } else if let Ok(cleartext) = serde_json::from_str::<serde_json::Value>(&event.content) {
+                log::trace!("Unencrypted event: {:?}", cleartext);
+                ConversationMessage::Cleartext(CleartextEvent::new_json(&event, cleartext))
             } else {
                 log::warn!("Failed to decrypt event: {:?}", event);
                 ConversationMessage::Encrypted(event)
@@ -207,24 +210,35 @@ impl<C: Channel> MessageRouter<C> {
                 response.recepient_keys
             );
 
-            for pubkey in response.recepient_keys.iter() {
-                // TODO: we should allow non-encrypted messages
-
-                let encrypted = nip44::encrypt(
-                    &self.keypair.secret_key(),
-                    &pubkey,
-                    serde_json::to_string(&response.content)
-                        .map_err(|e| ConversationError::Inner(Box::new(e)))?,
-                    nip44::Version::V2,
-                )
-                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-                let event = EventBuilder::new(response.kind, encrypted)
+            let build_event = |content: &str| {
+                EventBuilder::new(response.kind, content)
                     .tags(response.tags.clone())
                     .sign_with_keys(&self.keypair)
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))
+            };
+
+            if !response.encrypted {
+                let content = serde_json::to_string(&response.content)
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-                log::trace!("Encrypted event: {:?}", event);
+                let event = build_event(&content)?;
+                log::trace!("Unencrypted event: {:?}", event);
                 events_to_broadcast.push(event);
+            } else {
+                for pubkey in response.recepient_keys.iter() {
+                    let content = nip44::encrypt(
+                            &self.keypair.secret_key(),
+                            &pubkey,
+                            serde_json::to_string(&response.content)
+                                .map_err(|e| ConversationError::Inner(Box::new(e)))?,
+                            nip44::Version::V2,
+                        )
+                        .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+                    let event = build_event(&content)?;
+                    log::trace!("Encrypted event: {:?}", event);
+                    events_to_broadcast.push(event);
+                }
             }
         }
 
@@ -391,6 +405,7 @@ struct ResponseEntry {
     pub kind: Kind,
     pub tags: Tags,
     pub content: serde_json::Value,
+    pub encrypted: bool,
 }
 
 /// A response from a conversation.
@@ -451,6 +466,7 @@ impl Response {
             kind,
             tags,
             content,
+            encrypted: true,
         });
         self
     }
@@ -475,6 +491,7 @@ impl Response {
             kind,
             tags,
             content,
+            encrypted: true,
         });
         self
     }
@@ -500,6 +517,19 @@ impl Response {
     /// Subscribe to events that tag our replies via the event_id
     pub fn subscribe_to_subkey_proofs(mut self) -> Self {
         self.subscribe_to_subkey_proofs = true;
+        self
+    }
+
+    // Broadcast an unencrypted event
+    pub fn broadcast_unencrypted<S: serde::Serialize>(mut self, kind: Kind, tags: Tags, content: S) -> Self {
+        let content = serde_json::to_value(&content).unwrap();
+        self.responses.push(ResponseEntry {
+            recepient_keys: vec![],
+            kind,
+            tags,
+            content,
+            encrypted: false,
+        });
         self
     }
 
@@ -564,6 +594,17 @@ impl CleartextEvent {
             tags: event.tags.clone(),
             content: serde_json::from_str(decrypted)?,
         })
+    }
+
+    pub fn new_json(event: &Event, content: serde_json::Value) -> Self {
+        Self {
+            id: event.id,
+            pubkey: event.pubkey,
+            created_at: event.created_at,
+            kind: event.kind,
+            tags: event.tags.clone(),
+            content
+        }
     }
 }
 

@@ -1,7 +1,4 @@
-use std::{
-    collections::HashSet,
-    ops::Deref,
-};
+use std::{collections::HashSet, ops::Deref};
 
 use nostr::{Tag, event::Kind, filter::Filter, key::PublicKey};
 use serde::{Deserialize, Serialize};
@@ -18,8 +15,7 @@ use crate::{
         },
     },
     router::{
-        ConversationError, MultiKeyListener,
-        MultiKeyListenerAdapter, Response,
+        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
         adapters::{ConversationWithNotification, one_shot::OneShotSender},
     },
 };
