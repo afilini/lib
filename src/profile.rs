@@ -36,11 +36,11 @@ impl Conversation for FetchProfileInfoConversation {
         if let ConversationMessage::Cleartext(event) = message {
             let metadata: Result<Metadata, _> = serde_json::from_value(event.content);
             if let Ok(metadata) = metadata {
-                return Ok(Response::new().notify(metadata).finish());
+                return Ok(Response::new().notify(Profile::from(metadata)).finish());
             }
         }
 
-        Ok(Response::new())
+        Ok(Response::new().notify(Option::<Profile>::None).finish())
     }
 
     fn is_expired(&self) -> bool {
@@ -49,15 +49,15 @@ impl Conversation for FetchProfileInfoConversation {
 }
 
 impl ConversationWithNotification for FetchProfileInfoConversation {
-    type Notification = Metadata;
+    type Notification = Option<Profile>;
 }
 
 pub struct SetProfileConversation {
-    profile: Metadata,
+    profile: Profile,
 }
 
 impl SetProfileConversation {
-    pub fn new(profile: Metadata) -> Self {
+    pub fn new(profile: Profile) -> Self {
         Self { profile }
     }
 }
@@ -66,6 +66,39 @@ impl OneShotSender for SetProfileConversation {
     type Error = ConversationError;
 
     fn send(state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>) -> Result<Response, Self::Error> {
-        Ok(Response::new().broadcast_unencrypted(Kind::Metadata, Default::default(), state.profile.clone()).finish())
+        let metadata: Metadata = state.profile.clone().into();
+        Ok(Response::new().broadcast_unencrypted(Kind::Metadata, Default::default(), metadata).finish())
     }
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+pub struct Profile {
+    pub name: Option<String>,
+    pub display_name: Option<String>,
+    pub picture: Option<String>,
+    pub nip05: Option<String>,
+}
+
+impl From<nostr::nips::nip01::Metadata> for Profile {
+    fn from(metadata: nostr::nips::nip01::Metadata) -> Self {
+        Self {
+            name: metadata.name,
+            display_name: metadata.display_name,
+            picture: metadata.picture,
+            nip05: metadata.nip05,
+        }
+    }
+}
+impl Into<nostr::nips::nip01::Metadata> for Profile {
+    fn into(self) -> nostr::nips::nip01::Metadata {
+        nostr::nips::nip01::Metadata {
+            name: self.name,
+            display_name: self.display_name,
+            picture: self.picture,
+            nip05: self.nip05,
+            ..Default::default()
+        }
+    }
+}
+

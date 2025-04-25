@@ -11,18 +11,7 @@ use portal::protocol::model::payment::{
 };
 use portal::protocol::model::Timestamp;
 use portal::protocol::LocalKeypair;
-use portal::router::{MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream};
-use portal::sdk::auth::{
-    AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent,
-};
-use portal::sdk::payments::{
-    RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation,
-};
-use portal::{
-    nostr_relay_pool::{RelayOptions, RelayPool},
-    protocol::auth_init::AuthInitUrl,
-    router::MessageRouter,
-};
+use portal::protocol::auth_init::AuthInitUrl;
 use rocket::{
     fairing::AdHoc,
     form::Form,
@@ -31,6 +20,7 @@ use rocket::{
     tokio, State,
 };
 use rocket_dyn_templates::{context, Template};
+use sdk::PortalSDK;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::{collections::HashMap, sync::Arc};
@@ -44,16 +34,17 @@ struct User {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Session {
-    user_id: String,
+    public_key: String,
+    display_name: String,
     auth_token: String,
     expires_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum LoginStatus {
-    WaitingForInit,
+    WaitingForInit(AuthInitUrl),
     SendingChallenge(String),
-    Approved(String, String),
+    Approved(PublicKey, String, String),
     Timeout,
 }
 
@@ -94,31 +85,17 @@ async fn index(
     sessions: &State<Sessions>,
     users: &State<Users>,
     login_tokens: &State<LoginTokens>,
-    payment_requests: &State<PaymentRequests>,
-    router: &State<Arc<MessageRouter<RelayPool>>>,
+    portal_sdk: &State<Arc<PortalSDK>>,
 ) -> Result<Template, Redirect> {
     if let Some(session_id) = cookies.get("session_id") {
         if let Some(session) = sessions.lock().unwrap().get(session_id.value()) {
             if session.expires_at > chrono::Utc::now() {
-                if let Some(user) = users.lock().unwrap().get(&session.user_id) {
-                    // Check if there's an ongoing payment request
-                    let payment_status = if let Some(payment_id) = cookies.get("payment_id") {
-                        if let Some(status) =
-                            payment_requests.lock().unwrap().get(payment_id.value())
-                        {
-                            Some(status.clone())
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
+                if let Some(user) = users.lock().unwrap().get(&session.public_key) {
                     return Ok(Template::render(
                         "dashboard",
                         context! {
                             name: &user.name,
-                            payment_status: payment_status
+                            payment_status: Option::<u64>::None,
                         },
                     ));
                 }
@@ -138,24 +115,16 @@ async fn index(
         token_cookie.value().to_string()
     } else {
         // Generate a new login token
-        let new_token = Uuid::new_v4().to_string();
-        cookies.add(Cookie::new("login_token", new_token.clone()));
+        let (url, mut event) = portal_sdk.new_auth_init_url().await.unwrap();
+
+        cookies.add(Cookie::new("login_token", url.token.clone()));
 
         log::info!("Generating new login token");
 
-        let router = Arc::clone(&router);
+        let _portal_sdk = Arc::clone(&portal_sdk);
         let _login_tokens = Arc::clone(&login_tokens);
-        let _token = new_token.clone();
+        let _token = url.token.clone();
         tokio::spawn(async move {
-            let inner =
-                AuthInitReceiverConversation::new(router.keypair().public_key(), _token.clone());
-            let mut event = router
-                .add_and_subscribe(MultiKeyListenerAdapter::new(
-                    inner,
-                    router.keypair().subkey_proof().cloned(),
-                ))
-                .await
-                .unwrap();
             let event = event.next().await.unwrap().unwrap();
 
             log::info!("Got auth init event");
@@ -165,56 +134,56 @@ async fn index(
                 LoginStatus::SendingChallenge(event.main_key.to_bech32().unwrap()),
             );
 
-            let conv = AuthChallengeSenderConversation::new(
-                router.keypair().public_key(),
-                router.keypair().subkey_proof().cloned(),
-            );
-
-            let mut event = router
-                .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
-                    event.main_key,
-                    vec![],
-                    conv,
-                ))
+            let event = _portal_sdk
+                .authenticate_key(event.main_key, vec![])
                 .await
                 .unwrap();
-            let event = event.next().await.unwrap().unwrap();
             log::info!("Got auth response event");
+
+            let profile = _portal_sdk.fetch_profile(event.user_key).await.unwrap();
 
             _login_tokens.lock().unwrap().insert(
                 _token.clone(),
                 LoginStatus::Approved(
-                    event.user_key.to_bech32().unwrap(),
+                    event.user_key.into(),
+                    profile
+                        .and_then(|p| p.display_name)
+                        .unwrap_or(event.user_key.to_bech32().unwrap()),
                     event.session_token.clone(),
                 ),
             );
         });
 
+        let token = url.token.clone();
         login_tokens
             .lock()
             .unwrap()
-            .insert(new_token.clone(), LoginStatus::WaitingForInit);
+            .insert(token.clone(), LoginStatus::WaitingForInit(url));
 
-        new_token
+        token
     };
 
     // Check if we already have an approved status
     let status = login_tokens.lock().unwrap().get(&token).cloned();
-    if let Some(LoginStatus::Approved(user_key, auth_token)) = &status {
+    if let Some(LoginStatus::Approved(user_key, display_name, auth_token)) = &status {
         let session_id = Uuid::new_v4().to_string();
 
         let user = User {
-            id: user_key.clone(),
-            name: user_key.clone(),
+            id: user_key.to_bech32().unwrap(),
+            name: display_name.clone(),
         };
 
         let session = Session {
-            user_id: user_key.clone(),
+            public_key: user_key.to_bech32().unwrap(),
+            display_name: display_name.clone(),
             auth_token: auth_token.clone(),
             expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
         };
 
-        users.lock().unwrap().insert(user_key.clone(), user);
+        users
+            .lock()
+            .unwrap()
+            .insert(user_key.to_bech32().unwrap(), user);
         sessions.lock().unwrap().insert(session_id.clone(), session);
         login_tokens.lock().unwrap().remove(&token);
 
@@ -224,40 +193,24 @@ async fn index(
 
         // Redirect to dashboard
         return Err(Redirect::to("/"));
-    }
-
-    let relays = router
-        .channel()
-        .relays()
-        .await
-        .keys()
-        .map(|r| r.to_string())
-        .collect::<Vec<_>>();
-
-    let (main_key, subkey) = if let Some(subkey_proof) = router.keypair().subkey_proof() {
-        (
-            subkey_proof.main_key.into(),
-            Some(router.keypair().public_key()),
-        )
+    } else if let Some(LoginStatus::WaitingForInit(url)) = &status {
+        Ok(Template::render(
+            "login",
+            context! {
+                login_url: url.to_string(),
+                status: status,
+                payment_status: Option::<u64>::None,
+            },
+        ))
     } else {
-        (router.keypair().public_key(), None)
-    };
-
-    let url = AuthInitUrl {
-        main_key: main_key.into(),
-        relays,
-        token: token.clone(),
-        subkey: subkey.map(|k| k.into()),
-    };
-
-    Ok(Template::render(
-        "login",
-        context! {
-            login_url: url.to_string(),
-            status: status,
-            payment_status: Option::<u64>::None,
-        },
-    ))
+        Ok(Template::render(
+            "login",
+            context! {
+                status: status,
+                payment_status: Option::<u64>::None,
+            },
+        ))
+    }
 }
 
 #[get("/logout")]
@@ -276,7 +229,7 @@ fn request_payment(
     payment_requests: &State<PaymentRequests>,
     recurring_payments: &State<RecurringPayments>,
     form: Form<PaymentRequestForm>,
-    router: &State<Arc<MessageRouter<RelayPool>>>,
+    portal_sdk: &State<Arc<PortalSDK>>,
     nwc: &State<Arc<nwc::NWC>>,
 ) -> Result<Template, Redirect> {
     let session_id = match cookies.get("session_id") {
@@ -315,8 +268,8 @@ fn request_payment(
     cookies.add(Cookie::new("payment_id", payment_id.clone()));
 
     let auth_token = session.auth_token.clone();
-    let user_id = session.user_id.clone();
-    let router = Arc::clone(&router);
+    let user_id = session.public_key.clone();
+    let portal_sdk = Arc::clone(&portal_sdk);
     let nwc = Arc::clone(&nwc);
     let payment_requests = Arc::clone(&payment_requests);
     let recurring_payments = Arc::clone(&recurring_payments);
@@ -335,28 +288,27 @@ fn request_payment(
                     .parse::<Calendar>()
                     .expect("Invalid frequency");
 
-                let inner = RecurringPaymentRequestSenderConversation::new(
-                    router.keypair().public_key(),
-                    router.keypair().subkey_proof().cloned(),
-                    RecurringPaymentRequestContent {
-                        amount: form_amount * 1000,
-                        currency: Currency::Millisats,
-                        recurrence: RecurrenceInfo {
-                            until: None,
-                            calendar: CalendarWrapper::new(calendar.clone()),
-                            max_payments: None,
-                            first_payment_due: Timestamp::now(),
+                let event = portal_sdk
+                    .request_recurring_payment(
+                        user_id,
+                        vec![],
+                        RecurringPaymentRequestContent {
+                            amount: form_amount * 1000,
+                            currency: Currency::Millisats,
+                            recurrence: RecurrenceInfo {
+                                until: None,
+                                calendar: CalendarWrapper::new(calendar.clone()),
+                                max_payments: None,
+                                first_payment_due: Timestamp::now(),
+                            },
+                            current_exchange_rate: None,
+                            expires_at: Timestamp::now_plus_seconds(600),
+                            auth_token: Some(auth_token.clone()),
                         },
-                        current_exchange_rate: None,
-                        expires_at: Timestamp::now_plus_seconds(600),
-                        auth_token: Some(auth_token.clone()),
-                    },
-                );
-                let mut event = router
-                    .add_and_subscribe(MultiKeySenderAdapter::new_with_user(user_id, vec![], inner))
+                    )
                     .await
                     .unwrap();
-                let event = event.next().await.unwrap().unwrap();
+
                 log::info!("Got recurring payment status event: {:?}", event);
 
                 match event {
@@ -406,7 +358,7 @@ fn request_payment(
                     form.description.clone(),
                     None,
                     user_id.clone(),
-                    router.clone(),
+                    portal_sdk.clone(),
                     nwc.clone(),
                 )
                 .await;
@@ -474,7 +426,7 @@ async fn payment_status(
     Ok(Template::render(
         "dashboard",
         context! {
-            name: &session.user_id,
+            name: &session.public_key,
             payment_status: status
         },
     ))
@@ -486,7 +438,7 @@ async fn claim_payment(
     description: String,
     subscription_id: Option<String>,
     user_id: portal::nostr::PublicKey,
-    router: Arc<MessageRouter<RelayPool>>,
+    portal_sdk: Arc<PortalSDK>,
     nwc: Arc<nwc::NWC>,
 ) -> Result<(), nwc::Error> {
     let invoice = nwc
@@ -500,24 +452,22 @@ async fn claim_payment(
 
     log::info!("Made invoice: {}", invoice.invoice);
 
-    let inner = SinglePaymentRequestSenderConversation::new(
-        router.keypair().public_key(),
-        router.keypair().subkey_proof().cloned(),
-        SinglePaymentRequestContent {
-            amount: amount_msat,
-            currency: Currency::Millisats,
-            expires_at: Timestamp::now_plus_seconds(600),
-            auth_token: Some(auth_token),
-            current_exchange_rate: None,
-            invoice: invoice.invoice.clone(),
-            subscription_id,
-        },
-    );
-    let _event = router
-        .add_and_subscribe(MultiKeySenderAdapter::new_with_user(user_id, vec![], inner))
+    let _event = portal_sdk
+        .request_single_payment(
+            user_id,
+            vec![],
+            SinglePaymentRequestContent {
+                amount: amount_msat,
+                currency: Currency::Millisats,
+                expires_at: Timestamp::now_plus_seconds(600),
+                auth_token: Some(auth_token),
+                current_exchange_rate: None,
+                invoice: invoice.invoice.clone(),
+                subscription_id,
+            },
+        )
         .await
         .unwrap();
-    // let event = event.next().await.unwrap().unwrap();
 
     for _ in 0..30 {
         let invoice = nwc
@@ -540,7 +490,7 @@ async fn claim_payment(
 // Process recurring payments that are due
 async fn process_recurring_payments(
     recurring_payments: Arc<Mutex<HashMap<String, (RecurringPaymentInfo, Timestamp)>>>,
-    router: Arc<MessageRouter<RelayPool>>,
+    portal_sdk: Arc<PortalSDK>,
     nwc: Arc<nwc::NWC>,
 ) {
     let mut payments_to_update = Vec::new();
@@ -568,7 +518,7 @@ async fn process_recurring_payments(
             payment.description.clone(),
             Some(payment.subscription_id.clone()),
             payment.user_id.clone(),
-            router.clone(),
+            portal_sdk.clone(),
             nwc.clone(),
         )
         .await;
@@ -609,7 +559,8 @@ fn debug_login(
 
     let session_id = Uuid::new_v4().to_string();
     let session = Session {
-        user_id: user_id.clone(),
+        public_key: user_id.clone(),
+        display_name: "Debug User".to_string(),
         auth_token: "debug-auth-token".to_string(),
         expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
     };
@@ -632,22 +583,11 @@ async fn rocket() -> _ {
     let keys = Keys::generate();
     let keypair = LocalKeypair::new(keys, None);
 
-    let relay_pool = RelayPool::new();
-    // relay_pool
-    //     .add_relay("wss://relay.damus.io", RelayOptions::default())
-    //     .await
-    //     .unwrap();
-    relay_pool
-        .add_relay("wss://relay.nostr.net", RelayOptions::default())
-        .await
-        .unwrap();
-    relay_pool.connect().await;
-
-    let router = Arc::new(MessageRouter::new(relay_pool, keypair));
-    let _router = Arc::clone(&router);
-    tokio::spawn(async move {
-        _router.listen().await.unwrap();
-    });
+    let portal_sdk = Arc::new(
+        PortalSDK::new(keypair, vec!["wss://relay.nostr.net".to_string()])
+            .await
+            .unwrap(),
+    );
 
     let nwc_str = std::env::var("NWC_URL").expect("NWC_URL is not set");
     let nwc = Arc::new(nwc::NWC::new(nwc_str.parse().unwrap()));
@@ -655,7 +595,7 @@ async fn rocket() -> _ {
     // Create recurring payments map
     let recurring_payments = RecurringPayments::new(Mutex::new(HashMap::new()));
     let _recurring_payments = Arc::clone(&recurring_payments);
-    let _router_for_payments = Arc::clone(&router);
+    let _portal_sdk = Arc::clone(&portal_sdk);
     let _nwc = Arc::clone(&nwc);
 
     // Spawn task to process recurring payments every minute
@@ -665,7 +605,7 @@ async fn rocket() -> _ {
             interval.tick().await;
             process_recurring_payments(
                 _recurring_payments.clone(),
-                _router_for_payments.clone(),
+                _portal_sdk.clone(),
                 _nwc.clone(),
             )
             .await;
@@ -685,7 +625,7 @@ async fn rocket() -> _ {
                 .manage(LoginTokens::new(Mutex::new(HashMap::new())))
                 .manage(PaymentRequests::new(Mutex::new(HashMap::new())))
                 .manage(recurring_payments)
-                .manage(router)
+                .manage(portal_sdk)
                 .manage(nwc)
         }))
 }

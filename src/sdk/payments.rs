@@ -127,18 +127,11 @@ impl SinglePaymentRequestSenderConversation {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SinglePaymentMessage {
-    Response(PaymentResponseContent),
-    Confirmation(PaymentStatusContent),
-}
-
 impl MultiKeySender for SinglePaymentRequestSenderConversation {
     const VALIDITY_SECONDS: u64 = 60 * 5;
 
     type Error = ConversationError;
-    type Message = SinglePaymentMessage;
+    type Message = PaymentStatusContent;
 
     fn get_filter(
         state: &crate::router::MultiKeySenderAdapter<Self>,
@@ -199,5 +192,5 @@ impl MultiKeySender for SinglePaymentRequestSenderConversation {
 impl ConversationWithNotification
     for MultiKeySenderAdapter<SinglePaymentRequestSenderConversation>
 {
-    type Notification = SinglePaymentMessage;
+    type Notification = PaymentStatusContent;
 }

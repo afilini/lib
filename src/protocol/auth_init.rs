@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use super::model::bindings::PublicKey;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
 pub struct AuthInitUrl {
     pub main_key: PublicKey,

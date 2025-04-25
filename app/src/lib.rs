@@ -11,7 +11,7 @@ use portal::{
             PaymentRequestContent, PaymentRequestEvent, PaymentRequestListenerConversation,
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
-    }, nostr::nips::nip19::ToBech32, nostr_relay_pool::{RelayOptions, RelayPool}, profile::{FetchProfileInfoConversation, SetProfileConversation}, protocol::{
+    }, nostr::nips::nip19::ToBech32, nostr_relay_pool::{RelayOptions, RelayPool}, profile::{FetchProfileInfoConversation, Profile, SetProfileConversation}, protocol::{
         auth_init::AuthInitUrl,
         model::{
             auth::SubkeyProof, bindings::PublicKey, payment::{
@@ -322,15 +322,15 @@ impl PortalApp {
         let metadata = notification.next().await.ok_or(AppError::ListenerDisconnected)?;
 
         match metadata {
-            Ok(mut metadata) => {
-                if let Some(nip05) = &metadata.nip05 {
+            Ok(Some(mut profile)) => {
+                if let Some(nip05) = &profile.nip05 {
                     let verified = portal::nostr::nips::nip05::verify(&pubkey.into(), &nip05, None).await;
                     if verified.ok() != Some(true) {
-                        metadata.nip05 = None;
+                        profile.nip05 = None;
                     }
                 }
 
-                Ok(Some(Profile::from(metadata)))
+                Ok(Some(profile))
             },
             _ => {
                 Ok(None)
@@ -343,7 +343,7 @@ impl PortalApp {
             return Err(AppError::MasterKeyRequired);
         }
 
-        let conv = SetProfileConversation::new(profile.into());
+        let conv = SetProfileConversation::new(profile);
         let _ = self.router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
             self.router.keypair().public_key().into(),
             vec![],
@@ -351,36 +351,6 @@ impl PortalApp {
         ))).await?;
 
         Ok(())
-    }
-}
-
-#[derive(Debug, uniffi::Record)]
-pub struct Profile {
-    pub name: Option<String>,
-    pub display_name: Option<String>,
-    pub picture: Option<String>,
-    pub nip05: Option<String>,
-}
-
-impl From<portal::nostr::nips::nip01::Metadata> for Profile {
-    fn from(metadata: portal::nostr::nips::nip01::Metadata) -> Self {
-        Self {
-            name: metadata.name,
-            display_name: metadata.display_name,
-            picture: metadata.picture,
-            nip05: metadata.nip05,
-        }
-    }
-}
-impl Into<portal::nostr::nips::nip01::Metadata> for Profile {
-    fn into(self) -> portal::nostr::nips::nip01::Metadata {
-        portal::nostr::nips::nip01::Metadata {
-            name: self.name,
-            display_name: self.display_name,
-            picture: self.picture,
-            nip05: self.nip05,
-            ..Default::default()
-        }
     }
 }
 
