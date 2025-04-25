@@ -46,8 +46,9 @@ pub struct MultiKeyListenerAdapter<Inner> {
     pub inner: Inner,
 }
 
-impl<T: MultiKeyListener> Conversation for MultiKeyListenerAdapter<T> 
-where T::Message: core::fmt::Debug
+impl<T: MultiKeyListener> Conversation for MultiKeyListenerAdapter<T>
+where
+    T::Message: core::fmt::Debug,
 {
     fn init(&mut self) -> Result<Response, ConversationError> {
         // Call init first, this normally sets up the filters

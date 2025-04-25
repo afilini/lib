@@ -1,16 +1,24 @@
+use crate::{
+    app::payments::PaymentRequestContent,
+    protocol::model::{
+        auth::SubkeyProof,
+        event_kinds::*,
+        payment::{
+            PaymentResponseContent, PaymentStatusContent, RecurringPaymentRequestContent,
+            RecurringPaymentStatusContent, SinglePaymentRequestContent,
+        },
+    },
+    router::{
+        ConversationError, MultiKeySender, MultiKeySenderAdapter, Response,
+        adapters::ConversationWithNotification,
+    },
+};
 use nostr::{
     Filter,
     event::{Kind, Tag},
     key::PublicKey,
 };
 use serde::{Deserialize, Serialize};
-use crate::{
-    app::payments::PaymentRequestContent, protocol::model::{
-        auth::SubkeyProof, event_kinds::*, payment::{PaymentStatusContent, PaymentResponseContent, RecurringPaymentStatusContent, RecurringPaymentRequestContent, SinglePaymentRequestContent}
-    }, router::{
-        adapters::ConversationWithNotification, ConversationError, MultiKeySender, MultiKeySenderAdapter, Response
-    }
-};
 
 pub struct RecurringPaymentRequestSenderConversation {
     local_key: PublicKey,
@@ -20,7 +28,11 @@ pub struct RecurringPaymentRequestSenderConversation {
 }
 
 impl RecurringPaymentRequestSenderConversation {
-    pub fn new(local_key: PublicKey, subkey_proof: Option<SubkeyProof>, payment_request: RecurringPaymentRequestContent) -> Self {
+    pub fn new(
+        local_key: PublicKey,
+        subkey_proof: Option<SubkeyProof>,
+        payment_request: RecurringPaymentRequestContent,
+    ) -> Self {
         Self {
             local_key,
             subkey_proof,
@@ -84,13 +96,13 @@ impl MultiKeySender for RecurringPaymentRequestSenderConversation {
     ) -> Result<Response, Self::Error> {
         log::info!("Notifying payment response event");
 
-        Ok(Response::new()
-            .notify(message.clone())
-            .finish())
+        Ok(Response::new().notify(message.clone()).finish())
     }
 }
 
-impl ConversationWithNotification for MultiKeySenderAdapter<RecurringPaymentRequestSenderConversation> {
+impl ConversationWithNotification
+    for MultiKeySenderAdapter<RecurringPaymentRequestSenderConversation>
+{
     type Notification = RecurringPaymentStatusContent;
 }
 
@@ -102,7 +114,11 @@ pub struct SinglePaymentRequestSenderConversation {
 }
 
 impl SinglePaymentRequestSenderConversation {
-    pub fn new(local_key: PublicKey, subkey_proof: Option<SubkeyProof>, payment_request: SinglePaymentRequestContent) -> Self {
+    pub fn new(
+        local_key: PublicKey,
+        subkey_proof: Option<SubkeyProof>,
+        payment_request: SinglePaymentRequestContent,
+    ) -> Self {
         Self {
             local_key,
             subkey_proof,
@@ -128,7 +144,10 @@ impl MultiKeySender for SinglePaymentRequestSenderConversation {
         state: &crate::router::MultiKeySenderAdapter<Self>,
     ) -> Result<Filter, Self::Error> {
         let mut filter = Filter::new()
-            .kinds(vec![Kind::Custom(PAYMENT_RESPONSE), Kind::Custom(PAYMENT_CONFIRMATION)])
+            .kinds(vec![
+                Kind::Custom(PAYMENT_RESPONSE),
+                Kind::Custom(PAYMENT_CONFIRMATION),
+            ])
             .authors(state.subkeys.iter().chain([&state.user]).cloned())
             .pubkey(state.local_key);
 
@@ -173,12 +192,12 @@ impl MultiKeySender for SinglePaymentRequestSenderConversation {
     ) -> Result<Response, Self::Error> {
         log::info!("Notifying payment response event");
 
-        Ok(Response::new()
-            .notify(message.clone())
-            .finish())
+        Ok(Response::new().notify(message.clone()).finish())
     }
 }
 
-impl ConversationWithNotification for MultiKeySenderAdapter<SinglePaymentRequestSenderConversation> {
+impl ConversationWithNotification
+    for MultiKeySenderAdapter<SinglePaymentRequestSenderConversation>
+{
     type Notification = SinglePaymentMessage;
 }

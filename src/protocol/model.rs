@@ -245,9 +245,7 @@ pub mod payment {
     #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
     pub enum PaymentStatusContent {
         Pending,
-        Failed {
-            reason: Option<String>,
-        },
+        Failed { reason: Option<String> },
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -5,14 +5,19 @@ use portal::nostr::nips::nip19::ToBech32;
 use portal::nostr::Keys;
 use portal::protocol::calendar::{Calendar, CalendarWrapper};
 use portal::protocol::model::bindings::PublicKey;
-use portal::protocol::model::payment::{Currency, RecurrenceInfo, RecurringPaymentRequestContent, RecurringPaymentStatusContent, SinglePaymentRequestContent};
+use portal::protocol::model::payment::{
+    Currency, RecurrenceInfo, RecurringPaymentRequestContent, RecurringPaymentStatusContent,
+    SinglePaymentRequestContent,
+};
 use portal::protocol::model::Timestamp;
 use portal::protocol::LocalKeypair;
 use portal::router::{MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream};
 use portal::sdk::auth::{
     AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation, AuthResponseEvent,
 };
-use portal::sdk::payments::{RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation};
+use portal::sdk::payments::{
+    RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation,
+};
 use portal::{
     nostr_relay_pool::{RelayOptions, RelayPool},
     protocol::auth_init::AuthInitUrl,
@@ -55,9 +60,7 @@ pub enum LoginStatus {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum PaymentStatus {
     Pending,
-    Approved {
-        subscription_id: Option<String>,
-    },
+    Approved { subscription_id: Option<String> },
     Failed,
 }
 
@@ -100,7 +103,9 @@ async fn index(
                 if let Some(user) = users.lock().unwrap().get(&session.user_id) {
                     // Check if there's an ongoing payment request
                     let payment_status = if let Some(payment_id) = cookies.get("payment_id") {
-                        if let Some(status) = payment_requests.lock().unwrap().get(payment_id.value()) {
+                        if let Some(status) =
+                            payment_requests.lock().unwrap().get(payment_id.value())
+                        {
                             Some(status.clone())
                         } else {
                             None
@@ -109,10 +114,13 @@ async fn index(
                         None
                     };
 
-                    return Ok(Template::render("dashboard", context! { 
-                        name: &user.name,
-                        payment_status: payment_status
-                    }));
+                    return Ok(Template::render(
+                        "dashboard",
+                        context! {
+                            name: &user.name,
+                            payment_status: payment_status
+                        },
+                    ));
                 }
             }
         }
@@ -178,7 +186,10 @@ async fn index(
 
             _login_tokens.lock().unwrap().insert(
                 _token.clone(),
-                LoginStatus::Approved(event.user_key.to_bech32().unwrap(), event.session_token.clone()),
+                LoginStatus::Approved(
+                    event.user_key.to_bech32().unwrap(),
+                    event.session_token.clone(),
+                ),
             );
         });
 
@@ -273,7 +284,7 @@ fn request_payment(
 ) -> Result<Template, Redirect> {
     let session_id = match cookies.get("session_id") {
         Some(c) => c.value(),
-        None => return Err(Redirect::to("/"))
+        None => return Err(Redirect::to("/")),
     };
 
     let sessions_lock = sessions.lock().unwrap();
@@ -296,10 +307,13 @@ fn request_payment(
 
     // Generate a unique payment request ID
     let payment_id = Uuid::new_v4().to_string();
-    
+
     // Store the payment request with pending status
-    payment_requests.lock().unwrap().insert(payment_id.clone(), PaymentStatus::Pending);
-    
+    payment_requests
+        .lock()
+        .unwrap()
+        .insert(payment_id.clone(), PaymentStatus::Pending);
+
     // Set payment request cookie
     cookies.add(Cookie::new("payment_id", payment_id.clone()));
 
@@ -315,65 +329,100 @@ fn request_payment(
     let form_payment_type = form.payment_type.clone();
 
     let user_id = user_id.parse().unwrap();
-    
+
     tokio::spawn(async move {
         let status = match form_payment_type.as_str() {
             "recurring" => {
-                let calendar = form_frequency.unwrap().parse::<Calendar>().expect("Invalid frequency");
+                let calendar = form_frequency
+                    .unwrap()
+                    .parse::<Calendar>()
+                    .expect("Invalid frequency");
 
-                let inner = RecurringPaymentRequestSenderConversation::new(router.keypair().public_key(), router.keypair().subkey_proof().cloned(), RecurringPaymentRequestContent {
-                    amount: form_amount * 1000,
-                    currency: Currency::Millisats,
-                    recurrence: RecurrenceInfo {
-                        until: None,
-                        calendar: CalendarWrapper::new(calendar.clone()),
-                        max_payments: None,
-                        first_payment_due: Timestamp::now(),
+                let inner = RecurringPaymentRequestSenderConversation::new(
+                    router.keypair().public_key(),
+                    router.keypair().subkey_proof().cloned(),
+                    RecurringPaymentRequestContent {
+                        amount: form_amount * 1000,
+                        currency: Currency::Millisats,
+                        recurrence: RecurrenceInfo {
+                            until: None,
+                            calendar: CalendarWrapper::new(calendar.clone()),
+                            max_payments: None,
+                            first_payment_due: Timestamp::now(),
+                        },
+                        current_exchange_rate: None,
+                        expires_at: Timestamp::now_plus_seconds(600),
+                        auth_token: Some(auth_token.clone()),
                     },
-                    current_exchange_rate: None,
-                    expires_at: Timestamp::now_plus_seconds(600),
-                    auth_token: Some(auth_token.clone()),
-                });
-                let mut event = router.add_and_subscribe(MultiKeySenderAdapter::new_with_user(user_id, vec![], inner)).await.unwrap();
+                );
+                let mut event = router
+                    .add_and_subscribe(MultiKeySenderAdapter::new_with_user(user_id, vec![], inner))
+                    .await
+                    .unwrap();
                 let event = event.next().await.unwrap().unwrap();
                 log::info!("Got recurring payment status event: {:?}", event);
 
                 match event {
-                    RecurringPaymentStatusContent::Confirmed { subscription_id, .. } => {
+                    RecurringPaymentStatusContent::Confirmed {
+                        subscription_id, ..
+                    } => {
                         // Store recurring payment info for periodic processing
-                        recurring_payments.lock().unwrap().insert(subscription_id.clone(), (RecurringPaymentInfo {
-                            subscription_id: subscription_id.clone(),
-                            user_id: user_id.clone(),
-                            amount: form_amount,
-                            calendar: calendar.clone(),
-                            auth_token: auth_token.clone(),
-                            description: form.description.clone(),
-                        }, Timestamp::new(0)));
-                
-                        PaymentStatus::Approved { subscription_id: Some(subscription_id) }
+                        recurring_payments.lock().unwrap().insert(
+                            subscription_id.clone(),
+                            (
+                                RecurringPaymentInfo {
+                                    subscription_id: subscription_id.clone(),
+                                    user_id: user_id.clone(),
+                                    amount: form_amount,
+                                    calendar: calendar.clone(),
+                                    auth_token: auth_token.clone(),
+                                    description: form.description.clone(),
+                                },
+                                Timestamp::new(0),
+                            ),
+                        );
+
+                        PaymentStatus::Approved {
+                            subscription_id: Some(subscription_id),
+                        }
                     }
                     RecurringPaymentStatusContent::Rejected { reason, .. } => {
-                        log::warn!("Recurring payment rejected: {}", reason.unwrap_or("Unknown reason".to_string()));
+                        log::warn!(
+                            "Recurring payment rejected: {}",
+                            reason.unwrap_or("Unknown reason".to_string())
+                        );
                         PaymentStatus::Failed
                     }
                     RecurringPaymentStatusContent::Cancelled { reason, .. } => {
-                        log::warn!("Recurring payment cancelled: {}", reason.unwrap_or("Unknown reason".to_string()));
+                        log::warn!(
+                            "Recurring payment cancelled: {}",
+                            reason.unwrap_or("Unknown reason".to_string())
+                        );
                         PaymentStatus::Failed
                     }
                 }
-           },
+            }
             "single" => {
-                let claim_result = claim_payment(form_amount * 1000, auth_token.clone(), form.description.clone(), None, user_id.clone(), router.clone(), nwc.clone()).await;
+                let claim_result = claim_payment(
+                    form_amount * 1000,
+                    auth_token.clone(),
+                    form.description.clone(),
+                    None,
+                    user_id.clone(),
+                    router.clone(),
+                    nwc.clone(),
+                )
+                .await;
                 match claim_result {
-                    Ok(_) => {
-                        PaymentStatus::Approved { subscription_id: None }
-                    }
+                    Ok(_) => PaymentStatus::Approved {
+                        subscription_id: None,
+                    },
                     Err(e) => {
                         log::error!("Failed to claim payment: {}", e);
                         PaymentStatus::Failed
                     }
                 }
-            },
+            }
             _ => {
                 log::error!("Invalid payment type: {}", form_payment_type);
                 PaymentStatus::Failed
@@ -383,7 +432,10 @@ fn request_payment(
         payment_requests.lock().unwrap().insert(_payment_id, status);
     });
 
-    return Err(Redirect::to(format!("/payment-status?payment_id={}", payment_id)));
+    return Err(Redirect::to(format!(
+        "/payment-status?payment_id={}",
+        payment_id
+    )));
 }
 
 #[get("/payment-status?<payment_id>")]
@@ -395,7 +447,7 @@ async fn payment_status(
 ) -> Result<Template, Redirect> {
     let session_id = match cookies.get("session_id") {
         Some(c) => c.value(),
-        None => return Err(Redirect::to("/"))
+        None => return Err(Redirect::to("/")),
     };
 
     let sessions_lock = sessions.lock().unwrap();
@@ -414,22 +466,21 @@ async fn payment_status(
         return Err(Redirect::to("/"));
     }
 
-    let status = match payment_requests.lock().unwrap()
-        .get(&payment_id)
-        .cloned() {
-            Some(status) => {
-                status
-            }
-            None => {
-                cookies.remove(Cookie::named("payment_id"));
-                return Err(Redirect::to("/"));
-            }
-        };
+    let status = match payment_requests.lock().unwrap().get(&payment_id).cloned() {
+        Some(status) => status,
+        None => {
+            cookies.remove(Cookie::named("payment_id"));
+            return Err(Redirect::to("/"));
+        }
+    };
 
-    Ok(Template::render("dashboard", context! {
-        name: &session.user_id,
-        payment_status: status
-    }))
+    Ok(Template::render(
+        "dashboard",
+        context! {
+            name: &session.user_id,
+            payment_status: status
+        },
+    ))
 }
 
 async fn claim_payment(
@@ -441,32 +492,43 @@ async fn claim_payment(
     router: Arc<MessageRouter<RelayPool>>,
     nwc: Arc<nwc::NWC>,
 ) -> Result<(), nwc::Error> {
-    let invoice = nwc.make_invoice(portal::nostr::nips::nip47::MakeInvoiceRequest {
-        amount: amount_msat,
-        description: Some(description),
-        description_hash: None,
-        expiry: None,
-    }).await?;
+    let invoice = nwc
+        .make_invoice(portal::nostr::nips::nip47::MakeInvoiceRequest {
+            amount: amount_msat,
+            description: Some(description),
+            description_hash: None,
+            expiry: None,
+        })
+        .await?;
 
     log::info!("Made invoice: {}", invoice.invoice);
 
-    let inner = SinglePaymentRequestSenderConversation::new(router.keypair().public_key(), router.keypair().subkey_proof().cloned(), SinglePaymentRequestContent {
-        amount: amount_msat,
-        currency: Currency::Millisats,
-        expires_at: Timestamp::now_plus_seconds(600),
-        auth_token: Some(auth_token),
-        current_exchange_rate: None,
-        invoice: invoice.invoice.clone(),
-        subscription_id,
-    });
-    let _event = router.add_and_subscribe(MultiKeySenderAdapter::new_with_user(user_id, vec![], inner)).await.unwrap();
+    let inner = SinglePaymentRequestSenderConversation::new(
+        router.keypair().public_key(),
+        router.keypair().subkey_proof().cloned(),
+        SinglePaymentRequestContent {
+            amount: amount_msat,
+            currency: Currency::Millisats,
+            expires_at: Timestamp::now_plus_seconds(600),
+            auth_token: Some(auth_token),
+            current_exchange_rate: None,
+            invoice: invoice.invoice.clone(),
+            subscription_id,
+        },
+    );
+    let _event = router
+        .add_and_subscribe(MultiKeySenderAdapter::new_with_user(user_id, vec![], inner))
+        .await
+        .unwrap();
     // let event = event.next().await.unwrap().unwrap();
 
     for _ in 0..30 {
-        let invoice = nwc.lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
-            invoice: Some(invoice.invoice.clone()),
-            payment_hash: None,
-        }).await?;
+        let invoice = nwc
+            .lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
+                invoice: Some(invoice.invoice.clone()),
+                payment_hash: None,
+            })
+            .await?;
 
         if invoice.settled_at.is_some() {
             return Ok(());
@@ -485,7 +547,7 @@ async fn process_recurring_payments(
     nwc: Arc<nwc::NWC>,
 ) {
     let mut payments_to_update = Vec::new();
-    
+
     // Find payments that need processing
     {
         let lock = recurring_payments.lock().unwrap();
@@ -498,50 +560,70 @@ async fn process_recurring_payments(
             }
         }
     }
-    
+
     // Process each due payment
     for payment in payments_to_update {
         log::info!("Processing recurring payment: {}", payment.subscription_id);
 
-        let claim_result = claim_payment(payment.amount * 1000, payment.auth_token.clone(), payment.description.clone(), Some(payment.subscription_id.clone()), payment.user_id.clone(), router.clone(), nwc.clone()).await;
+        let claim_result = claim_payment(
+            payment.amount * 1000,
+            payment.auth_token.clone(),
+            payment.description.clone(),
+            Some(payment.subscription_id.clone()),
+            payment.user_id.clone(),
+            router.clone(),
+            nwc.clone(),
+        )
+        .await;
         match claim_result {
             Ok(_) => {
                 let mut lock = recurring_payments.lock().unwrap();
                 if let Some(payment_info) = lock.get_mut(&payment.subscription_id) {
                     payment_info.1 = Timestamp::now();
                 }
-                log::info!("Recurring payment processed successfully: {}", payment.subscription_id);
+                log::info!(
+                    "Recurring payment processed successfully: {}",
+                    payment.subscription_id
+                );
             }
             Err(e) => {
-                log::error!("Failed to process recurring payment: {}: {}", payment.subscription_id, e);
+                log::error!(
+                    "Failed to process recurring payment: {}: {}",
+                    payment.subscription_id,
+                    e
+                );
             }
         }
     }
 }
 
 #[get("/debug-login")]
-fn debug_login(cookies: &CookieJar<'_>, sessions: &State<Sessions>, users: &State<Users>) -> Redirect {
+fn debug_login(
+    cookies: &CookieJar<'_>,
+    sessions: &State<Sessions>,
+    users: &State<Users>,
+) -> Redirect {
     // Create a debug user and session
     let user_id = "debug-user-npub1abc123xyz".to_string();
     let user = User {
         id: user_id.clone(),
         name: "Debug User".to_string(),
     };
-    
+
     let session_id = Uuid::new_v4().to_string();
     let session = Session {
         user_id: user_id.clone(),
         auth_token: "debug-auth-token".to_string(),
         expires_at: chrono::Utc::now() + chrono::Duration::hours(24),
     };
-    
+
     // Save user and session
     users.lock().unwrap().insert(user_id, user);
     sessions.lock().unwrap().insert(session_id.clone(), session);
-    
+
     // Set session cookie
     cookies.add(Cookie::new("session_id", session_id));
-    
+
     // Redirect to dashboard
     Redirect::to("/")
 }
@@ -584,7 +666,12 @@ async fn rocket() -> _ {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
-            process_recurring_payments(_recurring_payments.clone(), _router_for_payments.clone(), _nwc.clone()).await;
+            process_recurring_payments(
+                _recurring_payments.clone(),
+                _router_for_payments.clone(),
+                _nwc.clone(),
+            )
+            .await;
         }
     });
 
@@ -592,7 +679,10 @@ async fn rocket() -> _ {
         .attach(Template::fairing())
         .attach(AdHoc::on_ignite("Mount Routes", |rocket| async {
             rocket
-                .mount("/", routes![index, logout, request_payment, debug_login, payment_status])
+                .mount(
+                    "/",
+                    routes![index, logout, request_payment, debug_login, payment_status],
+                )
                 .manage(Sessions::new(HashMap::new()))
                 .manage(Users::new(HashMap::new()))
                 .manage(LoginTokens::new(Mutex::new(HashMap::new())))

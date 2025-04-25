@@ -1,14 +1,27 @@
 use std::{collections::HashSet, ops::Deref};
 
-use nostr::{event::{Kind, Tag}, filter::Filter, key::PublicKey};
+use nostr::{
+    event::{Kind, Tag},
+    filter::Filter,
+    key::PublicKey,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::model::{
-        bindings, event_kinds::{PAYMENT_REQUEST, PAYMENT_RESPONSE, RECURRING_PAYMENT_REQUEST, RECURRING_PAYMENT_RESPONSE}, payment::{PaymentStatusContent, RecurringPaymentRequestContent, RecurringPaymentStatusContent, SinglePaymentRequestContent}, Timestamp
+        Timestamp, bindings,
+        event_kinds::{
+            PAYMENT_REQUEST, PAYMENT_RESPONSE, RECURRING_PAYMENT_REQUEST,
+            RECURRING_PAYMENT_RESPONSE,
+        },
+        payment::{
+            PaymentStatusContent, RecurringPaymentRequestContent, RecurringPaymentStatusContent,
+            SinglePaymentRequestContent,
+        },
     },
     router::{
-        adapters::{one_shot::OneShotSender, ConversationWithNotification}, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response
+        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
+        adapters::{ConversationWithNotification, one_shot::OneShotSender},
     },
 };
 
@@ -117,14 +130,8 @@ pub struct PaymentStatusSenderConversation {
 }
 
 impl PaymentStatusSenderConversation {
-    pub fn new(
-        event: PaymentRequestEvent,
-        status: PaymentStatusContent,
-    ) -> Self {
-        Self {
-            event,
-            status,
-        }
+    pub fn new(event: PaymentRequestEvent, status: PaymentStatusContent) -> Self {
+        Self { event, status }
     }
 }
 
@@ -158,14 +165,8 @@ pub struct RecurringPaymentStatusSenderConversation {
 }
 
 impl RecurringPaymentStatusSenderConversation {
-    pub fn new(
-        event: PaymentRequestEvent,
-        status: RecurringPaymentStatusContent,
-    ) -> Self {
-        Self {
-            event,
-            status,
-        }
+    pub fn new(event: PaymentRequestEvent, status: RecurringPaymentStatusContent) -> Self {
+        Self { event, status }
     }
 }
 
@@ -192,4 +193,3 @@ impl OneShotSender for RecurringPaymentStatusSenderConversation {
         Ok(response)
     }
 }
-

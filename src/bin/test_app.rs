@@ -3,9 +3,11 @@ use std::{io::Write, str::FromStr, sync::Arc};
 use nostr::{Keys, nips::nip19::ToBech32};
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
-    app::auth::{AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation},
-    protocol::{auth_init::AuthInitUrl, LocalKeypair},
-    router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter},
+    app::auth::{
+        AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation,
+    },
+    protocol::{LocalKeypair, auth_init::AuthInitUrl},
+    router::{MessageRouter, MultiKeyListenerAdapter, adapters::one_shot::OneShotSenderAdapter},
 };
 
 #[tokio::main]
@@ -42,7 +44,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::io::stdin().read_line(&mut auth_init_url)?;
     let auth_init_url = AuthInitUrl::from_str(auth_init_url.trim())?;
 
-
     // send auth init
     let conv = AuthInitConversation {
         url: auth_init_url,
@@ -63,10 +64,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     // auth init sent
 
-
     let inner = AuthChallengeListenerConversation::new(router.keypair().public_key());
     let mut rx = router
-        .add_and_subscribe(MultiKeyListenerAdapter::new( inner,router.keypair().subkey_proof().cloned() ))
+        .add_and_subscribe(MultiKeyListenerAdapter::new(
+            inner,
+            router.keypair().subkey_proof().cloned(),
+        ))
         .await?;
 
     while let Ok(response) = rx.next().await.unwrap() {
@@ -80,7 +83,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let approve = approve.trim().to_lowercase() == "y";
 
         // let result = evt.on_auth_challenge(response.clone()).await?;
-
 
         log::debug!("Auth challenge callback result: {:?}", approve);
 
@@ -100,10 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             // TODO: send explicit rejection
         }
-    }    
-    
-
-
+    }
 
     Ok(())
     //

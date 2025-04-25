@@ -638,19 +638,25 @@ impl Calendar {
             .map(|(is_current_month, y, m, d)| {
                 let is_current_day = is_current_month && d == from.day();
                 let from = (is_current_day).then_some(from.hour());
-                self.hour.iter(from).map(move |h| (is_current_day, y, m, d, h))
+                self.hour
+                    .iter(from)
+                    .map(move |h| (is_current_day, y, m, d, h))
             })
             .flatten()
             .map(|(is_current_day, y, m, d, h)| {
                 let is_current_hour = is_current_day && h == from.hour();
                 let from = (is_current_hour).then_some(from.minute());
-                self.minute.iter(from).map(move |mi| (is_current_hour, y, m, d, h, mi))
+                self.minute
+                    .iter(from)
+                    .map(move |mi| (is_current_hour, y, m, d, h, mi))
             })
             .flatten()
             .map(|(is_current_hour, y, m, d, h, mi)| {
                 let is_current_minute = is_current_hour && mi == from.minute();
                 let from = (is_current_minute).then_some(from.second());
-                self.second.iter(from).map(move |s| (is_current_minute, y, m, d, h, mi, s))
+                self.second
+                    .iter(from)
+                    .map(move |s| (is_current_minute, y, m, d, h, mi, s))
             })
             .flatten()
             .filter_map(|(_, y, m, d, h, mi, s)| {
