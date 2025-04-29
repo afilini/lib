@@ -243,8 +243,10 @@ pub mod payment {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
+    #[serde(rename_all = "snake_case")]
     pub enum PaymentStatusContent {
         Pending,
+        Rejected { reason: Option<String> },
         Failed { reason: Option<String> },
     }
 
