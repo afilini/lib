@@ -1,7 +1,7 @@
 {
-  "name": "nostrauth-rest-client",
+  "name": "portal-sdk",
   "version": "0.1.0",
-  "description": "TypeScript client for NostrAuth REST API",
+  "description": "TypeScript client for Portal Websocket Server",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -13,6 +13,7 @@
   },
   "keywords": [
     "nostr",
+    "portal",
     "authentication",
     "api",
     "client",
