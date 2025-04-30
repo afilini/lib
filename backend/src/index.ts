@@ -3,13 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { Currency, PaymentStatusContent, PortalSDK, Profile, RecurringPaymentStatusContent, Timestamp } from 'portal-sdk';
-
-interface Session {
-  id: string;
-  publicKey: string;
-  displayName: string;
-  authToken: string;
-}
+import { DatabaseManager, Payment } from './session';
 
 interface LoginStatus {
   type: 'waiting' | 'sending_challenge' | 'approved' | 'timeout';
@@ -27,8 +21,9 @@ interface PaymentRequest {
 
 const app = express();
 const port = process.env.PORT || 8000;
-const sessions = new Map<string, Session>();
+const db = new DatabaseManager();
 const loginTokens = new Map<string, LoginStatus>();
+const connectionMap = new Map<string, [WebSocket]>();
 
 const portalClient = new PortalSDK({
   serverUrl: 'ws://127.0.0.1:3000/ws',
@@ -58,7 +53,7 @@ function mainFunction() {
   app.get('/logout', (req, res) => {
     const sessionId = req.cookies?.session_id;
     if (sessionId) {
-      sessions.delete(sessionId);
+      db.deleteSession(sessionId);
       res.clearCookie('session_id');
     }
     res.redirect('/');
@@ -71,7 +66,7 @@ function mainFunction() {
   
   // Initialize WebSocket server
   const wss = new WebSocketServer({ server });
-  
+
   wss.on('connection', async (ws: WebSocket, req) => {
     console.log('New WebSocket connection');
   
@@ -85,12 +80,18 @@ function mainFunction() {
     const isDashboard = req.url?.includes('dashboard');
     if (isDashboard) {
       // Dashboard connection
-      if (!sessionId || !sessions.has(sessionId)) {
+      if (!sessionId || !db.hasSession(sessionId)) {
           console.log('No session found');
           ws.send(`<span id="redirect" data-url="/"></span>`);
       } else {
-        const session = sessions.get(sessionId)!;
-        
+        const session = db.getSession(sessionId)!;
+        const map = connectionMap.get(session.publicKey);
+        if (!map) {
+            connectionMap.set(session.publicKey, [ws]);
+        } else {
+            map.push(ws);
+        }
+
         // Send user info
         ws.send(`<span id="user-name">${session.displayName}</span>`);
   
@@ -104,33 +105,31 @@ function mainFunction() {
             payment.amount = parseInt(data.amount);
 
             if (payment.payment_type === 'single') {
-                const payReq = {
-                    amount: payment.amount * 1000,
-                    description: payment.description,
-                    currency: Currency.Millisats,
-                    auth_token: session.authToken,
-                    subscription_id: undefined,
-                };
-                const paymentResult = await portalClient.requestSinglePayment(
-                    session.publicKey,
-                    [],
-                    payReq,
-                    (status) => {
-                        console.log('Payment status update:', status);
-                        ws.send(makePaymentStatus(status));
-                    }
-                );
-
-                console.log('Single payment result:', paymentResult);
-                ws.send(makePaymentStatus(paymentResult));
+                claimSinglePayment(connectionMap.get(session.publicKey) || [ws], session.publicKey, undefined, session.authToken, payment);
             } else {
+                const subscriptionId = uuidv4();
+                const nextPaymentAt = Math.floor(Date.now() / 1000); // Now
+
+                // Create subscription record
+                const subscription = db.createSubscription({
+                  id: subscriptionId,
+                  publicKey: session.publicKey,
+                  amount: payment.amount,
+                  frequency: payment.frequency,
+                  status: 'active',
+                  lastPaymentAt: null,
+                  nextPaymentAt,
+                  authToken: session.authToken,
+                  portalSubscriptionId: null
+                });
+
                 const payReq = {
                     amount: payment.amount * 1000,
                     currency: Currency.Millisats,
                     auth_token: session.authToken,
                     recurrence: {
                         calendar: payment.frequency,
-                        first_payment_due: Timestamp.fromNow(0),
+                        first_payment_due: new Timestamp(nextPaymentAt),
                     },
                     expires_at: Timestamp.fromNow(3600),
                     current_exchange_rate: undefined,
@@ -141,18 +140,29 @@ function mainFunction() {
                     [],
                     payReq,
                 );
+                
                 console.log('Recurring payment result:', paymentResult);
-                ws.send(makeRecurringPaymentStatus(paymentResult));
+                
+                // Update subscription status based on result
+                if (paymentResult.status === 'confirmed') {
+                  db.updateSubscriptionStatus(subscriptionId, 'active', nextPaymentAt, paymentResult.subscription_id);
+                } else {
+                  db.updateSubscriptionStatus(subscriptionId, 'failed');
+                }
+                
+                sendHistory(ws, session.publicKey);
             }
           } catch (err) {
             console.error('Error processing message:', err);
           }
         });
-      }
+
+        sendHistory(ws, session.publicKey);
+     }
     } else if (mainKey) {
       console.log(`User has main key: ${mainKey}`);
 
-      if (sessionId && sessions.has(sessionId)) {
+      if (sessionId && db.hasSession(sessionId)) {
           console.log(`Resuming session ${sessionId}`);
           ws.send(`
               <div id="status" class="status approved" x-session-id="${sessionId}" x-main-key="${mainKey}">
@@ -247,6 +257,13 @@ function mainFunction() {
   
     ws.on('close', () => {
       console.log('Client disconnected');
+
+      if (mainKey) {
+        const connections = connectionMap.get(mainKey);
+        if (connections) {
+          connections.splice(connections.indexOf(ws), 1);
+        }
+      }
     });
   }); 
 }
@@ -264,7 +281,7 @@ async function authenticateKey(portalClient: PortalSDK, ws: WebSocket, loginUrl:
     });
     
     // Create session
-    sessions.set(sessionId, {
+    db.setSession({
       id: sessionId,
       publicKey: mainKey,
       displayName: profile?.name || mainKey,
@@ -278,19 +295,152 @@ async function authenticateKey(portalClient: PortalSDK, ws: WebSocket, loginUrl:
       `);
 }
 
-function makePaymentStatus(paymentResult: PaymentStatusContent) {
-    return `
-            <div id="payment-status">
-              <h3>Payment Status: ${paymentResult.status}</h3>
+function sendHistory(ws: WebSocket, publicKey: string) {
+    // Send existing payments and subscriptions
+    const payments = db.getPublicKeyPayments(publicKey);
+    const subscriptions = db.getPublicKeySubscriptions(publicKey);
+    
+    ws.send(`
+        <div id="history-section">
+        <h3>Payment History</h3>
+        <div class="payment-list">
+            ${payments.map(p => `
+            <div class="payment-item ${p.status}">
+                <span class="amount">${p.amount} sats</span>
+                <span class="description">${p.description}</span>
+                <span class="status">${p.status}</span>
+                <span class="date">${new Date(p.createdAt * 1000).toLocaleString()}</span>
             </div>
-          `;
+            `).join('')}
+        </div>
+        
+        <h3>Active Subscriptions</h3>
+        <div class="subscription-list">
+            ${subscriptions.filter(s => s.status === 'active').map(s => `
+            <div class="subscription-item">
+                <span class="amount">${s.amount} sats</span>
+                <span class="frequency">${s.frequency}</span>
+                <span class="next-payment">Next: ${new Date(s.nextPaymentAt * 1000).toLocaleString()}</span>
+            </div>
+            `).join('')}
+        </div>
+        </div>
+    `);
 }
 
-function makeRecurringPaymentStatus(paymentResult: RecurringPaymentStatusContent) {
-    return `
-            <div id="payment-status">
-              <h3>Subscription Status</h3>
-              <pre>${JSON.stringify(paymentResult, null, 2)}</pre>
-            </div>
-          `;
+async function claimSinglePayment(
+    ws: WebSocket[],
+    publicKey: string,
+    subscriptionId: string | undefined,
+    authToken: string | undefined,
+    payment: PaymentRequest,
+    successCallback?: (status: PaymentStatusContent) => void
+) {
+    const paymentId = uuidv4();
+    
+    // Create payment record
+    const paymentRecord = db.createPayment({
+        id: paymentId,
+        publicKey: publicKey,
+        amount: payment.amount,
+        description: payment.description,
+        status: 'pending'
+    });
+    for (const w of ws) {
+        sendHistory(w, publicKey);
+    }
+
+    const payReq = {
+        amount: payment.amount * 1000,
+        description: payment.description,
+        currency: Currency.Millisats,
+        auth_token: authToken,
+        subscription_id: subscriptionId,
+    };
+    
+    const paymentResult = await portalClient.requestSinglePayment(
+        publicKey,
+        [],
+        payReq,
+        (status) => {
+            console.log('Payment status update:', status);
+            // Update payment status in database
+            let dbStatus: 'pending' | 'completed' | 'failed';
+            if (status.status === 'paid') {
+                if (successCallback) {
+                    successCallback(status);
+                }
+                dbStatus = 'completed';
+            } else if (status.status === 'failed' || status.status === 'rejected' || status.status === 'timeout') {
+                dbStatus = 'failed';
+            } else {
+                dbStatus = 'pending';
+            }
+            db.updatePaymentStatus(paymentId, dbStatus);
+            for (const w of ws) {
+                sendHistory(w, publicKey);
+            }
+        }
+    );
+
+    console.log('Single payment result:', paymentResult);
+    let finalStatus: 'pending' | 'completed' | 'failed';
+    if (paymentResult.status === 'paid') {
+        finalStatus = 'completed';
+    } else if (paymentResult.status === 'failed' || paymentResult.status === 'rejected' || paymentResult.status === 'timeout') {
+        finalStatus = 'failed';
+    } else {
+        finalStatus = 'pending';
+    }
+    db.updatePaymentStatus(paymentId, finalStatus);
+    for (const w of ws) {
+        sendHistory(w, publicKey);
+    }
 }
+
+// Helper function to calculate next payment timestamp
+function calculateNextPayment(fromTimestamp: number, frequency: string): number {
+  const date = new Date(fromTimestamp * 1000);
+  
+  switch (frequency) {
+    case 'minutely':
+      return Math.floor(date.setMinutes(date.getMinutes() + 1) / 1000);
+    case 'hourly':
+      return Math.floor(date.setHours(date.getHours() + 1) / 1000);
+    case 'daily':
+      return Math.floor(date.setDate(date.getDate() + 1) / 1000);
+    case 'weekly':
+      return Math.floor(date.setDate(date.getDate() + 7) / 1000);
+    case 'monthly':
+      return Math.floor(date.setMonth(date.getMonth() + 1) / 1000);
+    case 'quarterly':
+      return Math.floor(date.setMonth(date.getMonth() + 3) / 1000);
+    case 'semiannually':
+      return Math.floor(date.setMonth(date.getMonth() + 6) / 1000);
+    case 'yearly':
+      return Math.floor(date.setFullYear(date.getFullYear() + 1) / 1000);
+    default:
+      throw new Error(`Unknown frequency: ${frequency}`);
+  }
+}
+
+// Process subscriptions every minute
+setInterval(() => {
+  const now = Math.floor(Date.now() / 1000);
+  const subscriptions = db.getDueSubscriptions(now);
+  for (const subscription of subscriptions) {
+    const ws = connectionMap.get(subscription.publicKey);
+    const payReq = {
+        amount: subscription.amount,
+        description: `Payment  for subscription ${subscription.portalSubscriptionId}`,
+    };
+    claimSinglePayment(ws || [], subscription.publicKey, subscription.id, subscription.authToken, payReq as PaymentRequest, () => {
+        db.updateSubscriptionStatus(subscription.id, 'active', calculateNextPayment(now, subscription.frequency), subscription.portalSubscriptionId || undefined);
+    });
+  }
+}, 60000);
+
+// Optional: Add session cleanup on a schedule
+setInterval(() => {
+  db.cleanup();
+}, 3600000); // Run cleanup every hour

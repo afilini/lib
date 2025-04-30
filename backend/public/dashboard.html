@@ -10,16 +10,17 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        height: 100vh;
+        min-height: 100vh;
         margin: 0;
         background-color: #f5f5f5;
+        padding: 2rem 0;
       }
       .dashboard-container {
         background-color: white;
         padding: 2rem;
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        width: 400px;
+        width: 800px;
         text-align: center;
       }
       h1 {
@@ -97,6 +98,82 @@
       #redirect {
         display: none;
       }
+      /* History section styles */
+      .history-section {
+        border: 1px solid #ddd;
+        padding: 20px;
+        margin-top: 20px;
+        border-radius: 8px;
+        text-align: left;
+      }
+      .history-section h2 {
+        margin-top: 0;
+        color: #333;
+        margin-bottom: 1rem;
+      }
+      .payment-list, .subscription-list {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .payment-item {
+        display: grid;
+        grid-template-columns: 100px 1fr 100px auto;
+        gap: 15px;
+        padding: 15px;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+        align-items: center;
+      }
+      .payment-item.completed {
+        background-color: #e8f5e9;
+      }
+      .payment-item.failed {
+        background-color: #ffebee;
+      }
+      .payment-item.pending {
+        background-color: #fff3e0;
+      }
+      .subscription-item {
+        display: grid;
+        grid-template-columns: 100px 100px 1fr;
+        gap: 15px;
+        padding: 15px;
+        border-radius: 4px;
+        background-color: #e3f2fd;
+        align-items: center;
+      }
+      .amount {
+        font-weight: bold;
+      }
+      .status {
+        text-transform: capitalize;
+      }
+      .date {
+        color: #666;
+        font-size: 0.9rem;
+      }
+      .frequency {
+        text-transform: capitalize;
+        color: #1976d2;
+      }
+      .next-payment {
+        color: #666;
+        font-size: 0.9rem;
+      }
+      @media (max-width: 900px) {
+        .dashboard-container {
+          width: 90%;
+        }
+        .payment-item {
+          grid-template-columns: 1fr;
+          gap: 5px;
+        }
+        .subscription-item {
+          grid-template-columns: 1fr;
+          gap: 5px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -143,8 +220,18 @@
             </div>
             <button type="submit" class="submit-button">Send Payment Request</button>
           </form>
+        </div>
+
+        <div id="history-section" class="history-section">
+          <h2>Payment History</h2>
+          <div class="payment-list">
+            <!-- Payments will be inserted here -->
+          </div>
           
-          <div id="payment-status"></div>
+          <h2>Active Subscriptions</h2>
+          <div class="subscription-list">
+            <!-- Subscriptions will be inserted here -->
+          </div>
         </div>
         
         <a href="/logout" class="logout-button" onclick="document.cookie = 'session_id=; path=/'">Logout</a>

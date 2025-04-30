@@ -289,6 +289,7 @@ pub mod payment {
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
+    #[serde(rename_all = "snake_case", tag = "status")]
     pub enum RecurringPaymentStatusContent {
         Confirmed {
             subscription_id: String,

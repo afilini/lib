@@ -17,6 +17,8 @@
         devShells.default = pkgs.mkShell rec {
           buildInputs = with pkgs; [
             nodejs
+            python3
+            sqlite
             yarn
           ];
         };

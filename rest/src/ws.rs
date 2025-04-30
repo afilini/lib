@@ -598,9 +598,15 @@ async fn handle_command(
                     
                     // Create a task to handle the notification stream
                     let task = tokio::spawn(async move {
+                        let mut count = 0;
                         let notification = loop {
                             if Timestamp::now() > expires_at {
                                 break NotificationData::PaymentStatusUpdate { status: InvoiceStatus::Timeout };
+                            }
+
+                            count += 1;
+                            if std::env::var("FAKE_PAYMENTS").is_ok() && count > 3 {
+                                break NotificationData::PaymentStatusUpdate { status: InvoiceStatus::Paid { preimage: None } }
                             }
 
                             let invoice = nwc_clone
