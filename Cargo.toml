@@ -1,5 +1,5 @@
 [workspace]
-members = [ "app" , "backend", "cli", "rest", "sdk"]
+members = [ "app" , "cli", "rest", "sdk"]
 
 [package]
 name = "portal"

@@ -267,6 +267,7 @@ pub mod payment {
         pub current_exchange_rate: Option<ExchangeRate>,
         pub expires_at: Timestamp,
         pub auth_token: Option<String>,
+        // TODO: add description
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

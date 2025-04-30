@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Portal Demo - Dashboard</title>
+    <script src="/htmx.min.js"></script>
+    <script src="/ws.js"></script>
+    <style>
+      body {
+        font-family: system-ui;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background-color: #f5f5f5;
+      }
+      .dashboard-container {
+        background-color: white;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        width: 400px;
+        text-align: center;
+      }
+      h1 {
+        color: #333;
+        margin-bottom: 1.5rem;
+      }
+      .welcome-message {
+        font-size: 1.2rem;
+        margin-bottom: 2rem;
+        color: #666;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+      }
+      .logout-button {
+        background-color: #f44336;
+        color: white;
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 1rem;
+        text-decoration: none;
+        display: inline-block;
+        margin-top: 20px;
+      }
+      .logout-button:hover {
+        background-color: #d32f2f;
+      }
+      /* Payment form styles */
+      .form-section {
+        border: 1px solid #ddd;
+        padding: 20px;
+        margin-bottom: 20px;
+        border-radius: 8px;
+        text-align: left;
+      }
+      .form-section > h2 {
+        margin-top: 0px;
+      }
+      .form-field {
+        margin-bottom: 15px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input, select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+      .submit-button {
+        background-color: #4CAF50;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 1rem;
+      }
+      .submit-button:hover {
+        background-color: #45a049;
+      }
+      .payment-url {
+        margin-top: 15px;
+        padding: 10px;
+        background-color: #f9f9f9;
+        border-radius: 4px;
+        word-break: break-all;
+        text-align: left;
+      }
+      #redirect {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="dashboard-container">
+      <h1>Dashboard</h1>
+      <div
+        hx-ext="ws"
+        ws-connect="/ws/dashboard"
+      >
+        <div class="welcome-message">
+          Welcome, <span id="user-name">...</span>!
+        </div>
+        
+        <div class="form-section">
+          <h2>Request Payment</h2>
+          <form ws-send>
+            <div class="form-field">
+              <label for="amount">Amount (sats):</label>
+              <input type="number" id="amount" name="amount" value="10" min="1" required>
+            </div>
+            <div class="form-field">
+              <label for="description">Description:</label>
+              <input type="text" id="description" name="description" value="Test payment" required>
+            </div>
+            <div class="form-field">
+              <label for="payment_type">Payment Type:</label>
+              <select id="payment_type" name="payment_type">
+                <option value="single">Single Payment</option>
+                <option value="recurring">Recurring Payment</option>
+              </select>
+            </div>
+            <div class="form-field" id="frequency-field" style="display: none;">
+              <label for="frequency">Frequency:</label>
+              <select id="frequency" name="frequency">
+                <option value="minutely">Every Minute</option>
+                <option value="hourly">Every Hour</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly" selected>Monthly</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="semiannually">Semi-annually</option>
+                <option value="yearly">Yearly</option>
+              </select>
+            </div>
+            <button type="submit" class="submit-button">Send Payment Request</button>
+          </form>
+          
+          <div id="payment-status"></div>
+        </div>
+        
+        <a href="/logout" class="logout-button" onclick="document.cookie = 'session_id=; path=/'">Logout</a>
+        <span id="redirect"></span>
+      </div>
+    </div>
+    
+    <script>
+      // Show/hide frequency dropdown based on payment type
+      document.addEventListener('DOMContentLoaded', function() {
+        const paymentTypeSelect = document.getElementById('payment_type');
+        const frequencyField = document.getElementById('frequency-field');
+        
+        // Set initial state
+        toggleFrequencyField();
+        
+        // Add change event listener
+        paymentTypeSelect.addEventListener('change', toggleFrequencyField);
+        
+        function toggleFrequencyField() {
+          if (paymentTypeSelect.value === 'recurring') {
+            frequencyField.style.display = 'block';
+          } else {
+            frequencyField.style.display = 'none';
+          }
+        }
+      });
+
+      htmx.on('htmx:wsAfterMessage', function(evt) {
+        const redirect = document.querySelector('#redirect');
+        if (redirect) {
+            const url = redirect.getAttribute('data-url');
+            if (url) {
+                setTimeout(() => { window.location.href = url; }, 1000);
+            }
+        }
+      });
+    </script>
+  </body>
+</html> 

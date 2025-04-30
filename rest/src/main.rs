@@ -159,6 +159,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize NWC
     let nwc = nwc_url.map(|url| Arc::new(nwc::NWC::new(url.parse().expect("Failed to parse NWC_URL"))));
+    let nwc_clone = nwc.clone();
+
+    tokio::spawn(async move {
+        if let Some(nwc) = nwc_clone {
+            let info = nwc.get_info().await;
+            info!("NWC info: {:?}", info);
+        }
+    });
     
     // Create app state
     let state = AppState {
