@@ -31,5 +31,5 @@ chrono-tz = { version = "0.10.3", features = ["serde"] }
 default = ["bindings"]
 bindings = ["uniffi", "anyhow"]
 
-[patch.crates-io]
-nostr = { path = "../git/nostr/crates/nostr" }
+# [patch.crates-io]
+# nostr = { path = "../git/nostr/crates/nostr" }
