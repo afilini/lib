@@ -102,10 +102,15 @@ impl<C: Channel> MessageRouter<C> {
     /// * `Ok(())` if the listener exits normally
     /// * `Err(ConversationError)` if an error occurs while processing messages
     pub async fn listen(&self) -> Result<(), ConversationError> {
+        enum LocalEvent {
+            Message(Event),
+            EndOfStoredEvents,
+        }
+
         while let Ok(notification) = self.channel.receive().await {
             log::trace!("Notification = {:?}", notification);
 
-            let (subscription_id, event): (SubscriptionId, Event) = match notification {
+            let (subscription_id, event): (SubscriptionId, LocalEvent) = match notification {
                 RelayPoolNotification::Message {
                     message:
                         RelayMessage::Event {
@@ -113,47 +118,65 @@ impl<C: Channel> MessageRouter<C> {
                             event,
                         },
                     ..
-                } => (subscription_id.into_owned(), event.into_owned()),
+                } => (subscription_id.into_owned(), LocalEvent::Message(event.into_owned())),
                 RelayPoolNotification::Event {
                     event,
                     subscription_id,
                     ..
-                } => (subscription_id, *event),
+                } => (subscription_id, LocalEvent::Message(*event)),
+                RelayPoolNotification::Message {
+                    message:
+                        RelayMessage::EndOfStoredEvents(subscription_id),
+                    ..
+                } => {
+                    // TODO: we should only send this event when we know all the relays have replied with EndOfStoredEvents. There's another
+                    // TODO in the `process_response` function to check for confirmation from relays after sending a message. Once we have that
+                    // and we know which relays have received the message, we can then know if all relays have replied with EOSE here.
+
+                    (subscription_id.into_owned(), LocalEvent::EndOfStoredEvents)
+                }
                 _ => continue,
             };
 
-            if event.pubkey == self.keypair.public_key() && event.kind != Kind::Metadata {
-                log::trace!("Ignoring event from self");
-                continue;
-            }
-
-            if !event.verify_signature() {
-                log::warn!("Invalid signature for event id: {:?}", event.id);
-                continue;
-            }
-
-            log::trace!("Decrypting with key = {:?}", self.keypair.public_key());
-
-            let message = if let Ok(content) =
-                nip44::decrypt(&self.keypair.secret_key(), &event.pubkey, &event.content)
-            {
-                let cleartext = match CleartextEvent::new(&event, &content) {
-                    Ok(cleartext) => cleartext,
-                    Err(e) => {
-                        log::warn!("Invalid JSON in event: {:?}", e);
+            let message = match event {
+                LocalEvent::Message(event) => {
+                    if event.pubkey == self.keypair.public_key() && event.kind != Kind::Metadata {
+                        log::trace!("Ignoring event from self");
                         continue;
                     }
-                };
 
-                log::trace!("Decrypted event: {:?}", cleartext);
+                    if !event.verify_signature() {
+                        log::warn!("Invalid signature for event id: {:?}", event.id);
+                        continue;
+                    }
 
-                ConversationMessage::Cleartext(cleartext)
-            } else if let Ok(cleartext) = serde_json::from_str::<serde_json::Value>(&event.content) {
-                log::trace!("Unencrypted event: {:?}", cleartext);
-                ConversationMessage::Cleartext(CleartextEvent::new_json(&event, cleartext))
-            } else {
-                log::warn!("Failed to decrypt event: {:?}", event);
-                ConversationMessage::Encrypted(event)
+                    log::trace!("Decrypting with key = {:?}", self.keypair.public_key());
+
+                    if let Ok(content) =
+                        nip44::decrypt(&self.keypair.secret_key(), &event.pubkey, &event.content)
+                    {
+                        let cleartext = match CleartextEvent::new(&event, &content) {
+                            Ok(cleartext) => cleartext,
+                            Err(e) => {
+                                log::warn!("Invalid JSON in event: {:?}", e);
+                                continue;
+                            }
+                        };
+
+                        log::trace!("Decrypted event: {:?}", cleartext);
+
+                        ConversationMessage::Cleartext(cleartext)
+                    } else if let Ok(cleartext) = serde_json::from_str::<serde_json::Value>(&event.content) {
+                        log::trace!("Unencrypted event: {:?}", cleartext);
+                        ConversationMessage::Cleartext(CleartextEvent::new_json(&event, cleartext))
+                    } else {
+                        log::warn!("Failed to decrypt event: {:?}", event);
+                        ConversationMessage::Encrypted(event)
+                    }
+                }
+                LocalEvent::EndOfStoredEvents => {
+                    ConversationMessage::EndOfStoredEvents
+                }
             };
 
             let conversation_id = subscription_id.as_str();
@@ -552,6 +575,7 @@ impl Response {
 pub enum ConversationMessage {
     Cleartext(CleartextEvent),
     Encrypted(Event),
+    EndOfStoredEvents,
 }
 
 #[derive(thiserror::Error, Debug)]

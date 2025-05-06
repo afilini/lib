@@ -140,6 +140,7 @@ impl<T: MultiKeySender> Conversation for MultiKeySenderAdapter<T> {
                 }
             }
             ConversationMessage::Encrypted(_event) => Ok(Response::default()),
+            ConversationMessage::EndOfStoredEvents => Ok(Response::default()),
         }
     }
 

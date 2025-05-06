@@ -14,7 +14,7 @@ impl FetchProfileInfoConversation {
     pub fn new(pubkey: PublicKey) -> Self {
         Self {
             pubkey,
-            expires_at: Timestamp::now_plus_seconds(1000),
+            expires_at: Timestamp::now_plus_seconds(5),
         }
     }
 }
@@ -38,6 +38,8 @@ impl Conversation for FetchProfileInfoConversation {
             if let Ok(metadata) = metadata {
                 return Ok(Response::new().notify(Profile::from(metadata)).finish());
             }
+        } else if let ConversationMessage::EndOfStoredEvents = message {
+            return Ok(Response::new().notify(Option::<Profile>::None).finish());
         }
 
         Ok(Response::new().notify(Option::<Profile>::None).finish())
