@@ -241,8 +241,8 @@ impl PortalApp {
         Ok(value)
     }
 
-    pub async fn db_set(&self, key: String, value: String) -> Result<(), AppError> {
-        self.database.store(key, &value).await.map_err(|e| {
+    pub async fn db_set(&self, key: String, value: &str) -> Result<(), AppError> {
+        self.database.store(key, value).await.map_err(|e| {
             AppError::DatabaseError(format!("Failed to set value: {}", e))
         })?;
         Ok(())
