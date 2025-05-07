@@ -3,18 +3,15 @@ use std::sync::Arc;
 use portal::{
     nostr::{key::PublicKey, nips::nip01::Metadata},
     nostr_relay_pool::{RelayOptions, RelayPool},
-    profile::{FetchProfileInfoConversation, Profile},
+    profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
-        LocalKeypair,
-        auth_init::AuthInitUrl,
-        model::payment::{
+        auth_init::AuthInitUrl, model::payment::{
             PaymentStatusContent, RecurringPaymentRequestContent, RecurringPaymentStatusContent,
             SinglePaymentRequestContent,
-        },
+        }, LocalKeypair
     },
     router::{
-        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
-        NotificationStream,
+        adapters::one_shot::OneShotSenderAdapter, ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
     },
     sdk::{
         auth::{
@@ -171,6 +168,21 @@ impl PortalSDK {
             Ok(None)
         }
     }
+
+    pub async fn set_profile(&self, profile: Profile) -> Result<(), PortalSDKError> {
+        if self.router.keypair().subkey_proof().is_some() {
+            return Err(PortalSDKError::MasterKeyRequired);
+        }
+
+        let conv = SetProfileConversation::new(profile);
+        let _ = self.router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+            self.router.keypair().public_key().into(),
+            vec![],
+            conv,
+        ))).await?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -186,4 +198,7 @@ pub enum PortalSDKError {
 
     #[error("Timeout")]
     Timeout,
+
+    #[error("Master key required")]
+    MasterKeyRequired,
 }

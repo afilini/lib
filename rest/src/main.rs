@@ -160,6 +160,8 @@ async fn main() -> anyhow::Result<()> {
         nostr_subkey_proof.map(|s| serde_json::from_str(&s).expect("Failed to parse subkey proof")),
     );
 
+    info!("Running with keypair: {}", keypair.public_key());
+
     // Initialize SDK
     let sdk = PortalSDK::new(keypair, relays).await?;
 

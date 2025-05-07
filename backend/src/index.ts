@@ -4,6 +4,7 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { Currency, PaymentStatusContent, PortalSDK, Profile, RecurringPaymentStatusContent, Timestamp } from 'portal-sdk';
 import { DatabaseManager, Payment } from './session';
+import { bech32 } from 'bech32';
 
 interface LoginStatus {
   type: 'waiting' | 'sending_challenge' | 'approved' | 'timeout';
@@ -25,6 +26,12 @@ const db = new DatabaseManager();
 const loginTokens = new Map<string, LoginStatus>();
 const connectionMap = new Map<string, [WebSocket]>();
 
+function formatNpub(mainKey: string) {
+  const bytes = new Buffer(mainKey, "hex");
+  const npub = bech32.encode('npub', bech32.toWords(bytes));
+  return npub.slice(0, 10) + '...' + npub.slice(-10);
+}
+
 const portalClient = new PortalSDK({
   serverUrl: 'ws://127.0.0.1:3000/ws',
   connectTimeout: 5000
@@ -42,10 +49,21 @@ portalClient.connect()
 function mainFunction() {
   const authToken = process.env.AUTH_TOKEN || 'your-auth-token'; // Replace with your actual token
   portalClient.authenticate(authToken)
-      .catch(error => {
-          console.error('Error authenticating:', error);
-          process.exit(1);
-      });
+    .then(() => {
+        console.log('Authentication successful');
+        portalClient.setProfile({
+            id: '',
+            pubkey: '',
+            name: 'Portal Demo',
+            display_name: 'Portal Demo',
+            picture: 'https://getportal.cc/logo-nip05.png',
+            nip05: 'demo@getportal.cc',
+        });
+    })
+    .catch(error => {
+        console.error('Error authenticating:', error);
+        process.exit(1);
+    });
   
   // Serve static files from the public directory
   app.use(express.static(path.join(__dirname, '../public')));
@@ -142,13 +160,7 @@ function mainFunction() {
                 );
                 
                 console.log('Recurring payment result:', paymentResult);
-                
-                // Update subscription status based on result
-                if (paymentResult.status === 'confirmed') {
-                  db.updateSubscriptionStatus(subscriptionId, 'active', nextPaymentAt, paymentResult.subscription_id);
-                } else {
-                  db.updateSubscriptionStatus(subscriptionId, 'failed');
-                }
+                db.updateSubscriptionStatus(subscriptionId, 'active', nextPaymentAt, paymentResult.subscription_id);
                 
                 sendHistory(ws, session.publicKey);
             }
@@ -197,7 +209,7 @@ function mainFunction() {
   
           ws.send(`
               <div id="qr-section">
-                <h3>Hello ${profile?.name || mainKey}!</h3>
+                <h3>Hello ${profile?.name || formatNpub(mainKey)}!</h3>
               </div>
               <div class="local-login" id="login-button-section">
                 <a href="#" class="login-button" id="portal-login" ws-send='{"cmd": "login"}'>Login with Portal</a>
@@ -206,7 +218,7 @@ function mainFunction() {
                 <a href="#" class="login-button forget-user-button" id="forget-user" onclick="window.resetMainKey()">Not you?</a>
               </div>
               <div id="status" class="status sending">
-                Welcome back, ${profile?.name || mainKey}!
+                Welcome back, ${profile?.name || formatNpub(mainKey)}!
               </div>
           `);
       }
@@ -230,7 +242,7 @@ function mainFunction() {
                 
                   ws.send(`
                     <div id="status" class="status sending">
-                      Welcome back, ${profile?.name || mainKey}!
+                      Welcome back, ${profile?.name || formatNpub(mainKey)}!
                     </div>
                     <div id="qr-overlay" class="show">Loading...</div>
                     <div id="login-button-section">
@@ -284,7 +296,7 @@ async function authenticateKey(portalClient: PortalSDK, ws: WebSocket, loginUrl:
     db.setSession({
       id: sessionId,
       publicKey: mainKey,
-      displayName: profile?.name || mainKey,
+      displayName: profile?.name || formatNpub(mainKey),
       authToken: authResponse.session_token,
     });
     
@@ -429,13 +441,17 @@ setInterval(() => {
   const now = Math.floor(Date.now() / 1000);
   const subscriptions = db.getDueSubscriptions(now);
   for (const subscription of subscriptions) {
+    if (!subscription.portalSubscriptionId) {
+      continue;
+    }
+
     const ws = connectionMap.get(subscription.publicKey);
     const payReq = {
         amount: subscription.amount,
         description: `Payment  for subscription ${subscription.portalSubscriptionId}`,
     };
-    claimSinglePayment(ws || [], subscription.publicKey, subscription.id, subscription.authToken, payReq as PaymentRequest, () => {
-        db.updateSubscriptionStatus(subscription.id, 'active', calculateNextPayment(now, subscription.frequency), subscription.portalSubscriptionId || undefined);
+    claimSinglePayment(ws || [], subscription.publicKey, subscription.portalSubscriptionId, subscription.authToken, payReq as PaymentRequest, () => {
+        db.updateSubscriptionStatus(subscription.id, 'active', calculateNextPayment(now, subscription.frequency), subscription.portalSubscriptionId!);
     });
   }
 }, 60000);

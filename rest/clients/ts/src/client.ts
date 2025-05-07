@@ -373,4 +373,11 @@ export class PortalSDK {
     
     throw new Error('Unexpected response type');
   }
+
+  /**
+   * Set a user profile
+   */
+  public async setProfile(profile: Profile): Promise<void> {
+    await this.sendCommand('SetProfile', { profile });
+  }
 } 

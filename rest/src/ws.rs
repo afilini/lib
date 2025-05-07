@@ -54,6 +54,9 @@ enum Command {
     FetchProfile {
         main_key: String,
     },
+    SetProfile {
+        profile: Profile,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -824,6 +827,21 @@ async fn handle_command(
                         &format!("Failed to fetch profile: {}", e),
                     )
                     .await;
+                }
+            }
+        }
+        Command::SetProfile { profile } => {
+            match sdk.set_profile(profile.clone()).await {
+                Ok(_) => {
+                    let response = Response::Success {
+                        id: request_id.to_string(),
+                        data: ResponseData::ProfileData { profile: Some(profile) },
+                    };
+
+                    let _ = send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = send_error(tx_message.clone(), request_id, &format!("Failed to set profile: {}", e)).await;
                 }
             }
         }
