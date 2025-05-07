@@ -32,4 +32,4 @@ default = ["bindings"]
 bindings = ["uniffi", "anyhow"]
 
 [patch.crates-io]
-nostr = { path = "../git/nostr/crates/nostr" }
+# nostr = { path = "../git/nostr/crates/nostr" }

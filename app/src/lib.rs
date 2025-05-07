@@ -1,6 +1,8 @@
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use bitcoin::bip32;
+use nostrstore::{Database, QueryOptions, database::NostrRecord};
+use nwc::nostr;
 use portal::{
     app::{
         auth::{
@@ -11,17 +13,26 @@ use portal::{
             PaymentRequestContent, PaymentRequestEvent, PaymentRequestListenerConversation,
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
-    }, nostr::nips::nip19::ToBech32, nostr_relay_pool::{RelayOptions, RelayPool}, profile::{FetchProfileInfoConversation, Profile, SetProfileConversation}, protocol::{
+    },
+    nostr::nips::nip19::ToBech32,
+    nostr_relay_pool::{RelayOptions, RelayPool},
+    profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
+    protocol::{
         auth_init::AuthInitUrl,
         model::{
-            auth::SubkeyProof, bindings::PublicKey, payment::{
+            Timestamp,
+            auth::SubkeyProof,
+            bindings::PublicKey,
+            payment::{
                 PaymentStatusContent, RecurringPaymentRequestContent,
                 RecurringPaymentStatusContent, SinglePaymentRequestContent,
-            }, Timestamp
+            },
         },
-    }, router::{
-        adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
-    }
+    },
+    router::{
+        MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream,
+        adapters::one_shot::OneShotSenderAdapter,
+    },
 };
 
 uniffi::setup_scaffolding!();
@@ -137,6 +148,7 @@ pub enum KeypairError {
 #[derive(uniffi::Object)]
 pub struct PortalApp {
     router: Arc<MessageRouter<RelayPool>>,
+    database: Database,
 }
 
 #[uniffi::export]
@@ -191,13 +203,14 @@ pub trait PaymentRequestListener: Send + Sync {
         event: RecurringPaymentRequest,
     ) -> Result<RecurringPaymentStatusContent, CallbackError>;
 }
+use nostr_sdk::prelude::*;
 
 #[uniffi::export]
 impl PortalApp {
     #[uniffi::constructor]
     pub async fn new(keypair: Arc<Keypair>, relays: Vec<String>) -> Result<Arc<Self>, AppError> {
         let relay_pool = RelayPool::new();
-        for relay in relays {
+        for relay in &relays {
             relay_pool.add_relay(relay, RelayOptions::default()).await?;
         }
         relay_pool.connect().await;
@@ -205,7 +218,56 @@ impl PortalApp {
         let keypair = &keypair.inner;
         let router = Arc::new(MessageRouter::new(relay_pool, keypair.clone()));
 
-        Ok(Arc::new(Self { router }))
+        // mismatch nostrsdk Keys between nostr-sdk and nostrstore
+        let secret_key_cloned = keypair.secret_key().to_bech32().map_err(|_| {
+            AppError::DatabaseError("Failed to convert secret key to bech32".to_string())
+        })?;
+        let key = Keys::parse(&secret_key_cloned)
+            .map_err(|_| AppError::DatabaseError("Failed to parse secret key".to_string()))?;
+
+        let database = Database::builder(key)
+            .with_relays(relays)
+            .build()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to create database: {}", e)))?;
+
+        Ok(Arc::new(Self { router, database }))
+    }
+
+    pub async fn db_get(&self, key: String) -> Result<String, AppError> {
+        let value = self.database.read(key).await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to get value: {}", e))
+        })?;
+        Ok(value)
+    }
+
+    pub async fn db_set(&self, key: String, value: String) -> Result<(), AppError> {
+        self.database.store(key, &value).await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to set value: {}", e))
+        })?;
+        Ok(())
+    }
+
+    pub async fn db_remove(&self, key: String) -> Result<(), AppError> {
+        self.database.remove(key).await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to remove value: {}", e))
+        })?;
+        Ok(())
+    }
+
+    pub async fn db_get_history(&self, key: String) -> Result<Vec<String>, AppError> {
+        let history = self
+            .database
+            .read_history(key, QueryOptions::default())
+            .await
+            .map_err(|e| {
+                AppError::DatabaseError(format!("Failed to get history: {}", e))
+            })?
+            .iter()
+            .map(|record| record.content.clone())
+            .collect::<Vec<String>>();
+
+        Ok(history)
     }
 
     pub async fn listen(&self) -> Result<(), AppError> {
@@ -335,7 +397,10 @@ impl PortalApp {
     pub async fn fetch_profile(&self, pubkey: PublicKey) -> Result<Option<Profile>, AppError> {
         let conv = FetchProfileInfoConversation::new(pubkey.into());
         let mut notification = self.router.add_and_subscribe(conv).await?;
-        let metadata = notification.next().await.ok_or(AppError::ListenerDisconnected)?;
+        let metadata = notification
+            .next()
+            .await
+            .ok_or(AppError::ListenerDisconnected)?;
 
         match metadata {
             Ok(Some(profile)) => {
@@ -347,11 +412,9 @@ impl PortalApp {
                 // }
 
                 Ok(Some(profile))
-            },
-            _ => {
-                Ok(None)
             }
-       }
+            _ => Ok(None),
+        }
     }
 
     pub async fn set_profile(&self, profile: Profile) -> Result<(), AppError> {
@@ -360,11 +423,14 @@ impl PortalApp {
         }
 
         let conv = SetProfileConversation::new(profile);
-        let _ = self.router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-            self.router.keypair().public_key().into(),
-            vec![],
-            conv,
-        ))).await?;
+        let _ = self
+            .router
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                self.router.keypair().public_key().into(),
+                vec![],
+                conv,
+            )))
+            .await?;
 
         Ok(())
     }
@@ -442,6 +508,10 @@ pub enum AppError {
 
     #[error("Master key required")]
     MasterKeyRequired,
+
+    // database errors
+    #[error("Database error: {0}")]
+    DatabaseError(String),
 }
 
 impl From<portal::router::ConversationError> for AppError {
