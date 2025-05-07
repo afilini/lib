@@ -44,6 +44,11 @@ pub fn generate_mnemonic() -> Result<Mnemonic, MnemonicError> {
     Ok(Mnemonic { inner })
 }
 
+#[uniffi::export]
+pub fn key_to_hex(key: PublicKey) -> String {
+    key.to_string()
+}
+
 #[derive(uniffi::Object)]
 pub struct Mnemonic {
     inner: bip39::Mnemonic,
@@ -140,6 +145,12 @@ pub fn parse_auth_init_url(url: &str) -> Result<AuthInitUrl, ParseError> {
     Ok(AuthInitUrl::from_str(url)?)
 }
 
+#[uniffi::export]
+pub fn parse_calendar(s: &str) -> Result<portal::protocol::calendar::Calendar, ParseError> {
+    use std::str::FromStr;
+    Ok(portal::protocol::calendar::Calendar::from_str(s)?)
+}
+
 #[derive(Debug, PartialEq, thiserror::Error, uniffi::Error)]
 pub enum ParseError {
     #[error("Parse error: {0}")]
@@ -147,6 +158,11 @@ pub enum ParseError {
 }
 impl From<portal::protocol::auth_init::ParseError> for ParseError {
     fn from(error: portal::protocol::auth_init::ParseError) -> Self {
+        ParseError::Inner(error.to_string())
+    }
+}
+impl From<portal::protocol::calendar::CalendarError> for ParseError {
+    fn from(error: portal::protocol::calendar::CalendarError) -> Self {
         ParseError::Inner(error.to_string())
     }
 }
@@ -322,13 +338,13 @@ impl PortalApp {
         let metadata = notification.next().await.ok_or(AppError::ListenerDisconnected)?;
 
         match metadata {
-            Ok(Some(mut profile)) => {
-                if let Some(nip05) = &profile.nip05 {
-                    let verified = portal::nostr::nips::nip05::verify(&pubkey.into(), &nip05, None).await;
-                    if verified.ok() != Some(true) {
-                        profile.nip05 = None;
-                    }
-                }
+            Ok(Some(profile)) => {
+                // if let Some(nip05) = &profile.nip05 {
+                //     let verified = portal::nostr::nips::nip05::verify(&pubkey.into(), &nip05, None).await;
+                //     if verified.ok() != Some(true) {
+                //         profile.nip05 = None;
+                //     }
+                // }
 
                 Ok(Some(profile))
             },

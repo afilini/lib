@@ -715,6 +715,10 @@ impl Calendar {
 
         parts.join(" ")
     }
+
+    pub fn to_calendar_string(&self) -> String {
+        self.to_string()
+    }
 }
 
 impl FromStr for Calendar {
