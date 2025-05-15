@@ -1,7 +1,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use bitcoin::bip32;
-use nostrstore::{Database, QueryOptions, database::NostrRecord};
+use nostrstore::{database::NostrRecord, operation::counter::CounterEvent, Database, QueryOptions};
 use nwc::nostr;
 use portal::{
     app::{
@@ -203,8 +203,6 @@ pub trait PaymentRequestListener: Send + Sync {
         event: RecurringPaymentRequest,
     ) -> Result<RecurringPaymentStatusContent, CallbackError>;
 }
-use nostr_sdk::prelude::*;
-
 #[uniffi::export]
 impl PortalApp {
     #[uniffi::constructor]
@@ -219,13 +217,8 @@ impl PortalApp {
         let router = Arc::new(MessageRouter::new(relay_pool, keypair.clone()));
 
         // mismatch nostrsdk Keys between nostr-sdk and nostrstore
-        let secret_key_cloned = keypair.secret_key().to_bech32().map_err(|_| {
-            AppError::DatabaseError("Failed to convert secret key to bech32".to_string())
-        })?;
-        let key = Keys::parse(&secret_key_cloned)
-            .map_err(|_| AppError::DatabaseError("Failed to parse secret key".to_string()))?;
 
-        let database = Database::builder(key)
+        let database = Database::builder(keypair.get_keys().clone())
             .with_relays(relays)
             .build()
             .await
@@ -249,11 +242,12 @@ impl PortalApp {
     }
 
     pub async fn db_remove(&self, key: String) -> Result<(), AppError> {
-        self.database.remove(key).await.map_err(|e| {
+\        self.database.remove(key).await.map_err(|e| {
             AppError::DatabaseError(format!("Failed to remove value: {}", e))
         })?;
         Ok(())
     }
+
 
     pub async fn db_get_history(&self, key: String) -> Result<Vec<String>, AppError> {
         let history = self
