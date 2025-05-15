@@ -23,6 +23,10 @@ impl LocalKeypair {
     pub fn subkey_proof(&self) -> Option<&SubkeyProof> {
         self.subkey_proof.as_ref()
     }
+
+    pub fn get_keys(&self) -> &nostr::Keys {
+        &self.keys
+    }
 }
 
 impl Deref for LocalKeypair {

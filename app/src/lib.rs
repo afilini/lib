@@ -1,4 +1,6 @@
-use std::sync::Arc;
+pub mod db;
+
+use std::{collections::BTreeSet, sync::Arc};
 
 use bitcoin::bip32;
 use portal::{
@@ -11,17 +13,26 @@ use portal::{
             PaymentRequestContent, PaymentRequestEvent, PaymentRequestListenerConversation,
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
-    }, nostr::nips::nip19::ToBech32, nostr_relay_pool::{RelayOptions, RelayPool}, profile::{FetchProfileInfoConversation, Profile, SetProfileConversation}, protocol::{
+    },
+    nostr::nips::nip19::ToBech32,
+    nostr_relay_pool::{RelayOptions, RelayPool},
+    profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
+    protocol::{
         auth_init::AuthInitUrl,
         model::{
-            auth::SubkeyProof, bindings::PublicKey, payment::{
+            Timestamp,
+            auth::SubkeyProof,
+            bindings::PublicKey,
+            payment::{
                 PaymentStatusContent, RecurringPaymentRequestContent,
                 RecurringPaymentStatusContent, SinglePaymentRequestContent,
-            }, Timestamp
+            },
         },
-    }, router::{
-        adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
-    }
+    },
+    router::{
+        MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream,
+        adapters::one_shot::OneShotSenderAdapter,
+    },
 };
 
 uniffi::setup_scaffolding!();
@@ -191,13 +202,12 @@ pub trait PaymentRequestListener: Send + Sync {
         event: RecurringPaymentRequest,
     ) -> Result<RecurringPaymentStatusContent, CallbackError>;
 }
-
 #[uniffi::export]
 impl PortalApp {
     #[uniffi::constructor]
     pub async fn new(keypair: Arc<Keypair>, relays: Vec<String>) -> Result<Arc<Self>, AppError> {
         let relay_pool = RelayPool::new();
-        for relay in relays {
+        for relay in &relays {
             relay_pool.add_relay(relay, RelayOptions::default()).await?;
         }
         relay_pool.connect().await;
@@ -207,6 +217,7 @@ impl PortalApp {
 
         Ok(Arc::new(Self { router }))
     }
+
 
     pub async fn listen(&self) -> Result<(), AppError> {
         self.router.listen().await.unwrap();
@@ -335,7 +346,10 @@ impl PortalApp {
     pub async fn fetch_profile(&self, pubkey: PublicKey) -> Result<Option<Profile>, AppError> {
         let conv = FetchProfileInfoConversation::new(pubkey.into());
         let mut notification = self.router.add_and_subscribe(conv).await?;
-        let metadata = notification.next().await.ok_or(AppError::ListenerDisconnected)?;
+        let metadata = notification
+            .next()
+            .await
+            .ok_or(AppError::ListenerDisconnected)?;
 
         match metadata {
             Ok(Some(profile)) => {
@@ -347,11 +361,9 @@ impl PortalApp {
                 // }
 
                 Ok(Some(profile))
-            },
-            _ => {
-                Ok(None)
             }
-       }
+            _ => Ok(None),
+        }
     }
 
     pub async fn set_profile(&self, profile: Profile) -> Result<(), AppError> {
@@ -360,11 +372,14 @@ impl PortalApp {
         }
 
         let conv = SetProfileConversation::new(profile);
-        let _ = self.router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-            self.router.keypair().public_key().into(),
-            vec![],
-            conv,
-        ))).await?;
+        let _ = self
+            .router
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                self.router.keypair().public_key().into(),
+                vec![],
+                conv,
+            )))
+            .await?;
 
         Ok(())
     }
@@ -442,6 +457,10 @@ pub enum AppError {
 
     #[error("Master key required")]
     MasterKeyRequired,
+
+    // database errors
+    #[error("Database error: {0}")]
+    DatabaseError(String),
 }
 
 impl From<portal::router::ConversationError> for AppError {

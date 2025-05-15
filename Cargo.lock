@@ -145,6 +145,8 @@ dependencies = [
  "bip39",
  "bitcoin",
  "log",
+ "nostr",
+ "nostrstore",
  "nwc",
  "portal",
  "thiserror 2.0.12",
@@ -1441,6 +1443,8 @@ dependencies = [
 [[package]]
 name = "nostr"
 version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95d3f2f0d564cce3ebe09bb1343af67d88c60108cedc518a307dfdf6e3f503b6"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -1489,6 +1493,37 @@ dependencies = [
  "nostr-database",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "nostr-sdk"
+version = "0.41.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58d201c49818ef560a67f9c26c415007da38b007943e7d1644ac55aa98c55a42"
+dependencies = [
+ "async-utility",
+ "nostr",
+ "nostr-database",
+ "nostr-relay-pool",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "nostrstore"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a63366bd6426025019fbd10bb12e0416defdc85e1a939b1cacd1ff724ad9c06"
+dependencies = [
+ "hmac",
+ "nostr-sdk",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2281,9 +2316,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",
