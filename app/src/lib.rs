@@ -1,8 +1,8 @@
+pub mod db;
+
 use std::{collections::BTreeSet, sync::Arc};
 
 use bitcoin::bip32;
-use nostrstore::{database::NostrRecord, operation::counter::CounterEvent, Database, QueryOptions};
-use nwc::nostr;
 use portal::{
     app::{
         auth::{
@@ -148,7 +148,6 @@ pub enum KeypairError {
 #[derive(uniffi::Object)]
 pub struct PortalApp {
     router: Arc<MessageRouter<RelayPool>>,
-    database: Database,
 }
 
 #[uniffi::export]
@@ -216,53 +215,9 @@ impl PortalApp {
         let keypair = &keypair.inner;
         let router = Arc::new(MessageRouter::new(relay_pool, keypair.clone()));
 
-        // mismatch nostrsdk Keys between nostr-sdk and nostrstore
-
-        let database = Database::builder(keypair.get_keys().clone())
-            .with_relays(relays)
-            .build()
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to create database: {}", e)))?;
-
-        Ok(Arc::new(Self { router, database }))
+        Ok(Arc::new(Self { router }))
     }
 
-    pub async fn db_get(&self, key: String) -> Result<String, AppError> {
-        let value = self.database.read(key).await.map_err(|e| {
-            AppError::DatabaseError(format!("Failed to get value: {}", e))
-        })?;
-        Ok(value)
-    }
-
-    pub async fn db_set(&self, key: String, value: &str) -> Result<(), AppError> {
-        self.database.store(key, value).await.map_err(|e| {
-            AppError::DatabaseError(format!("Failed to set value: {}", e))
-        })?;
-        Ok(())
-    }
-
-    pub async fn db_remove(&self, key: String) -> Result<(), AppError> {
-\        self.database.remove(key).await.map_err(|e| {
-            AppError::DatabaseError(format!("Failed to remove value: {}", e))
-        })?;
-        Ok(())
-    }
-
-
-    pub async fn db_get_history(&self, key: String) -> Result<Vec<String>, AppError> {
-        let history = self
-            .database
-            .read_history(key, QueryOptions::default())
-            .await
-            .map_err(|e| {
-                AppError::DatabaseError(format!("Failed to get history: {}", e))
-            })?
-            .iter()
-            .map(|record| record.content.clone())
-            .collect::<Vec<String>>();
-
-        Ok(history)
-    }
 
     pub async fn listen(&self) -> Result<(), AppError> {
         self.router.listen().await.unwrap();

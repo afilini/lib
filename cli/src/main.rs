@@ -1,8 +1,7 @@
 use std::{io::Write, str::FromStr, sync::Arc};
 
 use app::{
-    AuthChallengeListener, CallbackError, Mnemonic, PaymentRequestListener, PortalApp,
-    RecurringPaymentRequest, SinglePaymentRequest, auth::AuthChallengeEvent,
+    auth::AuthChallengeEvent, db::PortalDB, AuthChallengeListener, CallbackError, Mnemonic, PaymentRequestListener, PortalApp, RecurringPaymentRequest, SinglePaymentRequest
 };
 use portal::{
     nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
@@ -65,11 +64,14 @@ impl PaymentRequestListener for ApprovePayment {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
+    
+
+
     let mnemonic = Mnemonic::new(
         "mass derive myself benefit shed true girl orange family spawn device theme",
     )?;
     // let mnemonic = generate_mnemonic()?;
-    let keypair = mnemonic.get_keypair()?;
+    let keypair = Arc::new(mnemonic.get_keypair()?);
 
     // Testing database so commented for now
     //let nwc_str = std::env::var("CLI_NWC_URL").expect("CLI_NWC_URL is not set");
@@ -80,28 +82,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         keypair.public_key().to_bech32().unwrap()
     );
 
+
+    let db = PortalDB::new(keypair.clone(), vec![
+        "wss://relay.nostr.net".to_string(),
+        "wss://relay.damus.io".to_string(),
+    ]).await?;
+
+    // Testing database
+    let age_example = 1.to_string();
+    db.store("age".to_string(), &age_example).await?;
+    let age = db.read("age".to_string()).await?;
+    if age != age_example {
+        // error
+        log::error!("Failed to set or get value from database: {:?}", age);
+    }
+
+    let history =  db.read_history("age".to_string()).await?;
+    log::info!("History of age: {:?}", history);
+
     let app = PortalApp::new(
-        Arc::new(keypair),
+        keypair,
         vec![
             "wss://relay.nostr.net".to_string(),
             // "wss://relay.damus.io".to_string(),
         ],
     )
     .await?;
-
-    
-    // Testing database
-    let age_example = 1.to_string();
-    app.db_set("age".to_string(), &age_example).await?;
-    let age = app.db_get("age".to_string()).await?;
-    if age != age_example {
-        // error
-        log::error!("Failed to set or get value from database: {:?}", age);
-    }
-
-    let history =  app.db_get_history("age".to_string()).await?;
-    log::info!("History of age: {:?}", history);
-
 
     let _app = Arc::clone(&app);
 

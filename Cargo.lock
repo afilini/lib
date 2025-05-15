@@ -147,6 +147,7 @@ dependencies = [
  "log",
  "nostr",
  "nostrstore",
+ "nostrstore-derive",
  "nwc",
  "portal",
  "thiserror 2.0.12",
@@ -1511,17 +1512,29 @@ dependencies = [
 
 [[package]]
 name = "nostrstore"
-version = "0.2.0"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61a40b3d34e431cfec6d0632dbfb111ae9f33edcb0ec5b18d862bffddc419774"
+checksum = "6a63366bd6426025019fbd10bb12e0416defdc85e1a939b1cacd1ff724ad9c06"
 dependencies = [
+ "hmac",
  "nostr-sdk",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.12",
  "tokio",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "nostrstore-derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6acadea7b3da1d5565b4fd9a399a5a5c4a290e91438f206fa2d6a4da19fd396f"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -2314,9 +2327,9 @@ dependencies = [
 
 [[package]]
 name = "sha2"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",
