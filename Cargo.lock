@@ -147,7 +147,6 @@ dependencies = [
  "log",
  "nostr",
  "nostrstore",
- "nostrstore-derive",
  "nwc",
  "portal",
  "thiserror 2.0.12",
@@ -1525,16 +1524,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "nostrstore-derive"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6acadea7b3da1d5565b4fd9a399a5a5c4a290e91438f206fa2d6a4da19fd396f"
-dependencies = [
- "quote",
- "syn",
 ]
 
 [[package]]
