@@ -14,13 +14,14 @@ dependencies {
 
     api(group = "org.slf4j", name = "slf4j-api", version = "2.0.17")
     implementation(group = "org.slf4j", name = "slf4j-simple", version = "2.0.17")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
 
 tasks.test {
     useJUnitPlatform()
 }
 kotlin {
-    jvmToolchain(8)
+    jvmToolchain(11)
 }
 
 tasks.jar {
