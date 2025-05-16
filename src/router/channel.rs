@@ -26,7 +26,7 @@ pub trait Channel: Send + 'static {
         I: IntoIterator<Item = U> + Send,
         U: TryIntoUrl,
         Self::Error: From<<U as TryIntoUrl>::Err>;
-
+    
     fn unsubscribe(
         &self,
         id: String,
@@ -60,6 +60,7 @@ impl Channel for RelayPool {
             .await?;
         Ok(())
     }
+    
 
     async fn subscribe_to<I, U>(
         &self,
@@ -73,13 +74,8 @@ impl Channel for RelayPool {
         U: TryIntoUrl,
         Self::Error: From<<U as TryIntoUrl>::Err>,
     {
-        self.subscribe_with_id_to(
-            urls,
-            SubscriptionId::new(id),
-            filter,
-            SubscribeOptions::default(),
-        )
-        .await?;
+        self.subscribe_with_id_to(urls, SubscriptionId::new(id), filter, SubscribeOptions::default())
+            .await?;
         Ok(())
     }
 
@@ -92,13 +88,16 @@ impl Channel for RelayPool {
         self.send_event(&event).await?;
         Ok(())
     }
-    async fn broadcast_to<I, U>(&self, urls: I, event: nostr::Event) -> Result<(), Self::Error>
+    async fn broadcast_to<I, U>(
+        &self,
+        urls: I,
+        event: nostr::Event,
+    ) -> Result<(), Self::Error>
     where
         <I as IntoIterator>::IntoIter: Send,
         I: IntoIterator<Item = U> + Send,
         U: TryIntoUrl,
-        Self::Error: From<<U as TryIntoUrl>::Err>,
-    {
+        Self::Error: From<<U as TryIntoUrl>::Err> {
         self.send_event_to(urls, &event).await?;
         Ok(())
     }

@@ -92,8 +92,10 @@ where
                 } else {
                     Ok(Response::default())
                 }
+            },
+            ConversationMessage::EndOfStoredEvents => {
+                Ok(Response::default())
             }
-            ConversationMessage::EndOfStoredEvents => Ok(Response::default()),
         }
     }
 

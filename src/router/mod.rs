@@ -15,8 +15,7 @@ use nostr::{
     filter::Filter,
     key::PublicKey,
     message::{RelayMessage, SubscriptionId},
-    nips::nip44,
-    types::TryIntoUrl,
+    nips::nip44, types::TryIntoUrl,
 };
 
 use crate::{
@@ -103,9 +102,7 @@ impl<C: Channel> MessageRouter<C> {
     /// * `Ok(())` if the listener exits normally
     /// * `Err(ConversationError)` if an error occurs while processing messages
     pub async fn listen(&self) -> Result<(), ConversationError>
-    where
-        <C as Channel>::Error: From<nostr::types::url::Error>,
-    {
+    where <C as Channel>::Error: From<nostr::types::url::Error> {
         enum LocalEvent {
             Message(Event),
             EndOfStoredEvents,
@@ -122,17 +119,15 @@ impl<C: Channel> MessageRouter<C> {
                             event,
                         },
                     ..
-                } => (
-                    subscription_id.into_owned(),
-                    LocalEvent::Message(event.into_owned()),
-                ),
+                } => (subscription_id.into_owned(), LocalEvent::Message(event.into_owned())),
                 RelayPoolNotification::Event {
                     event,
                     subscription_id,
                     ..
                 } => (subscription_id, LocalEvent::Message(*event)),
                 RelayPoolNotification::Message {
-                    message: RelayMessage::EndOfStoredEvents(subscription_id),
+                    message:
+                        RelayMessage::EndOfStoredEvents(subscription_id),
                     ..
                 } => {
                     // TODO: we should only send this event when we know all the relays have replied with EndOfStoredEvents. There's another
@@ -172,9 +167,7 @@ impl<C: Channel> MessageRouter<C> {
                         log::trace!("Decrypted event: {:?}", cleartext);
 
                         ConversationMessage::Cleartext(cleartext)
-                    } else if let Ok(cleartext) =
-                        serde_json::from_str::<serde_json::Value>(&event.content)
-                    {
+                    } else if let Ok(cleartext) = serde_json::from_str::<serde_json::Value>(&event.content) {
                         log::trace!("Unencrypted event: {:?}", cleartext);
                         ConversationMessage::Cleartext(CleartextEvent::new_json(&event, cleartext))
                     } else {
@@ -182,7 +175,9 @@ impl<C: Channel> MessageRouter<C> {
                         ConversationMessage::Encrypted(event)
                     }
                 }
-                LocalEvent::EndOfStoredEvents => ConversationMessage::EndOfStoredEvents,
+                LocalEvent::EndOfStoredEvents => {
+                    ConversationMessage::EndOfStoredEvents
+                }
             };
 
             let conversation_id = subscription_id.as_str();
@@ -217,10 +212,12 @@ impl<C: Channel> MessageRouter<C> {
         Ok(())
     }
 
-    async fn process_response(&self, id: &str, response: Response) -> Result<(), ConversationError>
-    where
-        <C as Channel>::Error: From<nostr::types::url::Error>,
-    {
+    async fn process_response(
+        &self,
+        id: &str,
+        response: Response,
+    ) -> Result<(), ConversationError>
+    where <C as Channel>::Error: From<nostr::types::url::Error> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
         if !response.filter.is_empty() {
@@ -232,6 +229,7 @@ impl<C: Channel> MessageRouter<C> {
 
         let mut events_to_broadcast = vec![];
         for response_entry in response.responses.iter() {
+
             log::trace!(
                 "Sending event of kind {:?} to {:?}",
                 response_entry.kind,
@@ -255,13 +253,13 @@ impl<C: Channel> MessageRouter<C> {
             } else {
                 for pubkey in response_entry.recepient_keys.iter() {
                     let content = nip44::encrypt(
-                        &self.keypair.secret_key(),
-                        &pubkey,
-                        serde_json::to_string(&response_entry.content)
-                            .map_err(|e| ConversationError::Inner(Box::new(e)))?,
-                        nip44::Version::V2,
-                    )
-                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                            &self.keypair.secret_key(),
+                            &pubkey,
+                            serde_json::to_string(&response_entry.content)
+                                .map_err(|e| ConversationError::Inner(Box::new(e)))?,
+                            nip44::Version::V2,
+                        )
+                        .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
                     let event = build_event(&content)?;
                     log::trace!("Encrypted event: {:?}", event);
@@ -300,6 +298,7 @@ impl<C: Channel> MessageRouter<C> {
 
         // check if Response has selected relays
         if let Some(selected_relays) = response.selected_relays {
+            
             for event in events_to_broadcast {
                 // if selected relays, broadcast to selected relays
                 self.channel
@@ -307,14 +306,18 @@ impl<C: Channel> MessageRouter<C> {
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
             }
+ 
         } else {
+
             for event in events_to_broadcast {
+
                 // if not selected relays, broadcast to all relays
                 self.channel
                     .broadcast(event)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
             }
+
 
             // TODO: wait for confirmation from relays
         }
@@ -354,10 +357,8 @@ impl<C: Channel> MessageRouter<C> {
     pub async fn add_conversation(
         &self,
         conversation: Box<dyn Conversation + Send>,
-    ) -> Result<String, ConversationError>
-    where
-        <C as Channel>::Error: From<nostr::types::url::Error>,
-    {
+    ) -> Result<String, ConversationError> 
+    where <C as Channel>::Error: From<nostr::types::url::Error>{
         let conversation_id = random_string(32);
 
         let response = self
@@ -419,8 +420,8 @@ impl<C: Channel> MessageRouter<C> {
         &self,
         conversation: Conv,
     ) -> Result<NotificationStream<Conv::Notification>, ConversationError>
-    where
-        <C as Channel>::Error: From<nostr::types::url::Error>,
+    where 
+        <C as Channel>::Error: From<nostr::types::url::Error>, 
     {
         let conversation_id = random_string(32);
         let delayed_reply = self
@@ -480,7 +481,7 @@ pub struct Response {
     notifications: Vec<serde_json::Value>,
     finished: bool,
     subscribe_to_subkey_proofs: bool,
-    selected_relays: Option<Vec<String>>,
+    selected_relays : Option<Vec<String>>,
 }
 
 impl Response {
@@ -501,13 +502,14 @@ impl Response {
     }
 
     /// Sets the selected relays for this response.
-    ///
+    /// 
     ///  # Arguments
     /// * `relays` - The list of relays to select
     pub fn selected_relays(mut self, relays: Vec<String>) -> Self {
         self.selected_relays = Some(relays);
         self
     }
+
 
     /// Adds a reply to be sent to all recipients.
     ///
@@ -577,12 +579,7 @@ impl Response {
     }
 
     // Broadcast an unencrypted event
-    pub fn broadcast_unencrypted<S: serde::Serialize>(
-        mut self,
-        kind: Kind,
-        tags: Tags,
-        content: S,
-    ) -> Self {
+    pub fn broadcast_unencrypted<S: serde::Serialize>(mut self, kind: Kind, tags: Tags, content: S) -> Self {
         let content = serde_json::to_value(&content).unwrap();
         self.responses.push(ResponseEntry {
             recepient_keys: vec![],
@@ -665,7 +662,7 @@ impl CleartextEvent {
             created_at: event.created_at,
             kind: event.kind,
             tags: event.tags.clone(),
-            content,
+            content
         }
     }
 }
