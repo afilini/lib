@@ -4,11 +4,10 @@ use app::{
     auth::AuthChallengeEvent, db::PortalDB, AuthChallengeListener, CallbackError, Mnemonic, PaymentRequestListener, PortalApp, RecurringPaymentRequest, SinglePaymentRequest
 };
 use portal::{
-    nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
-    protocol::{
+    nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest}, profile::Profile, protocol::{
         auth_init::AuthInitUrl,
         model::payment::{PaymentStatusContent, RecurringPaymentStatusContent},
-    },
+    }
 };
 
 struct ApproveLogin;
@@ -74,8 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let keypair = Arc::new(mnemonic.get_keypair()?);
 
     // Testing database so commented for now
-    //let nwc_str = std::env::var("CLI_NWC_URL").expect("CLI_NWC_URL is not set");
-    // let nwc = nwc::NWC::new(nwc_str.parse()?);
+    let nwc_str = std::env::var("CLI_NWC_URL").expect("CLI_NWC_URL is not set");
+    let nwc = nwc::NWC::new(nwc_str.parse()?);
 
     log::info!(
         "Public key: {:?}",
@@ -117,16 +116,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
 
-    // app.set_profile(Profile {
-    //     name: Some("John Doe".to_string()),
-    //     display_name: Some("John Doe".to_string()),
-    //     picture: Some("https://tr.rbxcdn.com/180DAY-4d8c678185e70957c8f9b5ca267cd335/420/420/Image/Png/noFilter".to_string()),
-    //     nip05: Some("john.doe@example.com".to_string()),
-    // }).await?;
+    app.set_profile(Profile {
+        name: Some("John Doe".to_string()),
+        display_name: Some("John Doe".to_string()),
+        picture: Some("https://tr.rbxcdn.com/180DAY-4d8c678185e70957c8f9b5ca267cd335/420/420/Image/Png/noFilter".to_string()),
+        nip05: Some("john.doe@example.com".to_string()),
+    }).await?;
     // dbg!(app.fetch_profile(pk.into()).await?);
-
-    print!("Enter the auth init URL: ");
-    std::io::stdout().flush()?;
 
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
@@ -134,16 +130,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .unwrap();
     });
-
-    // TODO: Uncomment this when the NWC is ready
-    /* 
+    
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
         _app.listen_for_payment_request(Arc::new(ApprovePayment(Arc::new(nwc))))
             .await
             .unwrap();
     });
-    */
+    
+
+    println!("\nEnter the auth init URL:");
+    std::io::stdout().flush()?;
+
     let mut auth_init_url = String::new();
     std::io::stdin().read_line(&mut auth_init_url)?;
     let url = AuthInitUrl::from_str(auth_init_url.trim())?;

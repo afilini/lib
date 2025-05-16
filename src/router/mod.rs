@@ -223,7 +223,7 @@ where
         if !response.filter.is_empty() {
 
             if let Some(selected_relays) = response.selected_relays.clone() {
-                log::trace!("Selected relays = {:?}", selected_relays);
+                log::trace!("Subscribing to relays = {:?}", selected_relays);
                 self.channel
                     .subscribe_to(selected_relays, id.to_string(), response.filter.clone())
                     .await
@@ -303,13 +303,13 @@ where
 
             let alias = format!("{}_{}", id, alias_num);
             if let Some(selected_relays) = response.selected_relays.clone() {
-                log::trace!("Selected relays = {:?}", selected_relays);
+                log::trace!("Subscribing 'subkey proof' to relays = {:?}", selected_relays);
                 self.channel
                     .subscribe_to(selected_relays, alias, filter)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
             } else {
-                log::trace!("Subscribing to all relays");
+                log::trace!("Subscribing 'subkey proof' to all relays");
                 // Subscribe to subkey proofs to all 
                 
                 self.channel
