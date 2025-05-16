@@ -1,4 +1,6 @@
-use nostr::message::SubscriptionId;
+use std::error::Error;
+
+use nostr::{message::SubscriptionId, types::TryIntoUrl};
 use nostr_relay_pool::{RelayPool, RelayPoolNotification, SubscribeOptions};
 
 /// A trait for an abstract channel
@@ -12,6 +14,19 @@ pub trait Channel: Send + 'static {
         id: String,
         filter: nostr::Filter,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+
+    fn subscribe_to<I, U>(
+        &self,
+        urls: I,
+        id: String,
+        filter: nostr::Filter,
+    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send
+    where
+        <I as IntoIterator>::IntoIter: Send,
+        I: IntoIterator<Item = U> + Send,
+        U: TryIntoUrl,
+        Self::Error: From<<U as TryIntoUrl>::Err>;
+    
     fn unsubscribe(
         &self,
         id: String,
@@ -26,13 +41,37 @@ pub trait Channel: Send + 'static {
     ) -> impl std::future::Future<Output = Result<RelayPoolNotification, Self::Error>> + Send;
 }
 
+pub enum RelayPoolError {
+    PoolError(nostr_relay_pool::pool::Error),
+    Other(Box<dyn std::error::Error + Send + Sync>),
+}
+
+
 impl Channel for RelayPool {
     type Error = nostr_relay_pool::pool::Error;
+    // type Error = RelayPoolError;
 
     async fn subscribe(&self, id: String, filter: nostr::Filter) -> Result<(), Self::Error> {
         self.subscribe_with_id(SubscriptionId::new(id), filter, SubscribeOptions::default())
             .await?;
+        Ok(())
+    }
+    
 
+    async fn subscribe_to<I, U>(
+        &self,
+        urls: I,
+        id: String,
+        filter: nostr::Filter,
+    ) -> Result<(), Self::Error>
+    where
+        <I as IntoIterator>::IntoIter: Send,
+        I: IntoIterator<Item = U> + Send,
+        U: TryIntoUrl,
+        Self::Error: From<<U as TryIntoUrl>::Err>,
+    {
+        self.subscribe_with_id_to(urls, SubscriptionId::new(id), filter, SubscribeOptions::default())
+            .await?;
         Ok(())
     }
 

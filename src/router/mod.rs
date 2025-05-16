@@ -15,7 +15,7 @@ use nostr::{
     filter::Filter,
     key::PublicKey,
     message::{RelayMessage, SubscriptionId},
-    nips::nip44,
+    nips::nip44, types::TryIntoUrl,
 };
 
 use crate::{
@@ -101,7 +101,8 @@ impl<C: Channel> MessageRouter<C> {
     /// # Returns
     /// * `Ok(())` if the listener exits normally
     /// * `Err(ConversationError)` if an error occurs while processing messages
-    pub async fn listen(&self) -> Result<(), ConversationError> {
+    pub async fn listen(&self) -> Result<(), ConversationError>
+    where <C as Channel>::Error: From<nostr::types::url::Error> {
         enum LocalEvent {
             Message(Event),
             EndOfStoredEvents,
@@ -215,44 +216,46 @@ impl<C: Channel> MessageRouter<C> {
         &self,
         id: &str,
         response: Response,
-    ) -> Result<(), ConversationError> {
+    ) -> Result<(), ConversationError>
+    where <C as Channel>::Error: From<nostr::types::url::Error> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
         if !response.filter.is_empty() {
             self.channel
-                .subscribe(id.to_string(), response.filter)
+                .subscribe(id.to_string(), response.filter.clone())
                 .await
                 .map_err(|e| ConversationError::Inner(Box::new(e)))?;
         }
 
         let mut events_to_broadcast = vec![];
-        for response in response.responses.iter() {
+        for response_entry in response.responses.iter() {
+
             log::trace!(
                 "Sending event of kind {:?} to {:?}",
-                response.kind,
-                response.recepient_keys
+                response_entry.kind,
+                response_entry.recepient_keys
             );
 
             let build_event = |content: &str| {
-                EventBuilder::new(response.kind, content)
-                    .tags(response.tags.clone())
+                EventBuilder::new(response_entry.kind, content)
+                    .tags(response_entry.tags.clone())
                     .sign_with_keys(&self.keypair)
                     .map_err(|e| ConversationError::Inner(Box::new(e)))
             };
 
-            if !response.encrypted {
-                let content = serde_json::to_string(&response.content)
+            if !response_entry.encrypted {
+                let content = serde_json::to_string(&response_entry.content)
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
                 let event = build_event(&content)?;
                 log::trace!("Unencrypted event: {:?}", event);
                 events_to_broadcast.push(event);
             } else {
-                for pubkey in response.recepient_keys.iter() {
+                for pubkey in response_entry.recepient_keys.iter() {
                     let content = nip44::encrypt(
                             &self.keypair.secret_key(),
                             &pubkey,
-                            serde_json::to_string(&response.content)
+                            serde_json::to_string(&response_entry.content)
                                 .map_err(|e| ConversationError::Inner(Box::new(e)))?,
                             nip44::Version::V2,
                         )
@@ -293,12 +296,24 @@ impl<C: Channel> MessageRouter<C> {
                 .map_err(|e| ConversationError::Inner(Box::new(e)))?;
         }
 
-        for event in events_to_broadcast {
-            // TODO: should only send to selected relays
+        // check if Response has selected relays
+        if let Some(selected_relays) = response.selected_relays {
+ 
+            // let mapped = selected_relays.iter().cloned().collect::<Vec<String>>();
+            
+            // TODO: subscribe to selected relays
             self.channel
-                .broadcast(event)
+                .subscribe_to(selected_relays, id.to_string(), response.filter)
                 .await
                 .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        } else {
+
+            // if no relays are selected, subscribe to all relays
+            self.channel
+                .subscribe(id.to_string(), response.filter)
+                .await
+                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
             // TODO: wait for confirmation from relays
         }
 
@@ -337,7 +352,8 @@ impl<C: Channel> MessageRouter<C> {
     pub async fn add_conversation(
         &self,
         conversation: Box<dyn Conversation + Send>,
-    ) -> Result<String, ConversationError> {
+    ) -> Result<String, ConversationError> 
+    where <C as Channel>::Error: From<nostr::types::url::Error>{
         let conversation_id = random_string(32);
 
         let response = self
@@ -398,7 +414,10 @@ impl<C: Channel> MessageRouter<C> {
     pub async fn add_and_subscribe<Conv: ConversationWithNotification + Send + 'static>(
         &self,
         conversation: Conv,
-    ) -> Result<NotificationStream<Conv::Notification>, ConversationError> {
+    ) -> Result<NotificationStream<Conv::Notification>, ConversationError>
+    where 
+        <C as Channel>::Error: From<nostr::types::url::Error>, 
+    {
         let conversation_id = random_string(32);
         let delayed_reply = self
             .subscribe_to_service_request::<Conv::Notification>(conversation_id.clone())
@@ -457,6 +476,7 @@ pub struct Response {
     notifications: Vec<serde_json::Value>,
     finished: bool,
     subscribe_to_subkey_proofs: bool,
+    selected_relays : Option<Vec<String>>,
 }
 
 impl Response {
@@ -475,6 +495,16 @@ impl Response {
         self.filter = filter;
         self
     }
+
+    /// Sets the selected relays for this response.
+    /// 
+    ///  # Arguments
+    /// * `relays` - The list of relays to select
+    pub fn selected_relays(mut self, relays: Vec<String>) -> Self {
+        self.selected_relays = Some(relays);
+        self
+    }
+
 
     /// Adds a reply to be sent to all recipients.
     ///

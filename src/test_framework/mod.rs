@@ -55,6 +55,17 @@ impl SimulatedChannel {
 pub enum SimulatedChannelError {
     #[error("Channel closed")]
     ChannelClosed,
+
+    #[error("URL error: {0}")]
+    UrlError(nostr::types::url::Error),
+}
+
+
+impl From<nostr::types::url::Error> for SimulatedChannelError {
+    fn from(err: nostr::types::url::Error) -> Self {
+        // You can wrap the error or convert it as appropriate for your error type
+        SimulatedChannelError::UrlError(err)
+    }
 }
 
 impl Channel for SimulatedChannel {
@@ -81,6 +92,25 @@ impl Channel for SimulatedChannel {
         //     }
         // }
 
+        Ok(())
+    }
+
+    async fn subscribe_to<I, U>(
+        &self,
+        urls: I,
+        id: String,
+        filter: nostr::Filter,
+    ) -> Result<(), Self::Error>
+    where
+        <I as IntoIterator>::IntoIter: Send,
+        I: IntoIterator<Item = U> + Send,
+        U: nostr::types::TryIntoUrl,
+        Self::Error: From<<U as nostr::types::TryIntoUrl>::Err> {
+        // TODO: use the urls to create a filter
+        self.subscribers
+            .write()
+            .await
+            .insert(id.clone(), (filter, self.my_sender.clone()));
         Ok(())
     }
 
@@ -126,6 +156,9 @@ pub struct SimulatedNetwork {
     channel: SimulatedChannel,
     nodes: HashMap<String, Arc<MessageRouter<SimulatedChannel>>>,
 }
+
+
+
 
 impl SimulatedNetwork {
     pub fn new() -> Self {
