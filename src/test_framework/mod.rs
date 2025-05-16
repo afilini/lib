@@ -140,6 +140,38 @@ impl Channel for SimulatedChannel {
         Ok(())
     }
 
+
+    async fn broadcast_to<I, U>(
+        &self,
+        urls: I,
+        event: Event,
+    ) -> Result<(), Self::Error>
+    where
+        <I as IntoIterator>::IntoIter: Send,
+        I: IntoIterator<Item = U> + Send,
+        U: nostr::types::TryIntoUrl,
+        Self::Error: From<<U as nostr::types::TryIntoUrl>::Err>,
+    {
+        // Store the event
+        self.messages.lock().await.push(event.clone());
+
+        // Broadcast to all subscribers
+        let subscribers = self.subscribers.write().await;
+        for (subscription_id, (filter, sender)) in subscribers.iter() {
+            if filter.match_event(&event) {
+                let relay_url = RelayUrl::parse("wss://simulated").unwrap();
+                let notification = RelayPoolNotification::Event {
+                    event: Box::new(event.clone()),
+                    subscription_id: SubscriptionId::new(subscription_id.clone()),
+                    relay_url,
+                };
+                let _ = sender.send(notification).await;
+            }
+        }
+
+        Ok(())
+    }
+
     async fn receive(&self) -> Result<RelayPoolNotification, Self::Error> {
         // Try to receive from our receiver
         let mut receiver = self.receiver.lock().await;

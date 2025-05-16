@@ -298,18 +298,26 @@ impl<C: Channel> MessageRouter<C> {
 
         // check if Response has selected relays
         if let Some(selected_relays) = response.selected_relays {
-             
-            self.channel
-                .subscribe_to(selected_relays, id.to_string(), response.filter)
-                .await
-                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            
+            for event in events_to_broadcast {
+                // if selected relays, broadcast to selected relays
+                self.channel
+                    .broadcast_to(selected_relays.clone(), event)
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            }
+ 
         } else {
 
-            // if no relays are selected, subscribe to all relays
-            self.channel
-                .subscribe(id.to_string(), response.filter)
-                .await
-                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            for event in events_to_broadcast {
+
+                // if not selected relays, broadcast to all relays
+                self.channel
+                    .broadcast(event)
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            }
+
 
             // TODO: wait for confirmation from relays
         }

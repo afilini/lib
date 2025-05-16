@@ -36,6 +36,17 @@ pub trait Channel: Send + 'static {
         &self,
         event: nostr::Event,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+    fn broadcast_to<I, U>(
+        &self,
+        urls: I,
+        event: nostr::Event,
+    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send
+    where
+        <I as IntoIterator>::IntoIter: Send,
+        I: IntoIterator<Item = U> + Send,
+        U: TryIntoUrl,
+        Self::Error: From<<U as TryIntoUrl>::Err>;
+
     fn receive(
         &self,
     ) -> impl std::future::Future<Output = Result<RelayPoolNotification, Self::Error>> + Send;
@@ -75,6 +86,19 @@ impl Channel for RelayPool {
 
     async fn broadcast(&self, event: nostr::Event) -> Result<(), Self::Error> {
         self.send_event(&event).await?;
+        Ok(())
+    }
+    async fn broadcast_to<I, U>(
+        &self,
+        urls: I,
+        event: nostr::Event,
+    ) -> Result<(), Self::Error>
+    where
+        <I as IntoIterator>::IntoIter: Send,
+        I: IntoIterator<Item = U> + Send,
+        U: TryIntoUrl,
+        Self::Error: From<<U as TryIntoUrl>::Err> {
+        self.send_event_to(urls, &event).await?;
         Ok(())
     }
 
