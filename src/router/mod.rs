@@ -221,10 +221,20 @@ impl<C: Channel> MessageRouter<C> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
         if !response.filter.is_empty() {
-            self.channel
-                .subscribe(id.to_string(), response.filter.clone())
-                .await
-                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+            if let Some(selected_relays) = response.selected_relays.clone() {
+                log::trace!("Selected relays = {:?}", selected_relays);
+                self.channel
+                    .subscribe_to(selected_relays, id.to_string(), response.filter.clone())
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            } else {
+                log::trace!("Subscribing to all relays");
+                self.channel
+                    .subscribe(id.to_string(), response.filter.clone())
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            }
         }
 
         let mut events_to_broadcast = vec![];
@@ -290,10 +300,23 @@ impl<C: Channel> MessageRouter<C> {
             let filter = Filter::new()
                 .kinds(vec![Kind::Custom(SUBKEY_PROOF)])
                 .events(events_to_broadcast.iter().map(|e| e.id));
-            self.channel
-                .subscribe(format!("{}_{}", id, alias_num), filter)
-                .await
-                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+            let alias = format!("{}_{}", id, alias_num);
+            if let Some(selected_relays) = response.selected_relays.clone() {
+                log::trace!("Selected relays = {:?}", selected_relays);
+                self.channel
+                    .subscribe_to(selected_relays, alias, filter)
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            } else {
+                log::trace!("Subscribing to all relays");
+                // Subscribe to subkey proofs to all 
+                
+                self.channel
+                    .subscribe(alias, filter)
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            }   
         }
 
         // check if Response has selected relays
