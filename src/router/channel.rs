@@ -41,15 +41,8 @@ pub trait Channel: Send + 'static {
     ) -> impl std::future::Future<Output = Result<RelayPoolNotification, Self::Error>> + Send;
 }
 
-pub enum RelayPoolError {
-    PoolError(nostr_relay_pool::pool::Error),
-    Other(Box<dyn std::error::Error + Send + Sync>),
-}
-
-
 impl Channel for RelayPool {
     type Error = nostr_relay_pool::pool::Error;
-    // type Error = RelayPoolError;
 
     async fn subscribe(&self, id: String, filter: nostr::Filter) -> Result<(), Self::Error> {
         self.subscribe_with_id(SubscriptionId::new(id), filter, SubscribeOptions::default())
