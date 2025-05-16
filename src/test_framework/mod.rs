@@ -57,16 +57,9 @@ pub enum SimulatedChannelError {
     ChannelClosed,
 
     #[error("URL error: {0}")]
-    UrlError(nostr::types::url::Error),
+    UrlError(#[from] nostr::types::url::Error),
 }
 
-
-impl From<nostr::types::url::Error> for SimulatedChannelError {
-    fn from(err: nostr::types::url::Error) -> Self {
-        // You can wrap the error or convert it as appropriate for your error type
-        SimulatedChannelError::UrlError(err)
-    }
-}
 
 impl Channel for SimulatedChannel {
     type Error = SimulatedChannelError;

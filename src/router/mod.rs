@@ -46,7 +46,9 @@ pub struct MessageRouter<C: Channel> {
     subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<serde_json::Value>>>>,
 }
 
-impl<C: Channel> MessageRouter<C> {
+impl<C: Channel> MessageRouter<C> 
+where 
+<C as Channel>::Error: From<nostr::types::url::Error> {
     /// Creates a new `MessageRouter` with the given channel and keypair.
     ///
     /// The router will use the provided channel for all network communication and the keypair
@@ -101,8 +103,7 @@ impl<C: Channel> MessageRouter<C> {
     /// # Returns
     /// * `Ok(())` if the listener exits normally
     /// * `Err(ConversationError)` if an error occurs while processing messages
-    pub async fn listen(&self) -> Result<(), ConversationError>
-    where <C as Channel>::Error: From<nostr::types::url::Error> {
+    pub async fn listen(&self) -> Result<(), ConversationError> {
         enum LocalEvent {
             Message(Event),
             EndOfStoredEvents,
@@ -216,8 +217,7 @@ impl<C: Channel> MessageRouter<C> {
         &self,
         id: &str,
         response: Response,
-    ) -> Result<(), ConversationError>
-    where <C as Channel>::Error: From<nostr::types::url::Error> {
+    ) -> Result<(), ConversationError> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
         if !response.filter.is_empty() {
@@ -380,8 +380,7 @@ impl<C: Channel> MessageRouter<C> {
     pub async fn add_conversation(
         &self,
         conversation: Box<dyn Conversation + Send>,
-    ) -> Result<String, ConversationError> 
-    where <C as Channel>::Error: From<nostr::types::url::Error>{
+    ) -> Result<String, ConversationError> {
         let conversation_id = random_string(32);
 
         let response = self
@@ -442,10 +441,7 @@ impl<C: Channel> MessageRouter<C> {
     pub async fn add_and_subscribe<Conv: ConversationWithNotification + Send + 'static>(
         &self,
         conversation: Conv,
-    ) -> Result<NotificationStream<Conv::Notification>, ConversationError>
-    where 
-        <C as Channel>::Error: From<nostr::types::url::Error>, 
-    {
+    ) -> Result<NotificationStream<Conv::Notification>, ConversationError> {
         let conversation_id = random_string(32);
         let delayed_reply = self
             .subscribe_to_service_request::<Conv::Notification>(conversation_id.clone())
