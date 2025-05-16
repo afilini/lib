@@ -5,13 +5,16 @@ use portal::{
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
-        auth_init::AuthInitUrl, model::payment::{
+        LocalKeypair,
+        auth_init::AuthInitUrl,
+        model::payment::{
             PaymentStatusContent, RecurringPaymentRequestContent, RecurringPaymentStatusContent,
             SinglePaymentRequestContent,
-        }, LocalKeypair
+        },
     },
     router::{
-        adapters::one_shot::OneShotSenderAdapter, ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
+        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
+        NotificationStream, adapters::one_shot::OneShotSenderAdapter,
     },
     sdk::{
         auth::{
@@ -151,7 +154,10 @@ impl PortalSDK {
         Ok(event.next().await.ok_or(PortalSDKError::Timeout)??)
     }
 
-    pub async fn fetch_profile(&self, main_key: PublicKey) -> Result<Option<Profile>, PortalSDKError> {
+    pub async fn fetch_profile(
+        &self,
+        main_key: PublicKey,
+    ) -> Result<Option<Profile>, PortalSDKError> {
         let conv = FetchProfileInfoConversation::new(main_key);
         let mut event = self.router.add_and_subscribe(conv).await?;
         let profile = event.next().await.ok_or(PortalSDKError::Timeout)??;
@@ -175,11 +181,14 @@ impl PortalSDK {
         }
 
         let conv = SetProfileConversation::new(profile);
-        let _ = self.router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-            self.router.keypair().public_key().into(),
-            vec![],
-            conv,
-        ))).await?;
+        let _ = self
+            .router
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                self.router.keypair().public_key().into(),
+                vec![],
+                conv,
+            )))
+            .await?;
 
         Ok(())
     }

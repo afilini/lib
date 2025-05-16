@@ -1,7 +1,8 @@
 use std::{io::Write, str::FromStr, sync::Arc};
 
 use app::{
-    auth::AuthChallengeEvent, db::PortalDB, AuthChallengeListener, CallbackError, Mnemonic, PaymentRequestListener, PortalApp, RecurringPaymentRequest, SinglePaymentRequest
+    AuthChallengeListener, CallbackError, Mnemonic, PaymentRequestListener, PortalApp,
+    RecurringPaymentRequest, SinglePaymentRequest, auth::AuthChallengeEvent, db::PortalDB,
 };
 use portal::{
     nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
@@ -64,9 +65,6 @@ impl PaymentRequestListener for ApprovePayment {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    
-
-
     let mnemonic = Mnemonic::new(
         "mass derive myself benefit shed true girl orange family spawn device theme",
     )?;
@@ -82,11 +80,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         keypair.public_key().to_bech32().unwrap()
     );
 
-
-    let db = PortalDB::new(keypair.clone(), vec![
-        "wss://relay.nostr.net".to_string(),
-        "wss://relay.damus.io".to_string(),
-    ]).await?;
+    let db = PortalDB::new(
+        keypair.clone(),
+        vec![
+            "wss://relay.nostr.net".to_string(),
+            "wss://relay.damus.io".to_string(),
+        ],
+    )
+    .await?;
 
     // Testing database
     let age_example = 1.to_string();
@@ -97,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::error!("Failed to set or get value from database: {:?}", age);
     }
 
-    let history =  db.read_history("age".to_string()).await?;
+    let history = db.read_history("age".to_string()).await?;
     log::info!("History of age: {:?}", history);
 
     let app = PortalApp::new(
@@ -111,11 +112,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _app = Arc::clone(&app);
 
-
     tokio::spawn(async move {
         _app.listen().await.unwrap();
     });
-
 
     // app.set_profile(Profile {
     //     name: Some("John Doe".to_string()),
@@ -136,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // TODO: Uncomment this when the NWC is ready
-    /* 
+    /*
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
         _app.listen_for_payment_request(Arc::new(ApprovePayment(Arc::new(nwc))))

@@ -218,7 +218,6 @@ impl PortalApp {
         Ok(Arc::new(Self { router }))
     }
 
-
     pub async fn listen(&self) -> Result<(), AppError> {
         self.router.listen().await.unwrap();
         Ok(())
