@@ -298,10 +298,7 @@ impl<C: Channel> MessageRouter<C> {
 
         // check if Response has selected relays
         if let Some(selected_relays) = response.selected_relays {
- 
-            // let mapped = selected_relays.iter().cloned().collect::<Vec<String>>();
-            
-            // TODO: subscribe to selected relays
+             
             self.channel
                 .subscribe_to(selected_relays, id.to_string(), response.filter)
                 .await
