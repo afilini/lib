@@ -19,6 +19,11 @@ const mnemonicObj = generateMnemonic();
 const mnemonicObj = new Mnemonic("...");
 
 const keypair = mnemonicObj.getKeypair();
+
+// You can get the public key of a keypair with the getter
+const publicKey = keypair.publicKey();
+// The public key can be serialized to a npub string with `toString()`:
+const publicKeyString = publicKey.toString();
 ```
 
 Then with a keypair you can construct a `PortalApp` instance which is the main object used to interact with the protocol. After construcing the instance you will need to "spawn" the background task by calling `listen()` on the instance. Since this needs to run in background, DO NOT call `await` on this. We just need the task to keep going.
@@ -54,7 +59,7 @@ class LocalPaymentRequestListener implements PaymentRequestListener {
   onSinglePaymentRequest(event: SinglePaymentRequest): Promise<PaymentStatusContent> {
     // Do something with the event. Return a `PaymentStatusContent` to signal the service what you intend to do
     // with this payment. If you intend to accept the payment, send `new PaymentStatusContent.Pending()`. This signals
-    // the service that the payment is pending, and you will have to send it via NWC (not implemented yet).
+    // the service that the payment is pending, and you will have to send it via NWC (see below).
     // If you want to reject the payment send `new PaymentStatusContent.Rejected({ reason: 'User rejected' })`.
     return Promise.resolve(new PaymentStatusContent.Pending());
   }
@@ -78,6 +83,21 @@ class LocalPaymentRequestListener implements PaymentRequestListener {
     }));
   }
 }
+await portalInstance.listenForPaymentRequest(new LocalPaymentRequestListener());
+```
+
+You can fetch/set Nostr profiles using the following APIs:
+
+```ts
+const maybeProfile = await portalInstance.fetchProfile(publicKey);
+
+// Set a profile using this API. Note that all fields are optional and could be omitted
+await portalInstance.setProfile({
+    name: "Name",
+    displayName: "Display Name",
+    picture: "https://url-of-the-picture",
+    nip05: "satoshi@getportal.cc",
+});
 ```
 
 The library also provides utilities to interact with `Calendar` objects, which are used to express complex recurring events. The protocol
@@ -104,4 +124,15 @@ const nextOccurrence = calendarObj.nextOccurrence(lastOccurrenceTs);
 
 // You can also print the calendar string in a human readable format (for example "every day", "every month at 3pm") by using:
 const humanReadableString = calendarObj.toHumanReadable(false);
+```
+
+You can interact with a NWC wallet using the `NWC` structure:
+
+```ts
+const wallet = new NWC("nostr+walletconnect://url-for-nwc");
+
+// Pay an invoice
+const preimage = await wallet.payInvoice("lnbc...");
+// Lookup invoice
+const status = await wallet.lookupInvoice("lnbc...");
 ```

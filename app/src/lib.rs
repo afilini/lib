@@ -418,23 +418,71 @@ impl NWC {
         })
     }
 
-    pub async fn pay_invoice(&self, invoice: String) -> Result<(), AppError> {
-        self.inner
+    pub async fn pay_invoice(&self, invoice: String) -> Result<String, AppError> {
+        let response = self.inner
             .pay_invoice(portal::nostr::nips::nip47::PayInvoiceRequest::new(invoice))
             .await?;
 
-        Ok(())
+        Ok(response.preimage)
     }
 
-    pub async fn lookup_invoice(&self, invoice: String) -> Result<(), AppError> {
-        self.inner
+    pub async fn lookup_invoice(&self, invoice: String) -> Result<LookupInvoiceResponse, AppError> {
+        let response = self.inner
             .lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
                 invoice: None,
                 payment_hash: Some(invoice),
             })
             .await?;
 
-        Ok(())
+        Ok(response.into())
+    }
+}
+
+#[derive(Debug, uniffi::Enum)]
+pub enum TransactionType {
+    Incoming,
+    Outgoing,
+}
+
+impl From<portal::nostr::nips::nip47::TransactionType> for TransactionType {
+    fn from(transaction_type: portal::nostr::nips::nip47::TransactionType) -> Self {
+        match transaction_type {
+            portal::nostr::nips::nip47::TransactionType::Incoming => TransactionType::Incoming,
+            portal::nostr::nips::nip47::TransactionType::Outgoing => TransactionType::Outgoing,
+        }
+    }
+}
+
+#[derive(Debug, uniffi::Record)]
+pub struct LookupInvoiceResponse {
+    pub transaction_type: Option<TransactionType>,
+    pub invoice: Option<String>,
+    pub description: Option<String>,
+    pub description_hash: Option<String>,
+    pub preimage: Option<String>,
+    pub payment_hash: String,
+    pub amount: u64,
+    pub fees_paid: u64,
+    pub created_at: Timestamp,
+    pub expires_at: Option<Timestamp>,
+    pub settled_at: Option<Timestamp>,
+}
+
+impl From<portal::nostr::nips::nip47::LookupInvoiceResponse> for LookupInvoiceResponse {
+    fn from(response: portal::nostr::nips::nip47::LookupInvoiceResponse) -> Self {
+        Self {
+            transaction_type: response.transaction_type.map(|t| t.into()),
+            invoice: response.invoice,
+            description: response.description,
+            description_hash: response.description_hash,
+            preimage: response.preimage,
+            payment_hash: response.payment_hash,
+            amount: response.amount,
+            fees_paid: response.fees_paid,
+            created_at: Timestamp::new(response.created_at.as_u64()),
+            expires_at: response.expires_at.map(|t| Timestamp::new(t.as_u64())),
+            settled_at: response.settled_at.map(|t| Timestamp::new(t.as_u64())),
+        }
     }
 }
 
