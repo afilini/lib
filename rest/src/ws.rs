@@ -305,17 +305,24 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
                         break; // Close connection
                     }
 
-                    // Handle authenticated commands
-                    handle_command(
-                        cmd,
-                        &state.sdk,
-                        &state.nwc,
-                        tx_message.clone(),
-                        &id,
-                        &active_streams,
-                        tx_notification.clone(),
-                    )
-                    .await;
+                    let tx_message_clone = tx_message.clone();
+                    let active_streams_clone = active_streams.clone();
+                    let tx_notification_clone = tx_notification.clone();
+                    let sdk_clone = state.sdk.clone();
+                    let nwc_clone = state.nwc.clone();
+                    tokio::task::spawn(async move {
+                        // Handle authenticated commands
+                        handle_command(
+                            cmd,
+                            &sdk_clone,
+                            &nwc_clone,
+                            tx_message_clone,
+                            &id,
+                            &active_streams_clone,
+                            tx_notification_clone,
+                        )
+                        .await;
+                    });
                 }
                 Err(e) => {
                     // Still try to get a request id from the command
