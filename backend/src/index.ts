@@ -2,7 +2,7 @@ import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { Currency, PaymentStatusContent, PortalSDK, Profile, RecurringPaymentStatusContent, Timestamp } from 'portal-sdk';
+import { AuthResponseData, Currency, PaymentStatusContent, PortalSDK, Profile, RecurringPaymentStatusContent, Timestamp } from 'portal-sdk';
 import { DatabaseManager, Payment } from './session';
 import { bech32 } from 'bech32';
 
@@ -281,7 +281,26 @@ function mainFunction() {
 }
 
 async function authenticateKey(portalClient: PortalSDK, ws: WebSocket, loginUrl: string, profile: Profile | null, mainKey: string) {
-    const authResponse = await portalClient.authenticateKey(mainKey);
+    let authResponse: AuthResponseData | null = null;
+    let timeout: NodeJS.Timeout | null = null;
+    try {
+      authResponse = await Promise.race([
+        portalClient.authenticateKey(mainKey),
+        new Promise((resolve, reject) => {
+          timeout = setTimeout(() => {
+            reject(new Error('Authentication timed out'));
+          }, 10000);
+        })
+      ]) as AuthResponseData | null;
+
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    } catch (error) {
+      console.log(error);
+      ws.send(`<div id="status" class="status timeout">Authentication timed out</div>`);
+      return;
+    }
 
     const sessionId = uuidv4();
     
@@ -289,7 +308,7 @@ async function authenticateKey(portalClient: PortalSDK, ws: WebSocket, loginUrl:
       type: 'approved',
       displayName: profile?.name || mainKey,
       publicKey: mainKey,
-      authToken: authResponse.session_token,
+      authToken: authResponse!.session_token,
     });
     
     // Create session
@@ -297,7 +316,7 @@ async function authenticateKey(portalClient: PortalSDK, ws: WebSocket, loginUrl:
       id: sessionId,
       publicKey: mainKey,
       displayName: profile?.name || formatNpub(mainKey),
-      authToken: authResponse.session_token,
+      authToken: authResponse!.session_token,
     });
     
     ws.send(`
