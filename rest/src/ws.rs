@@ -4,15 +4,11 @@ use std::sync::{Arc, Mutex};
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use portal::profile::Profile;
-use portal::protocol::auth_init::AuthInitUrl;
 use portal::protocol::model::payment::{
-    Currency, PaymentStatusContent, RecurringPaymentRequestContent, RecurringPaymentStatusContent,
-    SinglePaymentRequestContent,
+    Currency, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, SinglePaymentRequestContent
 };
 use portal::protocol::model::Timestamp;
-use portal::router::NotificationStream;
-use portal::sdk::auth::{AuthInitEvent, AuthResponseEvent};
-use sdk::{PortalSDK, PortalSDKError};
+use sdk::{PortalSDK};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -128,12 +124,12 @@ enum ResponseData {
 
     #[serde(rename = "recurring_payment")]
     RecurringPayment {
-        status: RecurringPaymentStatusContent,
+        status: RecurringPaymentResponseContent,
     },
 
     #[serde(rename = "single_payment")]
     SinglePayment {
-        status: PaymentStatusContent,
+        status: PaymentResponseContent,
         stream_id: Option<String>,
     },
 
@@ -613,7 +609,7 @@ async fn handle_command(
             let invoice = match nwc
                 .make_invoice(portal::nostr::nips::nip47::MakeInvoiceRequest {
                     amount: payment_request.amount,
-                    description: Some(payment_request.description),
+                    description: Some(payment_request.description.clone()),
                     description_hash: None,
                     expiry: None,
                 })
@@ -640,6 +636,8 @@ async fn handle_command(
                 current_exchange_rate: None,
                 subscription_id: payment_request.subscription_id,
                 auth_token: payment_request.auth_token,
+                request_id: request_id.to_string(),
+                description: Some(payment_request.description),
             };
 
             match sdk

@@ -20,18 +20,13 @@ use portal::{
     protocol::{
         auth_init::AuthInitUrl,
         model::{
-            Timestamp,
-            auth::SubkeyProof,
-            bindings::PublicKey,
-            payment::{
-                PaymentStatusContent, RecurringPaymentRequestContent,
-                RecurringPaymentStatusContent, SinglePaymentRequestContent,
-            },
+            auth::SubkeyProof, bindings::PublicKey, payment::{
+                PaymentResponseContent, PaymentStatus, RecurringPaymentRequestContent, RecurringPaymentResponseContent, RecurringPaymentStatus, SinglePaymentRequestContent
+            }, Timestamp
         },
     },
     router::{
-        MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream,
-        adapters::one_shot::OneShotSenderAdapter,
+        adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
     },
 };
 
@@ -196,11 +191,11 @@ pub trait PaymentRequestListener: Send + Sync {
     async fn on_single_payment_request(
         &self,
         event: SinglePaymentRequest,
-    ) -> Result<PaymentStatusContent, CallbackError>;
+    ) -> Result<PaymentResponseContent, CallbackError>;
     async fn on_recurring_payment_request(
         &self,
         event: RecurringPaymentRequest,
-    ) -> Result<RecurringPaymentStatusContent, CallbackError>;
+    ) -> Result<RecurringPaymentResponseContent, CallbackError>;
 }
 #[uniffi::export]
 impl PortalApp {
@@ -308,6 +303,7 @@ impl PortalApp {
                         recipient: response.recipient,
                         expires_at: response.expires_at,
                         content: content.clone(),
+                        event_id: response.event_id.clone(),
                     };
                     let status = evt.on_single_payment_request(req).await?;
                     let conv = PaymentStatusSenderConversation::new(response.clone(), status);
@@ -325,6 +321,7 @@ impl PortalApp {
                         recipient: response.recipient,
                         expires_at: response.expires_at,
                         content: content.clone(),
+                        event_id: response.event_id.clone(),
                     };
                     let status = evt.on_recurring_payment_request(req).await?;
                     let conv =
@@ -391,6 +388,7 @@ pub struct SinglePaymentRequest {
     pub recipient: PublicKey,
     pub expires_at: Timestamp,
     pub content: SinglePaymentRequestContent,
+    pub event_id: String,
 }
 
 #[derive(Debug, uniffi::Record)]
@@ -399,6 +397,7 @@ pub struct RecurringPaymentRequest {
     pub recipient: PublicKey,
     pub expires_at: Timestamp,
     pub content: RecurringPaymentRequestContent,
+    pub event_id: String,
 }
 
 #[derive(uniffi::Object)]
