@@ -146,6 +146,7 @@ dependencies = [
  "bitcoin",
  "log",
  "nostr",
+ "nostr-relay-pool",
  "nostrstore",
  "nwc",
  "portal",

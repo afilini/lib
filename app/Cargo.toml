@@ -21,4 +21,5 @@ nwc = "0.41.0"
 nostr = { version = "0.41" }
 
 nostrstore = "0.2.3"
+nostr-relay-pool = "0.41.0"
 # nostrstore-derive = "0.1.0"

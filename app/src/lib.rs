@@ -1,7 +1,7 @@
 pub mod db;
 pub mod nwc;
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use bitcoin::bip32;
 use portal::{
@@ -11,7 +11,7 @@ use portal::{
             AuthResponseConversation,
         },
         payments::{
-            PaymentRequestContent, PaymentRequestEvent, PaymentRequestListenerConversation,
+            PaymentRequestContent, PaymentRequestListenerConversation,
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
     },
@@ -22,12 +22,12 @@ use portal::{
         auth_init::AuthInitUrl,
         model::{
             auth::SubkeyProof, bindings::PublicKey, payment::{
-                PaymentResponseContent, PaymentStatus, RecurringPaymentRequestContent, RecurringPaymentResponseContent, RecurringPaymentStatus, SinglePaymentRequestContent
+                PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, SinglePaymentRequestContent
             }, Timestamp
         },
     },
     router::{
-        adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
+        adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter
     },
 };
 
@@ -381,7 +381,49 @@ impl PortalApp {
 
         Ok(())
     }
+
+    pub async fn connection_status(&self) -> HashMap<RelayUrl, RelayStatus> {
+        let relays = self.router.channel().relays().await;
+        relays.into_iter().map(|(u, r)| (RelayUrl(u), RelayStatus::from(r.status()))).collect()
+    }
 }
+#[derive(Hash, Eq, PartialEq)]
+pub struct RelayUrl(pub nostr::types::RelayUrl);
+
+uniffi::custom_type!(RelayUrl, String, {
+    try_lift: |val| {
+        let url = nostr::types::RelayUrl::parse(&val)?;
+        Ok(RelayUrl(url))
+    },
+    lower: |obj| obj.0.as_str().to_string(),
+});
+
+
+#[derive(uniffi::Enum)]
+pub enum RelayStatus {
+    Initialized,
+    Pending,
+    Connecting,
+    Connected,
+    Disconnected,
+    Terminated,
+    Banned,
+}
+
+impl From<nostr_relay_pool::relay::RelayStatus> for RelayStatus {
+    fn from(status: nostr_relay_pool::relay::RelayStatus) -> Self {
+        match status {
+            nostr_relay_pool::relay::RelayStatus::Initialized => RelayStatus::Initialized,
+            nostr_relay_pool::relay::RelayStatus::Pending => RelayStatus::Pending,
+            nostr_relay_pool::relay::RelayStatus::Connecting => RelayStatus::Connecting,
+            nostr_relay_pool::relay::RelayStatus::Connected => RelayStatus::Connected,
+            nostr_relay_pool::relay::RelayStatus::Disconnected => RelayStatus::Disconnected,
+            nostr_relay_pool::relay::RelayStatus::Terminated => RelayStatus::Terminated,
+            nostr_relay_pool::relay::RelayStatus::Banned => RelayStatus::Banned,
+        }
+    }
+}
+
 
 #[derive(Debug, uniffi::Record)]
 pub struct SinglePaymentRequest {
@@ -442,8 +484,8 @@ impl From<portal::nostr_relay_pool::pool::Error> for AppError {
     }
 }
 
-impl From<nwc::Error> for AppError {
-    fn from(error: nwc::Error) -> Self {
+impl From<::nwc::Error> for AppError {
+    fn from(error: ::nwc::Error) -> Self {
         AppError::NWC(error.to_string())
     }
 }

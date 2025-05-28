@@ -1,4 +1,4 @@
-use portal::protocol::model::{bindings::PublicKey, Timestamp};
+use portal::protocol::model::Timestamp;
 
 use crate::AppError;
 
