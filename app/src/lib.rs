@@ -388,7 +388,7 @@ impl PortalApp {
 
     pub async fn close_recurring_payment(
         &self,
-        recipient: PublicKey,
+        service_key: PublicKey,
         subscription_id: String,
     ) -> Result<(), AppError> {
         let content = CloseRecurringPaymentContent{
@@ -396,10 +396,11 @@ impl PortalApp {
             reason: None,
         };
 
-        let conv = CloseRecurringPaymentConversation::new(recipient.into(), self.router.keypair().public_key(), content);
+        let recipient = self.router.keypair().public_key();
+        let conv = CloseRecurringPaymentConversation::new(service_key.into(), recipient, content);
         self.router
             .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-                recipient.into(),
+                recipient,
                 vec![],
                 conv,
             )))
