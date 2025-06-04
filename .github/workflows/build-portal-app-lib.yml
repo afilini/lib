@@ -1,0 +1,70 @@
+name: Build Library
+
+on:
+  push:
+    branches: [ '*' ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@main
+      
+    - name: Setup Nix Magic Cache
+      uses: DeterminateSystems/magic-nix-cache-action@main
+      
+    - name: Change to react-native directory
+      run: cd react-native
+      
+    - name: Install dependencies with Nix
+      run: |
+        cd react-native
+        nix develop --command yarn install
+        
+    - name: Build Android release
+      run: |
+        cd react-native
+        nix develop --command yarn ubrn:android --release
+        
+    - name: Apply uniffi patches
+      run: |
+        cd react-native
+        nix develop --command node ./patch-uniffi-bindgen.js
+        
+    - name: Create npm package
+      run: |
+        cd react-native
+        nix develop --command npm pack
+        
+    - name: Find package file
+      id: find-package
+      run: |
+        cd react-native
+        PACKAGE_FILE=$(ls *.tgz | head -1)
+        echo "package-file=$PACKAGE_FILE" >> $GITHUB_OUTPUT
+        echo "Found package: $PACKAGE_FILE"
+        
+    - name: Upload package artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: library-package
+        path: react-native/${{ steps.find-package.outputs.package-file }}
+        retention-days: 30
+        
+    - name: Upload build logs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: build-logs
+        path: |
+          react-native/yarn-error.log
+          react-native/npm-debug.log
+        retention-days: 7
