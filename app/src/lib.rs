@@ -386,6 +386,22 @@ impl PortalApp {
         let relays = self.router.channel().relays().await;
         relays.into_iter().map(|(u, r)| (RelayUrl(u), RelayStatus::from(r.status()))).collect()
     }
+
+    pub async fn change_relays(&self, relays: Vec<String>) -> Result<(), AppError> {
+        let relay_pool = self.router.channel();
+
+        // TODO: Clean up old conversations related to removed relays
+
+        // Force remove all relays before adding new ones
+        relay_pool.force_remove_all_relays().await;
+
+
+        for relay in relays {
+            relay_pool.add_relay(&relay, RelayOptions::default()).await?;
+        }
+        relay_pool.connect().await;
+        Ok(())
+    }
 }
 #[derive(Hash, Eq, PartialEq)]
 pub struct RelayUrl(pub nostr::types::RelayUrl);
