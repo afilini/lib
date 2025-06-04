@@ -387,20 +387,22 @@ impl PortalApp {
         relays.into_iter().map(|(u, r)| (RelayUrl(u), RelayStatus::from(r.status()))).collect()
     }
 
-    pub async fn change_relays(&self, relays: Vec<String>) -> Result<(), AppError> {
+    pub async fn add_relay(&self, url: String) -> Result<(), AppError> {
         let relay_pool = self.router.channel();
+        relay_pool.add_relay(&url, RelayOptions::default()).await?;
+        relay_pool.connect_relay(url).await?;
+        Ok(())
+    }
 
-        // TODO: Clean up old conversations related to removed relays
-        // self.router.purge().await;
-
-        // Force remove all relays before adding new ones
-        relay_pool.force_remove_all_relays().await;
-
-
-        for relay in relays {
-            relay_pool.add_relay(&relay, RelayOptions::default()).await?;
+    pub async fn remove_relay(&self, url: String) -> Result<(), AppError> {
+        // Cleanup conversations associated with the relay
+        let conversations = self.router.get_conversations_by_relay(url.clone()).await?;
+        for conv in conversations {
+            self.router.cleanup_conversation(&conv).await?;
         }
-        relay_pool.connect().await;
+
+        let relay_pool = self.router.channel();
+        relay_pool.remove_relay(&url).await?;
         Ok(())
     }
 }

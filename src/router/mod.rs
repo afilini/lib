@@ -45,6 +45,8 @@ pub struct MessageRouter<C: Channel> {
     aliases: Mutex<HashMap<String, Vec<u64>>>,
     filters: RwLock<HashMap<String, Filter>>,
     subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<serde_json::Value>>>>,
+
+    conversation_relays: Mutex<HashMap<String, Vec<String>>>,
 }
 
 impl<C: Channel> MessageRouter<C> 
@@ -66,15 +68,35 @@ where
             aliases: Mutex::new(HashMap::new()),
             subscribers: Mutex::new(HashMap::new()),
             filters: RwLock::new(HashMap::new()),
+            conversation_relays: Mutex::new(HashMap::new()),
         }
     }
 
-    async fn cleanup_conversation(&self, conversation: &str) -> Result<(), ConversationError> {
+
+    /// Get all conversations that are subscribed to a specific relay.
+    pub async fn get_conversations_by_relay(
+        &self,
+        relay: String,
+    ) -> Result<Vec<String>, ConversationError> {
+        let conversations = self.conversation_relays.lock().await;
+        let mut result = Vec::new();
+
+        for (id, relays) in conversations.iter() {
+            if relays.contains(&relay) {
+                result.push(id.clone());
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub async fn cleanup_conversation(&self, conversation: &str) -> Result<(), ConversationError> {
         // Remove conversation state
         self.conversations.lock().await.remove(conversation);
         self.subscribers.lock().await.remove(conversation);
         self.filters.write().await.remove(conversation);
         let aliases = self.aliases.lock().await.remove(conversation);
+        self.conversation_relays.lock().await.remove(conversation);
 
         // Remove filters from relays
         self.channel
@@ -98,6 +120,7 @@ where
         self.subscribers.lock().await.clear();
         self.aliases.lock().await.clear();
         self.filters.write().await.clear();
+        self.conversation_relays.lock().await.clear();
     }
 
     /// Starts listening for incoming messages and routes them to the appropriate conversations.
@@ -265,6 +288,9 @@ where
     ) -> Result<(), ConversationError> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
+
+
+
         if !response.filter.is_empty() {
 
             if let Some(selected_relays) = response.selected_relays.clone() {
@@ -413,6 +439,14 @@ where
             .await
             .insert(id.to_string(), conversation);
 
+
+        if let Some(selected_relays) = response.selected_relays.clone() {
+            self.conversation_relays
+                .lock()
+                .await
+                .insert(id.to_string(), selected_relays);
+        }
+        
         Ok(response)
     }
 
