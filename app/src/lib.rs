@@ -391,6 +391,7 @@ impl PortalApp {
         let relay_pool = self.router.channel();
 
         // TODO: Clean up old conversations related to removed relays
+        // self.router.purge().await;
 
         // Force remove all relays before adding new ones
         relay_pool.force_remove_all_relays().await;
