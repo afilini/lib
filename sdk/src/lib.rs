@@ -1,26 +1,21 @@
 use std::sync::Arc;
 
 use portal::{
-    nostr::key::PublicKey,
-    nostr_relay_pool::{RelayOptions, RelayPool},
-    profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
-    protocol::{
+    close_subscription::{CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation}, nostr::key::PublicKey, nostr_relay_pool::{RelayOptions, RelayPool}, profile::{FetchProfileInfoConversation, Profile, SetProfileConversation}, protocol::{
         auth_init::AuthInitUrl, model::payment::{
             CloseRecurringPaymentContent, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, SinglePaymentRequestContent
         }, LocalKeypair
-    },
-    router::{
+    }, router::{
         adapters::one_shot::OneShotSenderAdapter, ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
-    },
-    sdk::{
+    }, sdk::{
         auth::{
             AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation,
             AuthResponseEvent,
         },
         payments::{
-            CloseRecurringPaymentReceiverConversation, RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation
+            RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation
         },
-    },
+    }
 };
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -195,6 +190,29 @@ impl PortalSDK {
             ))
             .await?;
         Ok(event)
+    }
+
+    pub async fn close_recurring_payment(
+        &self,
+        recipient: PublicKey,
+        subscription_id: String,
+    ) -> Result<(), PortalSDKError> {
+        let content = CloseRecurringPaymentContent{
+            subscription_id,
+            reason: None,
+            by_service: true
+        };
+
+        let service_key = self.router.keypair().public_key();
+        let conv = CloseRecurringPaymentConversation::new(service_key, recipient, content);
+        self.router
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                service_key,
+                vec![],
+                conv,
+            )))
+            .await?;
+        Ok(())
     }
 
 }

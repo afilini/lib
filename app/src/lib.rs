@@ -11,23 +11,18 @@ use portal::{
             AuthResponseConversation,
         },
         payments::{
-            CloseRecurringPaymentConversation, PaymentRequestContent, PaymentRequestListenerConversation, PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation
+            PaymentRequestContent, PaymentRequestListenerConversation, PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation
         },
-    },
-    nostr::nips::nip19::ToBech32,
-    nostr_relay_pool::{RelayOptions, RelayPool},
-    profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
-    protocol::{
+    }, close_subscription::CloseRecurringPaymentConversation, nostr::nips::nip19::ToBech32, nostr_relay_pool::{RelayOptions, RelayPool}, profile::{FetchProfileInfoConversation, Profile, SetProfileConversation}, protocol::{
         auth_init::AuthInitUrl,
         model::{
             auth::SubkeyProof, bindings::PublicKey, payment::{
                 CloseRecurringPaymentContent, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, RecurringPaymentStatus, SinglePaymentRequestContent
             }, Timestamp
         },
-    },
-    router::{
+    }, router::{
         adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter
-    },
+    }
 };
 
 uniffi::setup_scaffolding!();
@@ -394,6 +389,7 @@ impl PortalApp {
         let content = CloseRecurringPaymentContent{
             subscription_id,
             reason: None,
+            by_service: false
         };
 
         let recipient = self.router.keypair().public_key();

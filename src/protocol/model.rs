@@ -326,6 +326,7 @@ pub mod payment {
     pub struct CloseRecurringPaymentContent {
         pub subscription_id: String,
         pub reason: Option<String>,
+        pub by_service: bool,
     }
 }
 
