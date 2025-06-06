@@ -1,21 +1,33 @@
 use std::sync::Arc;
 
 use portal::{
-    close_subscription::{CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation}, nostr::key::PublicKey, nostr_relay_pool::{RelayOptions, RelayPool}, profile::{FetchProfileInfoConversation, Profile, SetProfileConversation}, protocol::{
-        auth_init::AuthInitUrl, model::payment::{
-            CloseRecurringPaymentContent, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, SinglePaymentRequestContent
-        }, LocalKeypair
-    }, router::{
-        adapters::one_shot::OneShotSenderAdapter, ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
-    }, sdk::{
+    close_subscription::{
+        CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
+    },
+    nostr::key::PublicKey,
+    nostr_relay_pool::{RelayOptions, RelayPool},
+    profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
+    protocol::{
+        LocalKeypair,
+        auth_init::AuthInitUrl,
+        model::payment::{
+            CloseRecurringPaymentContent, PaymentResponseContent, RecurringPaymentRequestContent,
+            RecurringPaymentResponseContent, SinglePaymentRequestContent,
+        },
+    },
+    router::{
+        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
+        NotificationStream, adapters::one_shot::OneShotSenderAdapter,
+    },
+    sdk::{
         auth::{
             AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation,
             AuthResponseEvent,
         },
         payments::{
-            RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation
+            RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation,
         },
-    }
+    },
 };
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -145,7 +157,10 @@ impl PortalSDK {
         Ok(event.next().await.ok_or(PortalSDKError::Timeout)??)
     }
 
-    pub async fn fetch_profile(&self, main_key: PublicKey) -> Result<Option<Profile>, PortalSDKError> {
+    pub async fn fetch_profile(
+        &self,
+        main_key: PublicKey,
+    ) -> Result<Option<Profile>, PortalSDKError> {
         let conv = FetchProfileInfoConversation::new(main_key);
         let mut event = self.router.add_and_subscribe(conv).await?;
         let profile = event.next().await.ok_or(PortalSDKError::Timeout)??;
@@ -169,11 +184,14 @@ impl PortalSDK {
         }
 
         let conv = SetProfileConversation::new(profile);
-        let _ = self.router.add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-            self.router.keypair().public_key().into(),
-            vec![],
-            conv,
-        ))).await?;
+        let _ = self
+            .router
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                self.router.keypair().public_key().into(),
+                vec![],
+                conv,
+            )))
+            .await?;
 
         Ok(())
     }
@@ -181,7 +199,8 @@ impl PortalSDK {
     pub async fn listen_closed_subscriptions(
         &self,
     ) -> Result<NotificationStream<CloseRecurringPaymentContent>, PortalSDKError> {
-        let inner = CloseRecurringPaymentReceiverConversation::new(self.router.keypair().public_key());
+        let inner =
+            CloseRecurringPaymentReceiverConversation::new(self.router.keypair().public_key());
         let event = self
             .router
             .add_and_subscribe(MultiKeyListenerAdapter::new(
@@ -197,10 +216,10 @@ impl PortalSDK {
         recipient: PublicKey,
         subscription_id: String,
     ) -> Result<(), PortalSDKError> {
-        let content = CloseRecurringPaymentContent{
+        let content = CloseRecurringPaymentContent {
             subscription_id,
             reason: None,
-            by_service: true
+            by_service: true,
         };
 
         let service_key = self.router.keypair().public_key();
@@ -214,7 +233,6 @@ impl PortalSDK {
             .await?;
         Ok(())
     }
-
 }
 
 #[derive(Debug, thiserror::Error)]

@@ -5,10 +5,11 @@ use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use portal::profile::Profile;
 use portal::protocol::model::payment::{
-    Currency, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, SinglePaymentRequestContent
+    Currency, PaymentResponseContent, RecurringPaymentRequestContent,
+    RecurringPaymentResponseContent, SinglePaymentRequestContent,
 };
 use portal::protocol::model::Timestamp;
-use sdk::{PortalSDK};
+use sdk::PortalSDK;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -57,6 +58,7 @@ enum Command {
         recipient_key: String,
         subscription_id: String,
     },
+    ListenClosedSubscriptions,
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,9 +143,10 @@ enum ResponseData {
     ProfileData { profile: Option<Profile> },
 
     #[serde(rename = "close_subscription_success")]
-    CloseSubscriptionSuccess {
-        message: String,
-    },
+    CloseSubscriptionSuccess { message: String },
+
+    #[serde(rename = "listen_closed_subscriptions")]
+    ListenClosedSubscriptionsSuccess,
 }
 
 #[derive(Debug, Serialize)]
@@ -153,6 +156,12 @@ enum NotificationData {
     AuthInit { main_key: String },
     #[serde(rename = "payment_status_update")]
     PaymentStatusUpdate { status: InvoiceStatus },
+
+    #[serde(rename = "closed_subscription")]
+    ClosedSubscription {
+        reason: Option<String>,
+        subscription_id: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -399,467 +408,475 @@ async fn handle_command(
 
     match command {
         Command::Auth { .. } => {
-                        // Already handled in the outer function
-            }
+            // Already handled in the outer function
+        }
         Command::NewAuthInitUrl => {
-                match sdk.new_auth_init_url().await {
-                    Ok((url, notification_stream)) => {
-                        // Generate a unique stream ID
-                        let stream_id = Uuid::new_v4().to_string();
+            match sdk.new_auth_init_url().await {
+                Ok((url, notification_stream)) => {
+                    // Generate a unique stream ID
+                    let stream_id = Uuid::new_v4().to_string();
 
-                        // Setup notification forwarding
-                        let tx_clone = tx_notification.clone();
-                        let stream_id_clone = stream_id.clone();
+                    // Setup notification forwarding
+                    let tx_clone = tx_notification.clone();
+                    let stream_id_clone = stream_id.clone();
 
-                        // Create a task to handle the notification stream
-                        let task = tokio::spawn(async move {
-                            let mut stream = notification_stream;
+                    // Create a task to handle the notification stream
+                    let task = tokio::spawn(async move {
+                        let mut stream = notification_stream;
 
-                            // Process notifications from the stream
-                            while let Some(Ok(event)) = stream.next().await {
-                                debug!("Got auth init event: {:?}", event);
-
-                                // Convert the event to a notification response
-                                let notification = Response::Notification {
-                                    id: stream_id_clone.clone(),
-                                    data: NotificationData::AuthInit {
-                                        main_key: event.main_key.to_string(),
-                                    },
-                                };
-
-                                // Send the notification to the client
-                                if let Err(e) = tx_clone.send(notification).await {
-                                    error!("Failed to forward auth init event: {}", e);
-                                    break;
-                                }
-                            }
-
-                            debug!("Auth init stream ended for stream_id: {}", stream_id_clone);
-                        });
-
-                        // Store the task
-                        active_streams
-                            .lock()
-                            .unwrap()
-                            .add_task(stream_id.clone(), task);
-
-                        // Convert the URL to a proper response struct
-                        let response = Response::Success {
-                            id: request_id.to_string(),
-                            data: ResponseData::AuthInitUrl {
-                                url: url.to_string(),
-                                stream_id,
-                            },
-                        };
-
-                        let _ = send_message(response).await;
-                    }
-                    Err(e) => {
-                        let response = Response::Error {
-                            id: request_id.to_string(),
-                            message: format!("Failed to create auth init URL: {}", e),
-                        };
-
-                        let _ = send_message(response).await;
-                    }
-                }
-            }
-        Command::AuthenticateKey { main_key, subkeys } => {
-                // Parse keys
-                let main_key = match hex_to_pubkey(&main_key) {
-                    Ok(key) => key,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid main key: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
-
-                let subkeys = match parse_subkeys(&subkeys) {
-                    Ok(keys) => keys,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid subkeys: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
-
-                match sdk.authenticate_key(main_key, subkeys).await {
-                    Ok(event) => {
-                        let response = Response::Success {
-                            id: request_id.to_string(),
-                            data: ResponseData::AuthResponse {
-                                event: AuthResponseData {
-                                    user_key: event.user_key.to_string(),
-                                    recipient: event.recipient.to_string(),
-                                    challenge: event.challenge,
-                                    granted_permissions: event.granted_permissions,
-                                    session_token: event.session_token,
-                                },
-                            },
-                        };
-
-                        let _ = send_message(response).await;
-                    }
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Failed to authenticate key: {}", e),
-                        )
-                        .await;
-                    }
-                }
-            }
-        Command::RequestRecurringPayment {
-                main_key,
-                subkeys,
-                payment_request,
-            } => {
-                // Parse keys
-                let main_key = match hex_to_pubkey(&main_key) {
-                    Ok(key) => key,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid main key: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
-
-                let subkeys = match parse_subkeys(&subkeys) {
-                    Ok(keys) => keys,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid subkeys: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
-
-                match sdk
-                    .request_recurring_payment(main_key, subkeys, payment_request)
-                    .await
-                {
-                    Ok(status) => {
-                        let response = Response::Success {
-                            id: request_id.to_string(),
-                            data: ResponseData::RecurringPayment { status },
-                        };
-
-                        let _ = send_message(response).await;
-                    }
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Failed to request recurring payment: {}", e),
-                        )
-                        .await;
-                    }
-                }
-            }
-        Command::RequestSinglePayment {
-                main_key,
-                subkeys,
-                payment_request,
-            } => {
-                let nwc = match nwc {
-                    Some(nwc) => nwc,
-                    None => {
-                        let _ = send_error(tx_message.clone(), request_id, "Nostr Wallet Connect is not available: set the NWC_URL environment variable to enable it").await;
-                        return;
-                    }
-                };
-
-                // Parse keys
-                let main_key = match hex_to_pubkey(&main_key) {
-                    Ok(key) => key,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid main key: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
-
-                let subkeys = match parse_subkeys(&subkeys) {
-                    Ok(keys) => keys,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid subkeys: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
-
-                // TODO: fetch and apply fiat exchange rate
-
-                let invoice = match nwc
-                    .make_invoice(portal::nostr::nips::nip47::MakeInvoiceRequest {
-                        amount: payment_request.amount,
-                        description: Some(payment_request.description.clone()),
-                        description_hash: None,
-                        expiry: None,
-                    })
-                    .await
-                {
-                    Ok(invoice) => invoice,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Failed to make invoice: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
-
-                let expires_at = Timestamp::now_plus_seconds(300);
-                let payment_request = SinglePaymentRequestContent {
-                    amount: payment_request.amount,
-                    currency: payment_request.currency,
-                    expires_at,
-                    invoice: invoice.invoice.clone(),
-                    current_exchange_rate: None,
-                    subscription_id: payment_request.subscription_id,
-                    auth_token: payment_request.auth_token,
-                    request_id: request_id.to_string(),
-                    description: Some(payment_request.description),
-                };
-
-                match sdk
-                    .request_single_payment(main_key, subkeys, payment_request)
-                    .await
-                {
-                    Ok(status) => {
-                        // Generate a unique stream ID
-                        let stream_id = Uuid::new_v4().to_string();
-
-                        // Setup notification forwarding
-                        let tx_clone = tx_notification.clone();
-                        let stream_id_clone = stream_id.clone();
-                        let nwc_clone = nwc.clone();
-
-                        // Create a task to handle the notification stream
-                        let task = tokio::spawn(async move {
-                            let mut count = 0;
-                            let notification = loop {
-                                if Timestamp::now() > expires_at {
-                                    break NotificationData::PaymentStatusUpdate {
-                                        status: InvoiceStatus::Timeout,
-                                    };
-                                }
-
-                                count += 1;
-                                if std::env::var("FAKE_PAYMENTS").is_ok() && count > 3 {
-                                    break NotificationData::PaymentStatusUpdate {
-                                        status: InvoiceStatus::Paid { preimage: None },
-                                    };
-                                }
-
-                                let invoice = nwc_clone
-                                    .lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
-                                        invoice: Some(invoice.invoice.clone()),
-                                        payment_hash: None,
-                                    })
-                                    .await;
-
-                                match invoice {
-                                    Ok(invoice) => {
-                                        if invoice.settled_at.is_some() {
-                                            break NotificationData::PaymentStatusUpdate {
-                                                status: InvoiceStatus::Paid {
-                                                    preimage: invoice.preimage,
-                                                },
-                                            };
-                                        } else {
-                                            // TODO: incremental delay
-                                            tokio::time::sleep(tokio::time::Duration::from_millis(
-                                                1000,
-                                            ))
-                                            .await;
-
-                                            continue;
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to lookup invoice: {}", e);
-                                        break NotificationData::PaymentStatusUpdate {
-                                            status: InvoiceStatus::Error {
-                                                reason: e.to_string(),
-                                            },
-                                        };
-                                    }
-                                }
-                            };
+                        // Process notifications from the stream
+                        while let Some(Ok(event)) = stream.next().await {
+                            debug!("Got auth init event: {:?}", event);
 
                             // Convert the event to a notification response
                             let notification = Response::Notification {
                                 id: stream_id_clone.clone(),
-                                data: notification,
+                                data: NotificationData::AuthInit {
+                                    main_key: event.main_key.to_string(),
+                                },
                             };
 
                             // Send the notification to the client
                             if let Err(e) = tx_clone.send(notification).await {
-                                error!("Failed to forward payment event: {}", e);
+                                error!("Failed to forward auth init event: {}", e);
+                                break;
                             }
-                        });
+                        }
 
-                        // Store the task
-                        active_streams
-                            .lock()
-                            .unwrap()
-                            .add_task(stream_id.clone(), task);
+                        debug!("Auth init stream ended for stream_id: {}", stream_id_clone);
+                    });
 
-                        let response = Response::Success {
-                            id: request_id.to_string(),
-                            data: ResponseData::SinglePayment {
-                                status,
-                                stream_id: Some(stream_id),
-                            },
-                        };
+                    // Store the task
+                    active_streams
+                        .lock()
+                        .unwrap()
+                        .add_task(stream_id.clone(), task);
 
-                        let _ = send_message(response).await;
-                    }
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Failed to request single payment: {}", e),
-                        )
-                        .await;
-                    }
+                    // Convert the URL to a proper response struct
+                    let response = Response::Success {
+                        id: request_id.to_string(),
+                        data: ResponseData::AuthInitUrl {
+                            url: url.to_string(),
+                            stream_id,
+                        },
+                    };
+
+                    let _ = send_message(response).await;
+                }
+                Err(e) => {
+                    let response = Response::Error {
+                        id: request_id.to_string(),
+                        message: format!("Failed to create auth init URL: {}", e),
+                    };
+
+                    let _ = send_message(response).await;
                 }
             }
+        }
+        Command::AuthenticateKey { main_key, subkeys } => {
+            // Parse keys
+            let main_key = match hex_to_pubkey(&main_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid main key: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let subkeys = match parse_subkeys(&subkeys) {
+                Ok(keys) => keys,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid subkeys: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            match sdk.authenticate_key(main_key, subkeys).await {
+                Ok(event) => {
+                    let response = Response::Success {
+                        id: request_id.to_string(),
+                        data: ResponseData::AuthResponse {
+                            event: AuthResponseData {
+                                user_key: event.user_key.to_string(),
+                                recipient: event.recipient.to_string(),
+                                challenge: event.challenge,
+                                granted_permissions: event.granted_permissions,
+                                session_token: event.session_token,
+                            },
+                        },
+                    };
+
+                    let _ = send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Failed to authenticate key: {}", e),
+                    )
+                    .await;
+                }
+            }
+        }
+        Command::RequestRecurringPayment {
+            main_key,
+            subkeys,
+            payment_request,
+        } => {
+            // Parse keys
+            let main_key = match hex_to_pubkey(&main_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid main key: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let subkeys = match parse_subkeys(&subkeys) {
+                Ok(keys) => keys,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid subkeys: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            match sdk
+                .request_recurring_payment(main_key, subkeys, payment_request)
+                .await
+            {
+                Ok(status) => {
+                    let response = Response::Success {
+                        id: request_id.to_string(),
+                        data: ResponseData::RecurringPayment { status },
+                    };
+
+                    let _ = send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Failed to request recurring payment: {}", e),
+                    )
+                    .await;
+                }
+            }
+        }
+        Command::RequestSinglePayment {
+            main_key,
+            subkeys,
+            payment_request,
+        } => {
+            let nwc = match nwc {
+                Some(nwc) => nwc,
+                None => {
+                    let _ = send_error(tx_message.clone(), request_id, "Nostr Wallet Connect is not available: set the NWC_URL environment variable to enable it").await;
+                    return;
+                }
+            };
+
+            // Parse keys
+            let main_key = match hex_to_pubkey(&main_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid main key: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let subkeys = match parse_subkeys(&subkeys) {
+                Ok(keys) => keys,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid subkeys: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            // TODO: fetch and apply fiat exchange rate
+
+            let invoice = match nwc
+                .make_invoice(portal::nostr::nips::nip47::MakeInvoiceRequest {
+                    amount: payment_request.amount,
+                    description: Some(payment_request.description.clone()),
+                    description_hash: None,
+                    expiry: None,
+                })
+                .await
+            {
+                Ok(invoice) => invoice,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Failed to make invoice: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            let expires_at = Timestamp::now_plus_seconds(300);
+            let payment_request = SinglePaymentRequestContent {
+                amount: payment_request.amount,
+                currency: payment_request.currency,
+                expires_at,
+                invoice: invoice.invoice.clone(),
+                current_exchange_rate: None,
+                subscription_id: payment_request.subscription_id,
+                auth_token: payment_request.auth_token,
+                request_id: request_id.to_string(),
+                description: Some(payment_request.description),
+            };
+
+            match sdk
+                .request_single_payment(main_key, subkeys, payment_request)
+                .await
+            {
+                Ok(status) => {
+                    // Generate a unique stream ID
+                    let stream_id = Uuid::new_v4().to_string();
+
+                    // Setup notification forwarding
+                    let tx_clone = tx_notification.clone();
+                    let stream_id_clone = stream_id.clone();
+                    let nwc_clone = nwc.clone();
+
+                    // Create a task to handle the notification stream
+                    let task = tokio::spawn(async move {
+                        let mut count = 0;
+                        let notification = loop {
+                            if Timestamp::now() > expires_at {
+                                break NotificationData::PaymentStatusUpdate {
+                                    status: InvoiceStatus::Timeout,
+                                };
+                            }
+
+                            count += 1;
+                            if std::env::var("FAKE_PAYMENTS").is_ok() && count > 3 {
+                                break NotificationData::PaymentStatusUpdate {
+                                    status: InvoiceStatus::Paid { preimage: None },
+                                };
+                            }
+
+                            let invoice = nwc_clone
+                                .lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
+                                    invoice: Some(invoice.invoice.clone()),
+                                    payment_hash: None,
+                                })
+                                .await;
+
+                            match invoice {
+                                Ok(invoice) => {
+                                    if invoice.settled_at.is_some() {
+                                        break NotificationData::PaymentStatusUpdate {
+                                            status: InvoiceStatus::Paid {
+                                                preimage: invoice.preimage,
+                                            },
+                                        };
+                                    } else {
+                                        // TODO: incremental delay
+                                        tokio::time::sleep(tokio::time::Duration::from_millis(
+                                            1000,
+                                        ))
+                                        .await;
+
+                                        continue;
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to lookup invoice: {}", e);
+                                    break NotificationData::PaymentStatusUpdate {
+                                        status: InvoiceStatus::Error {
+                                            reason: e.to_string(),
+                                        },
+                                    };
+                                }
+                            }
+                        };
+
+                        // Convert the event to a notification response
+                        let notification = Response::Notification {
+                            id: stream_id_clone.clone(),
+                            data: notification,
+                        };
+
+                        // Send the notification to the client
+                        if let Err(e) = tx_clone.send(notification).await {
+                            error!("Failed to forward payment event: {}", e);
+                        }
+                    });
+
+                    // Store the task
+                    active_streams
+                        .lock()
+                        .unwrap()
+                        .add_task(stream_id.clone(), task);
+
+                    let response = Response::Success {
+                        id: request_id.to_string(),
+                        data: ResponseData::SinglePayment {
+                            status,
+                            stream_id: Some(stream_id),
+                        },
+                    };
+
+                    let _ = send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Failed to request single payment: {}", e),
+                    )
+                    .await;
+                }
+            }
+        }
         Command::RequestPaymentRaw {
-                main_key,
-                subkeys,
-                payment_request,
-            } => {
-                // Parse keys
-                let main_key = match hex_to_pubkey(&main_key) {
-                    Ok(key) => key,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid main key: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
+            main_key,
+            subkeys,
+            payment_request,
+        } => {
+            // Parse keys
+            let main_key = match hex_to_pubkey(&main_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid main key: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
 
-                let subkeys = match parse_subkeys(&subkeys) {
-                    Ok(keys) => keys,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid subkeys: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
-                };
+            let subkeys = match parse_subkeys(&subkeys) {
+                Ok(keys) => keys,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid subkeys: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
 
-                match sdk
-                    .request_single_payment(main_key, subkeys, payment_request)
-                    .await
-                {
-                    Ok(status) => {
-                        let response = Response::Success {
-                            id: request_id.to_string(),
-                            data: ResponseData::SinglePayment {
-                                status,
-                                stream_id: None,
-                            },
-                        };
+            match sdk
+                .request_single_payment(main_key, subkeys, payment_request)
+                .await
+            {
+                Ok(status) => {
+                    let response = Response::Success {
+                        id: request_id.to_string(),
+                        data: ResponseData::SinglePayment {
+                            status,
+                            stream_id: None,
+                        },
+                    };
 
-                        let _ = send_message(response).await;
-                    }
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Failed to request single payment: {}", e),
-                        )
-                        .await;
-                    }
+                    let _ = send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Failed to request single payment: {}", e),
+                    )
+                    .await;
                 }
             }
+        }
         Command::FetchProfile { main_key } => {
-                // Parse key
-                let main_key = match hex_to_pubkey(&main_key) {
-                    Ok(key) => key,
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Invalid main key: {}", e),
-                        )
-                        .await;
-                        return;
-                    }
+            // Parse key
+            let main_key = match hex_to_pubkey(&main_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Invalid main key: {}", e),
+                    )
+                    .await;
+                    return;
+                }
+            };
+
+            match sdk.fetch_profile(main_key).await {
+                Ok(profile) => {
+                    let response = Response::Success {
+                        id: request_id.to_string(),
+                        data: ResponseData::ProfileData { profile },
+                    };
+
+                    let _ = send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = send_error(
+                        tx_message.clone(),
+                        request_id,
+                        &format!("Failed to fetch profile: {}", e),
+                    )
+                    .await;
+                }
+            }
+        }
+        Command::SetProfile { profile } => match sdk.set_profile(profile.clone()).await {
+            Ok(_) => {
+                let response = Response::Success {
+                    id: request_id.to_string(),
+                    data: ResponseData::ProfileData {
+                        profile: Some(profile),
+                    },
                 };
 
-                match sdk.fetch_profile(main_key).await {
-                    Ok(profile) => {
-                        let response = Response::Success {
-                            id: request_id.to_string(),
-                            data: ResponseData::ProfileData { profile },
-                        };
-
-                        let _ = send_message(response).await;
-                    }
-                    Err(e) => {
-                        let _ = send_error(
-                            tx_message.clone(),
-                            request_id,
-                            &format!("Failed to fetch profile: {}", e),
-                        )
-                        .await;
-                    }
-                }
+                let _ = send_message(response).await;
             }
-        Command::SetProfile { profile } => {
-                match sdk.set_profile(profile.clone()).await {
-                    Ok(_) => {
-                        let response = Response::Success {
-                            id: request_id.to_string(),
-                            data: ResponseData::ProfileData { profile: Some(profile) },
-                        };
-
-                        let _ = send_message(response).await;
-                    }
-                    Err(e) => {
-                        let _ = send_error(tx_message.clone(), request_id, &format!("Failed to set profile: {}", e)).await;
-                    }
-                }
+            Err(e) => {
+                let _ = send_error(
+                    tx_message.clone(),
+                    request_id,
+                    &format!("Failed to set profile: {}", e),
+                )
+                .await;
             }
-        Command::CloseSubscription { recipient_key, subscription_id } => {
+        },
+        Command::CloseSubscription {
+            recipient_key,
+            subscription_id,
+        } => {
             // Parse recipient key
             let recipient_key = match hex_to_pubkey(&recipient_key) {
                 Ok(key) => key,
@@ -874,7 +891,10 @@ async fn handle_command(
                 }
             };
 
-            match sdk.close_recurring_payment(recipient_key, subscription_id).await {
+            match sdk
+                .close_recurring_payment(recipient_key, subscription_id)
+                .await
+            {
                 Ok(_) => {
                     let response = Response::Success {
                         id: request_id.to_string(),
@@ -894,8 +914,73 @@ async fn handle_command(
                     .await;
                 }
             }
-            
-        },
+        }
+        Command::ListenClosedSubscriptions => {
+            match sdk.listen_closed_subscriptions().await {
+                Ok(notification_stream) => {
+                    // Generate a unique stream ID
+                    let stream_id = Uuid::new_v4().to_string();
+
+                    // Setup notification forwarding
+                    let tx_clone = tx_notification.clone();
+                    let stream_id_clone = stream_id.clone();
+
+                    // Create a task to handle the notification stream
+                    let task = tokio::spawn(async move {
+                        let mut stream = notification_stream;
+
+                        // Process notifications from the stream
+                        while let Some(Ok(event)) = stream.next().await {
+                            debug!("Got closed subscription event: {:?}", event);
+
+                            // Convert the event to a notification response
+                            let notification = Response::Notification {
+                                id: stream_id_clone.clone(),
+                                data: NotificationData::ClosedSubscription {
+                                    reason: event.reason,
+                                    subscription_id: event.subscription_id,
+                                },
+                            };
+
+                            // Send the notification to the client
+                            if let Err(e) = tx_clone.send(notification).await {
+                                error!("Failed to forward closed subscription event: {}", e);
+                                break;
+                            }
+                        }
+
+                        debug!(
+                            "Closing subscriptions stream ended for stream_id: {}",
+                            stream_id_clone
+                        );
+                    });
+
+                    // Store the task
+                    active_streams
+                        .lock()
+                        .unwrap()
+                        .add_task(stream_id.clone(), task);
+
+                    // Convert the URL to a proper response struct
+                    let response = Response::Success {
+                        id: request_id.to_string(),
+                        data: ResponseData::CloseSubscriptionSuccess {
+                            message: "Listening for closed subscriptions".to_string(),
+                        },
+                    };
+
+                    let _ = send_message(response).await;
+                }
+                Err(e) => {
+                    let response = Response::Error {
+                        id: request_id.to_string(),
+                        message: format!("Failed to create closed subscriptions listener: {}", e),
+                    };
+
+                    let _ = send_message(response).await;
+                }
+            }
+        }
     }
 }
 

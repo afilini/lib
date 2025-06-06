@@ -9,10 +9,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::model::{
-        bindings::{self}, event_kinds::RECURRING_PAYMENT_CANCEL, payment::CloseRecurringPaymentContent, 
+        bindings::{self},
+        event_kinds::RECURRING_PAYMENT_CANCEL,
+        payment::CloseRecurringPaymentContent,
     },
     router::{
-        adapters::{one_shot::OneShotSender, ConversationWithNotification}, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response
+        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
+        adapters::{ConversationWithNotification, one_shot::OneShotSender},
     },
 };
 
@@ -23,7 +26,11 @@ pub struct CloseRecurringPaymentConversation {
 }
 
 impl CloseRecurringPaymentConversation {
-    pub fn new(service_key: PublicKey, recipient: PublicKey, content: CloseRecurringPaymentContent) -> Self {
+    pub fn new(
+        service_key: PublicKey,
+        recipient: PublicKey,
+        content: CloseRecurringPaymentContent,
+    ) -> Self {
         Self {
             service_key,
             recipient,
@@ -43,7 +50,7 @@ impl OneShotSender for CloseRecurringPaymentConversation {
         keys.insert(state.recipient);
 
         let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
-    
+
         let response = Response::new()
             .reply_to(
                 state.recipient,
@@ -57,8 +64,6 @@ impl OneShotSender for CloseRecurringPaymentConversation {
     }
 }
 
-
-
 // listener
 
 pub struct CloseRecurringPaymentReceiverConversation {
@@ -71,7 +76,6 @@ impl CloseRecurringPaymentReceiverConversation {
     }
 }
 
-
 impl MultiKeyListener for CloseRecurringPaymentReceiverConversation {
     const VALIDITY_SECONDS: u64 = 60 * 5;
 
@@ -83,7 +87,7 @@ impl MultiKeyListener for CloseRecurringPaymentReceiverConversation {
             .kinds(vec![Kind::from(RECURRING_PAYMENT_CANCEL)])
             //.pubkey(state.user.ok_or(ConversationError::UserNotSet)?);
             .pubkey(state.local_key);
-        
+
         if let Some(subkey_proof) = &state.subkey_proof {
             filter = filter.pubkey(subkey_proof.main_key.into());
         }
@@ -96,12 +100,12 @@ impl MultiKeyListener for CloseRecurringPaymentReceiverConversation {
         event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-        Ok(Response::new()
-            .notify(message.clone())
-            .finish())
+        Ok(Response::new().notify(message.clone()).finish())
     }
 }
 
-impl ConversationWithNotification for MultiKeyListenerAdapter<CloseRecurringPaymentReceiverConversation> {
+impl ConversationWithNotification
+    for MultiKeyListenerAdapter<CloseRecurringPaymentReceiverConversation>
+{
     type Notification = CloseRecurringPaymentContent;
 }

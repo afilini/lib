@@ -9,14 +9,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::model::{
-        bindings::{self}, event_kinds::{
-            PAYMENT_REQUEST, PAYMENT_RESPONSE, RECURRING_PAYMENT_CANCEL, RECURRING_PAYMENT_REQUEST, RECURRING_PAYMENT_RESPONSE
-        }, payment::{
-            CloseRecurringPaymentContent, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, RecurringPaymentStatus, SinglePaymentRequestContent
-        }, Timestamp
+        Timestamp,
+        bindings::{self},
+        event_kinds::{
+            PAYMENT_REQUEST, PAYMENT_RESPONSE, RECURRING_PAYMENT_CANCEL, RECURRING_PAYMENT_REQUEST,
+            RECURRING_PAYMENT_RESPONSE,
+        },
+        payment::{
+            CloseRecurringPaymentContent, PaymentResponseContent, RecurringPaymentRequestContent,
+            RecurringPaymentResponseContent, RecurringPaymentStatus, SinglePaymentRequestContent,
+        },
     },
     router::{
-        adapters::{one_shot::OneShotSender, ConversationWithNotification}, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response
+        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
+        adapters::{ConversationWithNotification, one_shot::OneShotSender},
     },
 };
 
@@ -128,7 +134,11 @@ pub struct PaymentStatusSenderConversation {
 }
 
 impl PaymentStatusSenderConversation {
-    pub fn new(service_key: PublicKey, recipient: PublicKey, response: PaymentResponseContent) -> Self {
+    pub fn new(
+        service_key: PublicKey,
+        recipient: PublicKey,
+        response: PaymentResponseContent,
+    ) -> Self {
         Self {
             service_key,
             recipient,
@@ -168,7 +178,11 @@ pub struct RecurringPaymentStatusSenderConversation {
 }
 
 impl RecurringPaymentStatusSenderConversation {
-    pub fn new(service_key: PublicKey, recipient: PublicKey, response: RecurringPaymentResponseContent) -> Self {
+    pub fn new(
+        service_key: PublicKey,
+        recipient: PublicKey,
+        response: RecurringPaymentResponseContent,
+    ) -> Self {
         Self {
             service_key,
             recipient,
@@ -188,7 +202,7 @@ impl OneShotSender for RecurringPaymentStatusSenderConversation {
         keys.insert(state.recipient);
 
         let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
-    
+
         let response = Response::new()
             .reply_to(
                 state.recipient,
@@ -201,4 +215,3 @@ impl OneShotSender for RecurringPaymentStatusSenderConversation {
         Ok(response)
     }
 }
-
