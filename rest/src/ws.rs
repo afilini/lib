@@ -58,7 +58,7 @@ enum Command {
         recipient_key: String,
         subscription_id: String,
     },
-    ListenClosedSubscriptions,
+    ListenClosedSubscriptions
 }
 
 #[derive(Debug, Deserialize)]
@@ -146,7 +146,7 @@ enum ResponseData {
     CloseSubscriptionSuccess { message: String },
 
     #[serde(rename = "listen_closed_subscriptions")]
-    ListenClosedSubscriptionsSuccess,
+    ListenClosedSubscriptionsSuccess { message: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -964,7 +964,7 @@ async fn handle_command(
                     // Convert the URL to a proper response struct
                     let response = Response::Success {
                         id: request_id.to_string(),
-                        data: ResponseData::CloseSubscriptionSuccess {
+                        data: ResponseData::ListenClosedSubscriptionsSuccess {
                             message: "Listening for closed subscriptions".to_string(),
                         },
                     };
