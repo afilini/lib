@@ -15,24 +15,19 @@ use portal::{
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
     },
-    close_subscription::CloseRecurringPaymentConversation,
+    close_subscription::{CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation},
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
         auth_init::AuthInitUrl,
         model::{
-            Timestamp,
-            auth::SubkeyProof,
-            bindings::PublicKey,
-            payment::{
-                CloseRecurringPaymentContent, PaymentResponseContent,
-                RecurringPaymentRequestContent, RecurringPaymentResponseContent,
-                RecurringPaymentStatus, SinglePaymentRequestContent,
-            },
+            auth::SubkeyProof, bindings::PublicKey, payment::{
+                CloseRecurringPaymentContent, CloseRecurringPaymentResponse, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, RecurringPaymentStatus, SinglePaymentRequestContent
+            }, Timestamp
         },
     },
-    router::{MessageRouter, MultiKeyListenerAdapter, adapters::one_shot::OneShotSenderAdapter},
+    router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter},
 };
 
 uniffi::setup_scaffolding!();
@@ -202,6 +197,13 @@ pub trait PaymentRequestListener: Send + Sync {
         event: RecurringPaymentRequest,
     ) -> Result<RecurringPaymentResponseContent, CallbackError>;
 }
+
+#[uniffi::export(with_foreign)]
+#[async_trait::async_trait]
+pub trait ClosedSubscriptionListener: Send + Sync {
+    async fn on_closed_subscription(&self, event: CloseRecurringPaymentResponse) -> Result<(), CallbackError>;
+}
+
 #[uniffi::export]
 impl PortalApp {
     #[uniffi::constructor]
@@ -420,6 +422,28 @@ impl PortalApp {
                 conv,
             )))
             .await?;
+        Ok(())
+    }
+
+    pub async fn listen_closed_subscriptions(
+        &self,
+        evt: Arc<dyn ClosedSubscriptionListener>,
+    ) -> Result<(), AppError> {
+        let inner =
+            CloseRecurringPaymentReceiverConversation::new(self.router.keypair().public_key());
+        let mut rx = self
+            .router
+            .add_and_subscribe(MultiKeyListenerAdapter::new(
+                inner,
+                self.router.keypair().subkey_proof().cloned(),
+            ))
+            .await?;
+
+        while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
+            log::debug!("Received closed subscription: {:?}", response);
+
+            let _ = evt.on_closed_subscription(response).await?;
+        }
         Ok(())
     }
 }
