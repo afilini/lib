@@ -6,7 +6,7 @@ use portal::{
     app::auth::{
         AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation,
     },
-    protocol::{LocalKeypair, auth_init::AuthInitUrl},
+    protocol::{LocalKeypair, auth_init::AuthInitUrl, model::auth::AuthResponseStatus},
     router::{MessageRouter, MultiKeyListenerAdapter, adapters::one_shot::OneShotSenderAdapter},
 };
 
@@ -80,28 +80,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::io::stdout().flush()?;
         let mut approve = String::new();
         std::io::stdin().read_line(&mut approve)?;
-        let approve = approve.trim().to_lowercase() == "y";
+        let status = if approve.trim().to_lowercase() == "y" {
+            AuthResponseStatus::Approved {
+                granted_permissions: vec![],
+                session_token: String::from("ABC"),
+            }
+        } else {
+            AuthResponseStatus::Declined {
+                reason: Some("declined from test_app.rs".to_string()),
+            }
+        };
 
         // let result = evt.on_auth_challenge(response.clone()).await?;
 
         log::debug!("Auth challenge callback result: {:?}", approve);
 
-        if approve {
-            let approve = AuthResponseConversation::new(
-                response.clone(),
+        let approve = AuthResponseConversation::new(
+            response.clone(),
+            router.keypair().subkey_proof().cloned(),
+            status,
+        );
+        router
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                response.recipient.into(),
                 vec![],
-                router.keypair().subkey_proof().cloned(),
-            );
-            router
-                .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-                    response.recipient.into(),
-                    vec![],
-                    approve,
-                )))
-                .await?;
-        } else {
-            // TODO: send explicit rejection
-        }
+                approve,
+            )))
+            .await?;
     }
 
     Ok(())

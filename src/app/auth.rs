@@ -8,7 +8,8 @@ use crate::{
         auth_init::AuthInitUrl,
         model::{
             auth::{
-                AuthChallengeContent, AuthInitContent, AuthResponseContent, ClientInfo, SubkeyProof,
+                AuthChallengeContent, AuthInitContent, AuthResponseContent, AuthResponseStatus,
+                ClientInfo, SubkeyProof,
             },
             bindings,
             event_kinds::{AUTH_CHALLENGE, AUTH_INIT, AUTH_RESPONSE},
@@ -139,20 +140,20 @@ impl ConversationWithNotification for MultiKeyListenerAdapter<AuthChallengeListe
 
 pub struct AuthResponseConversation {
     event: AuthChallengeEvent,
-    granted_permissions: Vec<String>,
     subkey_proof: Option<SubkeyProof>,
+    status: AuthResponseStatus,
 }
 
 impl AuthResponseConversation {
     pub fn new(
         event: AuthChallengeEvent,
-        granted_permissions: Vec<String>,
         subkey_proof: Option<SubkeyProof>,
+        status: AuthResponseStatus,
     ) -> Self {
-        Self {
+        AuthResponseConversation {
             event,
-            granted_permissions,
             subkey_proof,
+            status,
         }
     }
 }
@@ -165,9 +166,8 @@ impl OneShotSender for AuthResponseConversation {
     ) -> Result<Response, Self::Error> {
         let content = AuthResponseContent {
             challenge: state.event.challenge.clone(),
-            granted_permissions: state.granted_permissions.clone(),
-            session_token: "randomlygeneratedtoken".to_string(),
             subkey_proof: state.subkey_proof.clone(),
+            status: state.status.clone(),
         };
 
         let mut keys = HashSet::new();

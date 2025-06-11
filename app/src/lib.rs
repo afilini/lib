@@ -25,7 +25,7 @@ use portal::{
         auth_init::AuthInitUrl,
         model::{
             Timestamp,
-            auth::SubkeyProof,
+            auth::{AuthResponseStatus, SubkeyProof},
             bindings::PublicKey,
             payment::{
                 CloseRecurringPaymentContent, CloseRecurringPaymentResponse,
@@ -190,7 +190,10 @@ pub enum CallbackError {
 #[uniffi::export(with_foreign)]
 #[async_trait::async_trait]
 pub trait AuthChallengeListener: Send + Sync {
-    async fn on_auth_challenge(&self, event: AuthChallengeEvent) -> Result<bool, CallbackError>;
+    async fn on_auth_challenge(
+        &self,
+        event: AuthChallengeEvent,
+    ) -> Result<AuthResponseStatus, CallbackError>;
 }
 
 #[uniffi::export(with_foreign)]
@@ -275,25 +278,21 @@ impl PortalApp {
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             log::debug!("Received auth challenge: {:?}", response);
 
-            let result = evt.on_auth_challenge(response.clone()).await?;
-            log::debug!("Auth challenge callback result: {:?}", result);
+            let status = evt.on_auth_challenge(response.clone()).await?;
+            log::debug!("Auth challenge callback result: {:?}", status);
 
-            if result {
-                let approve = AuthResponseConversation::new(
-                    response.clone(),
+            let conv = AuthResponseConversation::new(
+                response.clone(),
+                self.router.keypair().subkey_proof().cloned(),
+                status,
+            );
+            self.router
+                .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                    response.recipient.into(),
                     vec![],
-                    self.router.keypair().subkey_proof().cloned(),
-                );
-                self.router
-                    .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-                        response.recipient.into(),
-                        vec![],
-                        approve,
-                    )))
-                    .await?;
-            } else {
-                // TODO: send explicit rejection
-            }
+                    conv,
+                )))
+                .await?;
         }
 
         Ok(())

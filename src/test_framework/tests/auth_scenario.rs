@@ -5,7 +5,7 @@ use crate::{
     protocol::{
         LocalKeypair,
         auth_init::AuthInitUrl,
-        model::{Nonce, Timestamp},
+        model::{Nonce, Timestamp, auth::AuthResponseStatus},
         subkey::{PrivateSubkeyManager, SubkeyMetadata},
     },
     router::{
@@ -115,7 +115,14 @@ async fn test_auth_flow() {
     );
 
     // 7. Clients accepts requrest
-    let approve = AuthResponseConversation::new(auth_challenge_event.clone(), vec![], None);
+    let approve = AuthResponseConversation::new(
+        auth_challenge_event.clone(),
+        None,
+        AuthResponseStatus::Approved {
+            granted_permissions: vec![],
+            session_token: "ABC".to_string(),
+        },
+    );
     client_router
         .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
             auth_challenge_event.recipient.into(),
@@ -211,8 +218,11 @@ async fn test_auth_with_subkey_client() {
     // 4. Clients accepts requrest
     let approve = AuthResponseConversation::new(
         auth_challenge_event.clone(),
-        vec![],
         Some(client_subkey_proof),
+        AuthResponseStatus::Approved {
+            granted_permissions: vec![],
+            session_token: "ABC".to_string(),
+        },
     );
     client_router
         .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
@@ -313,7 +323,14 @@ async fn test_auth_with_subkey_service() {
     );
 
     // 4. Clients accepts requrest
-    let approve = AuthResponseConversation::new(auth_challenge_event.clone(), vec![], None);
+    let approve = AuthResponseConversation::new(
+        auth_challenge_event.clone(),
+        None,
+        AuthResponseStatus::Approved {
+            granted_permissions: vec![],
+            session_token: "ABC".to_string(),
+        },
+    );
     client_router
         .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
             auth_challenge_event.recipient.into(),

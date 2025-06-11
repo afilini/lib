@@ -9,9 +9,12 @@ use portal::{
     profile::Profile,
     protocol::{
         auth_init::AuthInitUrl,
-        model::payment::{
-            PaymentResponseContent, PaymentStatus, RecurringPaymentResponseContent,
-            RecurringPaymentStatus,
+        model::{
+            auth::AuthResponseStatus,
+            payment::{
+                PaymentResponseContent, PaymentStatus, RecurringPaymentResponseContent,
+                RecurringPaymentStatus,
+            },
         },
     },
 };
@@ -20,9 +23,15 @@ struct ApproveLogin;
 
 #[async_trait::async_trait]
 impl AuthChallengeListener for ApproveLogin {
-    async fn on_auth_challenge(&self, event: AuthChallengeEvent) -> Result<bool, CallbackError> {
+    async fn on_auth_challenge(
+        &self,
+        event: AuthChallengeEvent,
+    ) -> Result<AuthResponseStatus, CallbackError> {
         log::info!("Received auth challenge: {:?}", event);
-        Ok(true)
+        Ok(AuthResponseStatus::Approved {
+            granted_permissions: vec![],
+            session_token: String::from("ABC"),
+        })
     }
 }
 

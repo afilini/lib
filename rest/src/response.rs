@@ -1,4 +1,5 @@
 use portal::profile::Profile;
+use portal::protocol::model::auth::AuthResponseStatus;
 use portal::protocol::model::payment::{PaymentResponseContent, RecurringPaymentResponseContent};
 use serde::Serialize;
 
@@ -54,8 +55,7 @@ pub struct AuthResponseData {
     pub user_key: String,
     pub recipient: String,
     pub challenge: String,
-    pub granted_permissions: Vec<String>,
-    pub session_token: String,
+    pub status: AuthResponseStatus,
 }
 
 #[derive(Debug, Serialize)]

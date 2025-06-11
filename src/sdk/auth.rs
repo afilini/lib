@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     protocol::model::{
         Timestamp,
-        auth::{AuthChallengeContent, AuthInitContent, AuthResponseContent, SubkeyProof},
+        auth::{
+            AuthChallengeContent, AuthInitContent, AuthResponseContent, AuthResponseStatus,
+            SubkeyProof,
+        },
         event_kinds::*,
     },
     router::{
@@ -95,8 +98,7 @@ pub struct AuthResponseEvent {
     pub user_key: PublicKey,
     pub recipient: PublicKey,
     pub challenge: String,
-    pub granted_permissions: Vec<String>,
-    pub session_token: String,
+    pub status: AuthResponseStatus,
 }
 
 impl MultiKeySender for AuthChallengeSenderConversation {
@@ -189,8 +191,7 @@ impl MultiKeySender for AuthChallengeSenderConversation {
                 user_key,
                 recipient: event.pubkey.into(),
                 challenge: message.challenge.clone(),
-                granted_permissions: message.granted_permissions.clone(),
-                session_token: message.session_token.clone(),
+                status: message.status.clone(),
             })
             .finish())
     }

@@ -337,8 +337,7 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                                 user_key: event.user_key.to_string(),
                                 recipient: event.recipient.to_string(),
                                 challenge: event.challenge,
-                                granted_permissions: event.granted_permissions,
-                                session_token: event.session_token,
+                                status: event.status,
                             },
                         },
                     };
