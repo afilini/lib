@@ -446,6 +446,25 @@ impl PortalApp {
         }
         Ok(())
     }
+
+    pub async fn add_relay(&self, url: String) -> Result<(), AppError> {
+        let relay_pool = self.router.channel();
+        relay_pool.add_relay(&url, RelayOptions::default()).await?;
+        relay_pool.connect_relay(url).await?;
+        Ok(())
+    }
+
+    pub async fn remove_relay(&self, url: String) -> Result<(), AppError> {
+        // Cleanup conversations associated with the relay
+        let conversations = self.router.get_conversations_by_relay(url.clone()).await?;
+        for conv in conversations {
+            self.router.cleanup_conversation(&conv).await?;
+        }
+
+        let relay_pool = self.router.channel();
+        relay_pool.remove_relay(&url).await?;
+        Ok(())
+    }
 }
 #[derive(Hash, Eq, PartialEq)]
 pub struct RelayUrl(pub nostr::types::RelayUrl);
