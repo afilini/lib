@@ -938,8 +938,8 @@ async fn handle_command(
                             let notification = Response::Notification {
                                 id: stream_id_clone.clone(),
                                 data: NotificationData::ClosedSubscription {
-                                    reason: event.reason,
-                                    subscription_id: event.subscription_id,
+                                    reason: event.content.reason,
+                                    subscription_id: event.content.subscription_id,
                                     recipient_key: event.public_key.to_string()
                                 },
                             };

@@ -101,9 +101,7 @@ impl MultiKeyListener for CloseRecurringPaymentReceiverConversation {
     ) -> Result<Response, Self::Error> {
 
         let res = CloseRecurringPaymentResponse {
-            subscription_id: message.subscription_id.clone(),
-            reason: message.reason.clone(),
-            by_service: message.by_service,
+            content: message.clone(),
             public_key: event.pubkey.into()
         };
 

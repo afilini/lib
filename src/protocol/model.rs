@@ -332,10 +332,7 @@ pub mod payment {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct CloseRecurringPaymentResponse {
-        pub subscription_id: String,
-        pub reason: Option<String>,
-        pub by_service: bool,
-
+        pub content: CloseRecurringPaymentContent,
         pub public_key : PublicKey
     }
 
