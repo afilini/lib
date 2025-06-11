@@ -142,7 +142,7 @@ export type Response =
 export type NotificationData = 
   | { type: 'auth_init', main_key: string }
   | { type: 'payment_status_update', status: PaymentStatusContent }
-  | { type: 'closed_subscription', reason: string | null, subscription_id: string }
+  | { type: 'closed_subscription', reason: string | null, subscription_id: string, recipient_key: string }
   ;
 
 // Events 

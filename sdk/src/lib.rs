@@ -8,16 +8,12 @@ use portal::{
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
-        LocalKeypair,
-        auth_init::AuthInitUrl,
-        model::payment::{
-            CloseRecurringPaymentContent, PaymentResponseContent, RecurringPaymentRequestContent,
-            RecurringPaymentResponseContent, SinglePaymentRequestContent,
-        },
+        auth_init::AuthInitUrl, model::payment::{
+            CloseRecurringPaymentContent, CloseRecurringPaymentResponse, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, SinglePaymentRequestContent
+        }, LocalKeypair
     },
     router::{
-        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
-        NotificationStream, adapters::one_shot::OneShotSenderAdapter,
+        adapters::one_shot::OneShotSenderAdapter, ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
     },
     sdk::{
         auth::{
@@ -198,7 +194,7 @@ impl PortalSDK {
 
     pub async fn listen_closed_subscriptions(
         &self,
-    ) -> Result<NotificationStream<CloseRecurringPaymentContent>, PortalSDKError> {
+    ) -> Result<NotificationStream<CloseRecurringPaymentResponse>, PortalSDKError> {
         let inner =
             CloseRecurringPaymentReceiverConversation::new(self.router.keypair().public_key());
         let event = self

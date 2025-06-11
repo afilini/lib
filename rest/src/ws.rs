@@ -161,6 +161,7 @@ enum NotificationData {
     ClosedSubscription {
         reason: Option<String>,
         subscription_id: String,
+        recipient_key : String
     },
 }
 
@@ -939,6 +940,7 @@ async fn handle_command(
                                 data: NotificationData::ClosedSubscription {
                                     reason: event.reason,
                                     subscription_id: event.subscription_id,
+                                    recipient_key: event.public_key.to_string()
                                 },
                             };
 

@@ -11,11 +11,10 @@ use crate::{
     protocol::model::{
         bindings::{self},
         event_kinds::RECURRING_PAYMENT_CANCEL,
-        payment::CloseRecurringPaymentContent,
+        payment::{CloseRecurringPaymentContent, CloseRecurringPaymentResponse},
     },
     router::{
-        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
-        adapters::{ConversationWithNotification, one_shot::OneShotSender},
+        adapters::{one_shot::OneShotSender, ConversationWithNotification}, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response
     },
 };
 
@@ -100,12 +99,20 @@ impl MultiKeyListener for CloseRecurringPaymentReceiverConversation {
         event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-        Ok(Response::new().notify(message.clone()).finish())
+
+        let res = CloseRecurringPaymentResponse {
+            subscription_id: message.subscription_id.clone(),
+            reason: message.reason.clone(),
+            by_service: message.by_service,
+            public_key: event.pubkey.into()
+        };
+
+        Ok(Response::new().notify(res).finish())
     }
 }
 
 impl ConversationWithNotification
     for MultiKeyListenerAdapter<CloseRecurringPaymentReceiverConversation>
 {
-    type Notification = CloseRecurringPaymentContent;
+    type Notification = CloseRecurringPaymentResponse;
 }
