@@ -74,7 +74,6 @@ where
         }
     }
 
-
     /// Get all conversations that are subscribed to a specific relay.
     pub async fn get_conversations_by_relay(
         &self,
@@ -298,9 +297,6 @@ where
     ) -> Result<(), ConversationError> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
-
-
-
         if !response.filter.is_empty() {
             if let Some(selected_relays) = response.selected_relays.clone() {
                 log::trace!("Subscribing to relays = {:?}", selected_relays);
@@ -451,14 +447,13 @@ where
             .await
             .insert(id.to_string(), conversation);
 
-
         if let Some(selected_relays) = response.selected_relays.clone() {
             self.conversation_relays
                 .lock()
                 .await
                 .insert(id.to_string(), selected_relays);
         }
-        
+
         Ok(response)
     }
 

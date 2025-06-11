@@ -25,14 +25,12 @@ struct SocketContext {
 }
 
 impl SocketContext {
-
     fn new(
         sdk: Arc<PortalSDK>,
         nwc: Option<Arc<nwc::NWC>>,
         tx_message: mpsc::Sender<Message>,
         tx_notification: mpsc::Sender<Response>,
     ) -> Self {
-
         Self {
             sdk,
             nwc,
@@ -80,7 +78,10 @@ impl SocketContext {
         }
     }
 
-    async fn create_outgoing_task(mut sender : SplitSink<WebSocket, Message>, mut rx_message : mpsc::Receiver<Message>) {
+    async fn create_outgoing_task(
+        mut sender: SplitSink<WebSocket, Message>,
+        mut rx_message: mpsc::Receiver<Message>,
+    ) {
         while let Some(msg) = rx_message.recv().await {
             if let Err(e) = sender.send(msg).await {
                 error!("Failed to send message to client: {}", e);
@@ -90,7 +91,10 @@ impl SocketContext {
         debug!("Message forwarder task ending");
     }
 
-    async fn create_notification_task(tx_message: mpsc::Sender<Message>, mut rx_notification : mpsc::Receiver<Response>) {
+    async fn create_notification_task(
+        tx_message: mpsc::Sender<Message>,
+        mut rx_notification: mpsc::Receiver<Response>,
+    ) {
         while let Some(notification) = rx_notification.recv().await {
             match serde_json::to_string(&notification) {
                 Ok(json) => {
@@ -104,7 +108,6 @@ impl SocketContext {
         }
         debug!("Notification forwarder task ending");
     }
-
 }
 
 // Struct to track active notification streams
@@ -139,14 +142,22 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
     let (tx_notification, rx_notification) = mpsc::channel(32);
     let (tx_message, rx_message) = mpsc::channel(32);
 
-    let ctx = Arc::new(SocketContext::new(state.sdk.clone(), state.nwc, tx_message.clone(), tx_notification));
+    let ctx = Arc::new(SocketContext::new(
+        state.sdk.clone(),
+        state.nwc,
+        tx_message.clone(),
+        tx_notification,
+    ));
 
     // Spawn a task to forward messages to the client
-    let message_forward_task =  tokio::spawn(SocketContext::create_outgoing_task(sender, rx_message));
+    let message_forward_task =
+        tokio::spawn(SocketContext::create_outgoing_task(sender, rx_message));
 
     // Spawn a task to handle notifications
-    let notification_task = tokio::spawn(SocketContext::create_notification_task(tx_message, rx_notification));
-
+    let notification_task = tokio::spawn(SocketContext::create_notification_task(
+        tx_message,
+        rx_notification,
+    ));
 
     let mut authenticated = false;
 
@@ -174,18 +185,20 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
                             break;
                         }
                     } else {
-                        let _ = ctx.send_error_message( &id, "Authentication failed").await;
+                        let _ = ctx.send_error_message(&id, "Authentication failed").await;
                         break; // Close connection on auth failure
                     }
                 }
                 Ok(command) => {
                     if !authenticated {
-                        let _ = ctx.send_error_message( &command.id, "Not authenticated").await;
+                        let _ = ctx
+                            .send_error_message(&command.id, "Not authenticated")
+                            .await;
                         break; // Close connection
                     }
 
                     let ctx_clone = ctx.clone();
-                
+
                     tokio::task::spawn(async move {
                         // Handle authenticated commands
                         handle_command(command, ctx_clone).await;
@@ -202,7 +215,8 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
 
                     warn!("Failed to parse command: {}", e);
 
-                    if !ctx.send_error_message( &id, &format!("Invalid command format: {}", e))
+                    if !ctx
+                        .send_error_message(&id, &format!("Invalid command format: {}", e))
                         .await
                     {
                         break;
@@ -227,10 +241,7 @@ pub async fn handle_socket(socket: WebSocket, state: AppState) {
     info!("WebSocket connection closed");
 }
 
-async fn handle_command(
-    command: CommandWithId,
-    ctx : Arc<SocketContext>,
-) {
+async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
     match command.cmd {
         Command::Auth { .. } => {
             // Already handled in the outer function
@@ -286,7 +297,12 @@ async fn handle_command(
                     let _ = ctx.send_message(response).await;
                 }
                 Err(e) => {
-                    let _ = ctx.send_error_message( &command.id,&format!("Failed to create auth init URL: {}", e), ).await;
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to create auth init URL: {}", e),
+                        )
+                        .await;
                 }
             }
         }
@@ -295,7 +311,9 @@ async fn handle_command(
             let main_key = match hex_to_pubkey(&main_key) {
                 Ok(key) => key,
                 Err(e) => {
-                    let _ = ctx.send_error_message(&command.id, &format!("Invalid main key: {}", e)).await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid main key: {}", e))
+                        .await;
                     return;
                 }
             };
@@ -303,9 +321,9 @@ async fn handle_command(
             let subkeys = match parse_subkeys(&subkeys) {
                 Ok(keys) => keys,
                 Err(e) => {
-                    let _ = ctx.
-                        send_error_message( &command.id, &format!("Invalid subkeys: {}", e))
-                            .await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid subkeys: {}", e))
+                        .await;
                     return;
                 }
             };
@@ -328,11 +346,12 @@ async fn handle_command(
                     let _ = ctx.send_message(response).await;
                 }
                 Err(e) => {
-                    let _ = ctx.send_error_message(
-                        &command.id,
-                        &format!("Failed to authenticate key: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to authenticate key: {}", e),
+                        )
+                        .await;
                 }
             }
         }
@@ -345,11 +364,9 @@ async fn handle_command(
             let main_key = match hex_to_pubkey(&main_key) {
                 Ok(key) => key,
                 Err(e) => {
-                    let _ = ctx.send_error_message(
-                        &command.id,
-                        &format!("Invalid main key: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid main key: {}", e))
+                        .await;
                     return;
                 }
             };
@@ -357,13 +374,15 @@ async fn handle_command(
             let subkeys = match parse_subkeys(&subkeys) {
                 Ok(keys) => keys,
                 Err(e) => {
-                    let _ =
-                       ctx.send_error_message( &command.id, &format!("Invalid subkeys: {}", e)).await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid subkeys: {}", e))
+                        .await;
                     return;
                 }
             };
 
-            match ctx.sdk
+            match ctx
+                .sdk
                 .request_recurring_payment(main_key, subkeys, payment_request)
                 .await
             {
@@ -376,7 +395,12 @@ async fn handle_command(
                     let _ = ctx.send_message(response).await;
                 }
                 Err(e) => {
-                    let _ = ctx.send_error_message(&command.id,&format!("Failed to request recurring payment: {}", e),).await;
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to request recurring payment: {}", e),
+                        )
+                        .await;
                 }
             }
         }
@@ -397,11 +421,9 @@ async fn handle_command(
             let main_key = match hex_to_pubkey(&main_key) {
                 Ok(key) => key,
                 Err(e) => {
-                    let _ = ctx.send_error_message(   
-                        &command.id,
-                        &format!("Invalid main key: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid main key: {}", e))
+                        .await;
                     return;
                 }
             };
@@ -409,8 +431,9 @@ async fn handle_command(
             let subkeys = match parse_subkeys(&subkeys) {
                 Ok(keys) => keys,
                 Err(e) => {
-                    let _ =
-                        ctx.send_error_message(&command.id, &format!("Invalid subkeys: {}", e)).await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid subkeys: {}", e))
+                        .await;
                     return;
                 }
             };
@@ -428,11 +451,9 @@ async fn handle_command(
             {
                 Ok(invoice) => invoice,
                 Err(e) => {
-                    let _ = ctx.send_error_message(
-                        &command.id,
-                        &format!("Failed to make invoice: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Failed to make invoice: {}", e))
+                        .await;
                     return;
                 }
             };
@@ -450,7 +471,8 @@ async fn handle_command(
                 description: Some(payment_request.description),
             };
 
-            match ctx.sdk
+            match ctx
+                .sdk
                 .request_single_payment(main_key, subkeys, payment_request)
                 .await
             {
@@ -542,11 +564,12 @@ async fn handle_command(
                     let _ = ctx.send_message(response).await;
                 }
                 Err(e) => {
-                    let _ = ctx.send_error_message(
-                        &command.id,
-                        &format!("Failed to request single payment: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to request single payment: {}", e),
+                        )
+                        .await;
                 }
             }
         }
@@ -559,11 +582,9 @@ async fn handle_command(
             let main_key = match hex_to_pubkey(&main_key) {
                 Ok(key) => key,
                 Err(e) => {
-                    let _ = ctx.send_error_message(
-                        &command.id,
-                        &format!("Invalid main key: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid main key: {}", e))
+                        .await;
                     return;
                 }
             };
@@ -571,14 +592,15 @@ async fn handle_command(
             let subkeys = match parse_subkeys(&subkeys) {
                 Ok(keys) => keys,
                 Err(e) => {
-                    let _ =
-                        ctx.send_error_message( &command.id, &format!("Invalid subkeys: {}", e))
-                            .await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid subkeys: {}", e))
+                        .await;
                     return;
                 }
             };
 
-            match ctx.sdk
+            match ctx
+                .sdk
                 .request_single_payment(main_key, subkeys, payment_request)
                 .await
             {
@@ -594,11 +616,12 @@ async fn handle_command(
                     let _ = ctx.send_message(response).await;
                 }
                 Err(e) => {
-                    let _ = ctx.send_error_message(
-                        &command.id,
-                        &format!("Failed to request single payment: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to request single payment: {}", e),
+                        )
+                        .await;
                 }
             }
         }
@@ -607,11 +630,9 @@ async fn handle_command(
             let main_key = match hex_to_pubkey(&main_key) {
                 Ok(key) => key,
                 Err(e) => {
-                    let _ = ctx.send_error_message(
-                        &command.id,
-                        &format!("Invalid main key: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid main key: {}", e))
+                        .await;
                     return;
                 }
             };
@@ -626,11 +647,9 @@ async fn handle_command(
                     let _ = ctx.send_message(response).await;
                 }
                 Err(e) => {
-                    let _ = ctx.send_error_message(
-                        &command.id,
-                        &format!("Failed to fetch profile: {}", e),
-                    )
-                    .await;
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Failed to fetch profile: {}", e))
+                        .await;
                 }
             }
         }
@@ -646,19 +665,115 @@ async fn handle_command(
                 let _ = ctx.send_message(response).await;
             }
             Err(e) => {
-                let _ = ctx.send_error_message(
-                    &command.id,
-                    &format!("Failed to set profile: {}", e),
-                )
-                .await;
+                let _ = ctx
+                    .send_error_message(&command.id, &format!("Failed to set profile: {}", e))
+                    .await;
             }
         },
+        Command::ListenClosedSubscriptions => {
+            match ctx.sdk.listen_closed_subscriptions().await {
+                Ok(notification_stream) => {
+                    // Generate a unique stream ID
+                    let stream_id = Uuid::new_v4().to_string();
+
+                    // Setup notification forwarding
+                    let tx_clone = ctx.tx_notification.clone();
+                    let stream_id_clone = stream_id.clone();
+
+                    // Create a task to handle the notification stream
+                    let task = tokio::spawn(async move {
+                        let mut stream = notification_stream;
+
+                        // Process notifications from the stream
+                        while let Some(Ok(event)) = stream.next().await {
+                            debug!("Got close subscription event: {:?}", event);
+
+                            // Convert the event to a notification response
+                            let notification = Response::Notification {
+                                id: stream_id_clone.clone(),
+                                data: NotificationData::ClosedSubscription {
+                                    reason: event.content.reason,
+                                    subscription_id: event.content.subscription_id,
+                                    recipient_key: event.public_key.to_string(),
+                                },
+                            };
+
+                            // Send the notification to the client
+                            if let Err(e) = tx_clone.send(notification).await {
+                                error!("Failed to forward close subscription event: {}", e);
+                                break;
+                            }
+                        }
+
+                        debug!(
+                            "Closed Subscriptions stream ended for stream_id: {}",
+                            stream_id_clone
+                        );
+                    });
+
+                    // Store the task
+                    ctx.active_streams.add_task(stream_id.clone(), task);
+
+                    // Convert the URL to a proper response struct
+                    let response = Response::Success {
+                        id: command.id,
+                        data: ResponseData::ListenClosedSubscriptions,
+                    };
+
+                    let _ = ctx.send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to create closed subscriptions listener: {}", e),
+                        )
+                        .await;
+                }
+            }
+        }
+        Command::CLoseSubscription {
+            recipient_key,
+            subscription_id,
+        } => {
+            // Parse keys
+            let key_parsed = match hex_to_pubkey(&recipient_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid recipient key: {}", e))
+                        .await;
+                    return;
+                }
+            };
+
+            match ctx
+                .sdk
+                .close_recurring_payment(key_parsed, subscription_id)
+                .await
+            {
+                Ok(()) => {
+                    let response = Response::Success {
+                        id: command.id,
+                        data: ResponseData::CloseSubscriptionSuccess {
+                            message: String::from("Recurring payment closed"),
+                        },
+                    };
+
+                    let _ = ctx.send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to close recurring payment: {}", e),
+                        )
+                        .await;
+                }
+            }
+        }
     }
 }
-
-
-
-
 
 fn hex_to_pubkey(hex: &str) -> Result<PublicKey, String> {
     hex.parse::<PublicKey>().map_err(|e| e.to_string())

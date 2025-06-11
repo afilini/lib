@@ -41,6 +41,12 @@ pub enum ResponseData {
 
     #[serde(rename = "profile")]
     ProfileData { profile: Option<Profile> },
+
+    #[serde(rename = "close_subscription_success")]
+    CloseSubscriptionSuccess { message: String },
+
+    #[serde(rename = "listen_closed_subscriptions")]
+    ListenClosedSubscriptions,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,6 +65,12 @@ pub enum NotificationData {
     AuthInit { main_key: String },
     #[serde(rename = "payment_status_update")]
     PaymentStatusUpdate { status: InvoiceStatus },
+    #[serde(rename = "closed_subscription")]
+    ClosedSubscription {
+        reason: Option<String>,
+        subscription_id: String,
+        recipient_key: String,
+    },
 }
 
 #[derive(Debug, Serialize)]

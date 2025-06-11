@@ -47,6 +47,11 @@ pub enum Command {
     SetProfile {
         profile: Profile,
     },
+    CLoseSubscription {
+        recipient_key: String,
+        subscription_id: String,
+    },
+    ListenClosedSubscriptions,
 }
 
 #[derive(Debug, Deserialize)]

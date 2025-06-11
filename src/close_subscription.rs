@@ -14,7 +14,8 @@ use crate::{
         payment::{CloseRecurringPaymentContent, CloseRecurringPaymentResponse},
     },
     router::{
-        adapters::{one_shot::OneShotSender, ConversationWithNotification}, ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response
+        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
+        adapters::{ConversationWithNotification, one_shot::OneShotSender},
     },
 };
 
@@ -99,10 +100,9 @@ impl MultiKeyListener for CloseRecurringPaymentReceiverConversation {
         event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-
         let res = CloseRecurringPaymentResponse {
             content: message.clone(),
-            public_key: event.pubkey.into()
+            public_key: event.pubkey.into(),
         };
 
         Ok(Response::new().notify(res).finish())

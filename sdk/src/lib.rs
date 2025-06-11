@@ -8,12 +8,17 @@ use portal::{
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
-        auth_init::AuthInitUrl, model::payment::{
-            CloseRecurringPaymentContent, CloseRecurringPaymentResponse, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, SinglePaymentRequestContent
-        }, LocalKeypair
+        LocalKeypair,
+        auth_init::AuthInitUrl,
+        model::payment::{
+            CloseRecurringPaymentContent, CloseRecurringPaymentResponse, PaymentResponseContent,
+            RecurringPaymentRequestContent, RecurringPaymentResponseContent,
+            SinglePaymentRequestContent,
+        },
     },
     router::{
-        adapters::one_shot::OneShotSenderAdapter, ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
+        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
+        NotificationStream, adapters::one_shot::OneShotSenderAdapter,
     },
     sdk::{
         auth::{

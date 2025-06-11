@@ -15,19 +15,27 @@ use portal::{
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
     },
-    close_subscription::{CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation},
+    close_subscription::{
+        CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
+    },
     nostr::nips::nip19::ToBech32,
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
         auth_init::AuthInitUrl,
         model::{
-            auth::SubkeyProof, bindings::PublicKey, payment::{
-                CloseRecurringPaymentContent, CloseRecurringPaymentResponse, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, RecurringPaymentStatus, SinglePaymentRequestContent
-            }, Timestamp
+            Timestamp,
+            auth::SubkeyProof,
+            bindings::PublicKey,
+            payment::{
+                CloseRecurringPaymentContent, CloseRecurringPaymentResponse,
+                PaymentResponseContent, RecurringPaymentRequestContent,
+                RecurringPaymentResponseContent, RecurringPaymentStatus,
+                SinglePaymentRequestContent,
+            },
         },
     },
-    router::{adapters::one_shot::OneShotSenderAdapter, MessageRouter, MultiKeyListenerAdapter},
+    router::{MessageRouter, MultiKeyListenerAdapter, adapters::one_shot::OneShotSenderAdapter},
 };
 
 uniffi::setup_scaffolding!();
@@ -201,7 +209,10 @@ pub trait PaymentRequestListener: Send + Sync {
 #[uniffi::export(with_foreign)]
 #[async_trait::async_trait]
 pub trait ClosedSubscriptionListener: Send + Sync {
-    async fn on_closed_subscription(&self, event: CloseRecurringPaymentResponse) -> Result<(), CallbackError>;
+    async fn on_closed_subscription(
+        &self,
+        event: CloseRecurringPaymentResponse,
+    ) -> Result<(), CallbackError>;
 }
 
 #[uniffi::export]
