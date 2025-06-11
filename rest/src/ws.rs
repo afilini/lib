@@ -5,11 +5,10 @@ use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use portal::profile::Profile;
 use portal::protocol::model::payment::{
-    Currency, PaymentResponseContent, RecurringPaymentRequestContent,
-    RecurringPaymentResponseContent, SinglePaymentRequestContent,
+    Currency, PaymentResponseContent, RecurringPaymentRequestContent, RecurringPaymentResponseContent, SinglePaymentRequestContent
 };
 use portal::protocol::model::Timestamp;
-use sdk::PortalSDK;
+use sdk::{PortalSDK};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -54,11 +53,6 @@ enum Command {
     SetProfile {
         profile: Profile,
     },
-    CloseSubscription {
-        recipient_key: String,
-        subscription_id: String,
-    },
-    ListenClosedSubscriptions
 }
 
 #[derive(Debug, Deserialize)]
@@ -141,12 +135,6 @@ enum ResponseData {
 
     #[serde(rename = "profile")]
     ProfileData { profile: Option<Profile> },
-
-    #[serde(rename = "close_subscription_success")]
-    CloseSubscriptionSuccess { message: String },
-
-    #[serde(rename = "listen_closed_subscriptions")]
-    ListenClosedSubscriptionsSuccess { message: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -156,13 +144,6 @@ enum NotificationData {
     AuthInit { main_key: String },
     #[serde(rename = "payment_status_update")]
     PaymentStatusUpdate { status: InvoiceStatus },
-
-    #[serde(rename = "closed_subscription")]
-    ClosedSubscription {
-        reason: Option<String>,
-        subscription_id: String,
-        recipient_key : String
-    },
 }
 
 #[derive(Debug, Serialize)]
@@ -854,132 +835,18 @@ async fn handle_command(
                 }
             }
         }
-        Command::SetProfile { profile } => match sdk.set_profile(profile.clone()).await {
-            Ok(_) => {
-                let response = Response::Success {
-                    id: request_id.to_string(),
-                    data: ResponseData::ProfileData {
-                        profile: Some(profile),
-                    },
-                };
-
-                let _ = send_message(response).await;
-            }
-            Err(e) => {
-                let _ = send_error(
-                    tx_message.clone(),
-                    request_id,
-                    &format!("Failed to set profile: {}", e),
-                )
-                .await;
-            }
-        },
-        Command::CloseSubscription {
-            recipient_key,
-            subscription_id,
-        } => {
-            // Parse recipient key
-            let recipient_key = match hex_to_pubkey(&recipient_key) {
-                Ok(key) => key,
-                Err(e) => {
-                    let _ = send_error(
-                        tx_message.clone(),
-                        request_id,
-                        &format!("Invalid recipient key: {}", e),
-                    )
-                    .await;
-                    return;
-                }
-            };
-
-            match sdk
-                .close_recurring_payment(recipient_key, subscription_id)
-                .await
-            {
+        Command::SetProfile { profile } => {
+            match sdk.set_profile(profile.clone()).await {
                 Ok(_) => {
                     let response = Response::Success {
                         id: request_id.to_string(),
-                        data: ResponseData::CloseSubscriptionSuccess {
-                            message: "Recurring payment closed successfully".to_string(),
-                        },
+                        data: ResponseData::ProfileData { profile: Some(profile) },
                     };
 
                     let _ = send_message(response).await;
                 }
                 Err(e) => {
-                    let _ = send_error(
-                        tx_message.clone(),
-                        request_id,
-                        &format!("Failed to close recurring payment: {}", e),
-                    )
-                    .await;
-                }
-            }
-        }
-        Command::ListenClosedSubscriptions => {
-            match sdk.listen_closed_subscriptions().await {
-                Ok(notification_stream) => {
-                    // Generate a unique stream ID
-                    let stream_id = Uuid::new_v4().to_string();
-
-                    // Setup notification forwarding
-                    let tx_clone = tx_notification.clone();
-                    let stream_id_clone = stream_id.clone();
-
-                    // Create a task to handle the notification stream
-                    let task = tokio::spawn(async move {
-                        let mut stream = notification_stream;
-
-                        // Process notifications from the stream
-                        while let Some(Ok(event)) = stream.next().await {
-                            debug!("Got closed subscription event: {:?}", event);
-
-                            // Convert the event to a notification response
-                            let notification = Response::Notification {
-                                id: stream_id_clone.clone(),
-                                data: NotificationData::ClosedSubscription {
-                                    reason: event.content.reason,
-                                    subscription_id: event.content.subscription_id,
-                                    recipient_key: event.public_key.to_string()
-                                },
-                            };
-
-                            // Send the notification to the client
-                            if let Err(e) = tx_clone.send(notification).await {
-                                error!("Failed to forward closed subscription event: {}", e);
-                                break;
-                            }
-                        }
-
-                        debug!(
-                            "Closing subscriptions stream ended for stream_id: {}",
-                            stream_id_clone
-                        );
-                    });
-
-                    // Store the task
-                    active_streams
-                        .lock()
-                        .unwrap()
-                        .add_task(stream_id.clone(), task);
-
-                    // Convert the URL to a proper response struct
-                    let response = Response::Success {
-                        id: request_id.to_string(),
-                        data: ResponseData::ListenClosedSubscriptionsSuccess {
-                            message: "Listening for closed subscriptions".to_string(),
-                        },
-                    };
-
-                    let _ = send_message(response).await;
-                }
-                Err(e) => {
-                    let response = Response::Error {
-                        id: request_id.to_string(),
-                        message: format!("Failed to create closed subscriptions listener: {}", e),
-                    };
-
-                    let _ = send_message(response).await;
+                    let _ = send_error(tx_message.clone(), request_id, &format!("Failed to set profile: {}", e)).await;
                 }
             }
         }
