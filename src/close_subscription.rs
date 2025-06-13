@@ -5,62 +5,73 @@ use nostr::{
     filter::Filter,
     key::PublicKey,
 };
-use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::model::{
-        bindings::{self},
         event_kinds::RECURRING_PAYMENT_CANCEL,
         payment::{CloseRecurringPaymentContent, CloseRecurringPaymentResponse},
     },
     router::{
-        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, Response,
+        ConversationError, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender, Response,
         adapters::{ConversationWithNotification, one_shot::OneShotSender},
     },
 };
 
 pub struct CloseRecurringPaymentConversation {
-    service_key: PublicKey,
-    recipient: PublicKey,
     content: CloseRecurringPaymentContent,
 }
 
 impl CloseRecurringPaymentConversation {
-    pub fn new(
-        service_key: PublicKey,
-        recipient: PublicKey,
-        content: CloseRecurringPaymentContent,
-    ) -> Self {
-        Self {
-            service_key,
-            recipient,
-            content,
-        }
+    pub fn new(content: CloseRecurringPaymentContent) -> Self {
+        Self { content }
     }
 }
 
-impl OneShotSender for CloseRecurringPaymentConversation {
+impl MultiKeySender for CloseRecurringPaymentConversation {
+    const VALIDITY_SECONDS: u64 = 60 * 5;
+
     type Error = ConversationError;
+    type Message = ();
 
-    fn send(
-        state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>,
+    fn get_filter(
+        _state: &crate::router::MultiKeySenderAdapter<Self>,
+    ) -> Result<Filter, Self::Error> {
+        Ok(Filter::default())
+    }
+
+    fn build_initial_message(
+        state: &mut crate::router::MultiKeySenderAdapter<Self>,
+        new_key: Option<PublicKey>,
     ) -> Result<Response, Self::Error> {
-        let mut keys = HashSet::new();
-        keys.insert(state.service_key);
-        keys.insert(state.recipient);
+        let tags = state
+            .subkeys
+            .iter()
+            .chain([&state.user])
+            .map(|k| Tag::public_key(*k))
+            .collect();
 
-        let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
-
-        let response = Response::new()
-            .reply_to(
-                state.recipient,
-                Kind::from(RECURRING_PAYMENT_CANCEL),
+        if let Some(new_key) = new_key {
+            Ok(Response::new().subscribe_to_subkey_proofs().reply_to(
+                new_key,
+                Kind::Custom(RECURRING_PAYMENT_CANCEL),
                 tags,
                 state.content.clone(),
-            )
-            .finish();
+            ))
+        } else {
+            Ok(Response::new().subscribe_to_subkey_proofs().reply_all(
+                Kind::Custom(RECURRING_PAYMENT_CANCEL),
+                tags,
+                state.content.clone(),
+            ))
+        }
+    }
 
-        Ok(response)
+    fn on_message(
+        _state: &mut crate::router::MultiKeySenderAdapter<Self>,
+        _event: &crate::router::CleartextEvent,
+        _message: &Self::Message,
+    ) -> Result<Response, Self::Error> {
+        Ok(Response::default())
     }
 }
 
@@ -96,7 +107,7 @@ impl MultiKeyListener for CloseRecurringPaymentReceiverConversation {
     }
 
     fn on_message(
-        state: &mut crate::router::MultiKeyListenerAdapter<Self>,
+        _state: &mut crate::router::MultiKeyListenerAdapter<Self>,
         event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {

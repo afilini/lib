@@ -47,11 +47,12 @@ pub enum Command {
     SetProfile {
         profile: Profile,
     },
-    CloseSubscription {
-        recipient_key: String,
+    CloseRecurringPayment {
+        main_key: String,
+        subkeys: Vec<String>,
         subscription_id: String,
     },
-    ListenClosedSubscriptions,
+    ListenClosedRecurringPayment,
 }
 
 #[derive(Debug, Deserialize)]
