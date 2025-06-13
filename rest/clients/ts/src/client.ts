@@ -383,12 +383,12 @@ export class PortalSDK {
   }
 
   /**
-   * Close a subscription
+   * Close a recurring payment
    */
-  public async closeSubscription(recipientKey: string, subscriptionId: string): Promise<string> {
-    const response = await this.sendCommand('CloseSubscription', { recipient_key: recipientKey, subscription_id: subscriptionId });
+  public async closeRecurringPayment(mainKey: string, subkeys: string[], subscriptionId: string): Promise<string> {
+    const response = await this.sendCommand('CloseRecurringPayment', { main_key: mainKey, subkeys, subscription_id: subscriptionId });
     
-    if (response.type === 'close_subscription_success') {
+    if (response.type === 'close_recurring_payment_success') {
       return response.message;
     }
     
@@ -396,21 +396,21 @@ export class PortalSDK {
   }
 
   /**
-   * Listen for closed subscriptions
+   * Listen for closed recurring payments
    */
-  public async listenClosedSubscriptions(onClosed: (data: NotificationData) => void): Promise<string> {
+  public async listenClosedRecurringPayment(onClosed: (data: NotificationData) => void): Promise<string> {
     const streamId = this.generateId();
 
     const handler = (data: NotificationData) => {
-      if (data.type === 'closed_subscription') {
+      if (data.type === 'closed_recurring_payment') {
         onClosed(data);
         // _self.activeStreams.delete(streamId);
       }
     };
 
-    const response = await this.sendCommand('ListenClosedSubscriptions');
+    const response = await this.sendCommand('ListenClosedRecurringPayment');
     
-    if (response.type === 'listen_closed_subscriptions') {
+    if (response.type === 'listen_closed_recurring_payment') {
       this.activeStreams.set(streamId, handler);
       return response.message;
     }

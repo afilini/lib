@@ -199,6 +199,7 @@ pub mod auth {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, uniffi::Enum)]
+    #[serde(rename_all = "snake_case", tag = "status")]
     pub enum AuthResponseStatus {
         Approved {
             granted_permissions: Vec<String>,

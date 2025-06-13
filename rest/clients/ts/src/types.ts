@@ -90,12 +90,18 @@ export interface PaymentStatusContent {
 }
 
 // Auth related types
+export interface AuthResponseStatus {
+  status: 'approved' | 'declined';
+  reason?: string;
+  granted_permissions?: string[];
+  session_token?: string;
+}
+
 export interface AuthResponseData {
   user_key: string;
   recipient: string;
   challenge: string;
-  granted_permissions: string[];
-  session_token: string;
+  status: AuthResponseStatus;
 }
 
 // Profile related types
