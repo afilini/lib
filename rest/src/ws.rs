@@ -693,7 +693,8 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                                 data: NotificationData::ClosedRecurringPayment {
                                     reason: event.content.reason,
                                     subscription_id: event.content.subscription_id,
-                                    recipient_key: event.public_key.to_string(),
+                                    main_key: event.main_key.to_string(),
+                                    recipient: event.recipient.to_string(),
                                 },
                             };
 
@@ -716,7 +717,7 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                     // Convert the URL to a proper response struct
                     let response = Response::Success {
                         id: command.id,
-                        data: ResponseData::ListenClosedRecurringPayment,
+                        data: ResponseData::ListenClosedRecurringPayment { stream_id },
                     };
 
                     let _ = ctx.send_message(response).await;

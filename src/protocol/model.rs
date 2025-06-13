@@ -344,7 +344,8 @@ pub mod payment {
     #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct CloseRecurringPaymentResponse {
         pub content: CloseRecurringPaymentContent,
-        pub public_key: PublicKey,
+        pub main_key: PublicKey,
+        pub recipient: PublicKey,
     }
 }
 

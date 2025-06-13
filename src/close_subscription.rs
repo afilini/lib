@@ -1,7 +1,7 @@
 use std::{collections::HashSet, ops::Deref};
 
 use nostr::{
-    event::{Kind, Tag},
+    event::{EventId, Kind, Tag},
     filter::Filter,
     key::PublicKey,
 };
@@ -36,7 +36,9 @@ impl MultiKeySender for CloseRecurringPaymentConversation {
     fn get_filter(
         _state: &crate::router::MultiKeySenderAdapter<Self>,
     ) -> Result<Filter, Self::Error> {
-        Ok(Filter::default())
+        // Empty filter that will not match any events
+        // TODO: we should avoid subscribing to relays for empty filters
+        Ok(Filter::new().id(EventId::all_zeros()))
     }
 
     fn build_initial_message(
@@ -107,16 +109,23 @@ impl MultiKeyListener for CloseRecurringPaymentReceiverConversation {
     }
 
     fn on_message(
-        _state: &mut crate::router::MultiKeyListenerAdapter<Self>,
+        state: &mut crate::router::MultiKeyListenerAdapter<Self>,
         event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-        let res = CloseRecurringPaymentResponse {
-            content: message.clone(),
-            public_key: event.pubkey.into(),
+        let main_key = match &state.subkey_proof {
+            Some(subkey_proof) => subkey_proof.main_key.into(),
+            None => event.pubkey.into(),
         };
 
-        Ok(Response::new().notify(res).finish())
+        let res = CloseRecurringPaymentResponse {
+            content: message.clone(),
+            main_key,
+            recipient: event.pubkey.into(),
+        };
+
+        // Note: we never call "finish" here, because we want to keep listening for events
+        Ok(Response::new().notify(res))
     }
 }
 

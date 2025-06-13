@@ -13,7 +13,8 @@ import {
   PaymentStatusContent,
   Event,
   InvoicePaymentRequestContent,
-  RecurringPaymentResponseContent
+  RecurringPaymentResponseContent,
+  CloseRecurringPaymentNotification
 } from './types';
 
 /**
@@ -398,12 +399,15 @@ export class PortalSDK {
   /**
    * Listen for closed recurring payments
    */
-  public async listenClosedRecurringPayment(onClosed: (data: NotificationData) => void): Promise<string> {
-    const streamId = this.generateId();
-
+  public async listenClosedRecurringPayment(onClosed: (data: CloseRecurringPaymentNotification) => void): Promise<void> {
     const handler = (data: NotificationData) => {
       if (data.type === 'closed_recurring_payment') {
-        onClosed(data);
+        onClosed({
+          reason: data.reason,
+          subscription_id: data.subscription_id,
+          main_key: data.main_key,
+          recipient: data.recipient
+        });
         // _self.activeStreams.delete(streamId);
       }
     };
@@ -411,8 +415,8 @@ export class PortalSDK {
     const response = await this.sendCommand('ListenClosedRecurringPayment');
     
     if (response.type === 'listen_closed_recurring_payment') {
-      this.activeStreams.set(streamId, handler);
-      return response.message;
+      this.activeStreams.set(response.stream_id, handler);
+      return;
     }
     
     throw new Error('Unexpected response type');

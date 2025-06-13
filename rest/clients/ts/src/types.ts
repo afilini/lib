@@ -136,7 +136,7 @@ export type ResponseData =
   | { type: 'single_payment', status: PaymentStatusContent, stream_id: string | null }
   | { type: 'profile', profile: Profile | null }
   | { type: 'close_recurring_payment_success', message: string }
-  | { type: 'listen_closed_recurring_payment', message: string }
+  | { type: 'listen_closed_recurring_payment', stream_id: string }
   ;
 
 export type Response = 
@@ -148,8 +148,15 @@ export type Response =
 export type NotificationData = 
   | { type: 'auth_init', main_key: string }
   | { type: 'payment_status_update', status: PaymentStatusContent }
-  | { type: 'closed_recurring_payment', reason: string | null, subscription_id: string, recipient_key: string }
+  | { type: 'closed_recurring_payment', reason: string | null, subscription_id: string, main_key: string, recipient: string }
   ;
+
+export type CloseRecurringPaymentNotification = {
+  reason: string | null;
+  subscription_id: string;
+  main_key: string;
+  recipient: string;
+}
 
 // Events 
 export interface EventCallbacks {

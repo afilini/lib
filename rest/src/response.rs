@@ -47,7 +47,7 @@ pub enum ResponseData {
     CloseRecurringPaymentSuccess { message: String },
 
     #[serde(rename = "listen_closed_recurring_payment")]
-    ListenClosedRecurringPayment,
+    ListenClosedRecurringPayment { stream_id: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -69,7 +69,8 @@ pub enum NotificationData {
     ClosedRecurringPayment {
         reason: Option<String>,
         subscription_id: String,
-        recipient_key: String,
+        recipient: String,
+        main_key: String,
     },
 }
 
