@@ -731,7 +731,7 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             }
         }
-        Command::CLoseSubscription {
+        Command::CloseSubscription {
             recipient_key,
             subscription_id,
         } => {

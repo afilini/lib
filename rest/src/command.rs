@@ -47,7 +47,7 @@ pub enum Command {
     SetProfile {
         profile: Profile,
     },
-    CLoseSubscription {
+    CloseSubscription {
         recipient_key: String,
         subscription_id: String,
     },
