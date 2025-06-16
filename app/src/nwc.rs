@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use portal::protocol::model::Timestamp;
 
-use crate::AppError;
+use crate::{AppError, RelayStatus, RelayUrl};
 
 #[derive(uniffi::Object)]
 pub struct NWC {
@@ -56,6 +58,15 @@ impl NWC {
             .await
             .map_err(|e| AppError::NWC(e.to_string()))?;
         Ok(balance)
+    }
+
+    pub async fn connection_status(&self) -> HashMap<RelayUrl, RelayStatus> {
+        self.inner
+            .status()
+            .await
+            .into_iter()
+            .map(|(u, s)| (RelayUrl(u), RelayStatus::from(s)))
+            .collect()
     }
 }
 
