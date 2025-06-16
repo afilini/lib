@@ -1,6 +1,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::{env, str::FromStr};
+use std::{env, fs, str::FromStr};
 
 use axum::{
     extract::{State, WebSocketUpgrade},
@@ -136,7 +136,15 @@ async fn main() -> anyhow::Result<()> {
     // Get environment variables
     let auth_token = env::var("AUTH_TOKEN").expect("AUTH_TOKEN environment variable is required");
     let nwc_url = env::var("NWC_URL").ok();
-    let nostr_key = env::var("NOSTR_KEY").expect("NOSTR_KEY environment variable is required");
+    
+    // Load Nostr key from environment or file
+    let nostr_key = if let Ok(key_file) = env::var("NOSTR_KEY_FILE") {
+        fs::read_to_string(key_file)?.trim().to_string()
+    } else {
+        env::var("NOSTR_KEY").expect("Either NOSTR_KEY or NOSTR_KEY_FILE environment variable is required")
+    };
+    
+    // Get subkey proof from environment
     let nostr_subkey_proof = env::var("NOSTR_SUBKEY_PROOF").ok();
 
     // Only use default relays if NOSTR_RELAYS is not set or empty
