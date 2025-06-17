@@ -88,14 +88,34 @@ where
         }
     }
 
-    pub async fn add_relay(&self, url: String) -> Result<(), <C as Channel>::Error> {
-        self.channel().add_relay(url.clone()).await?;
+    pub async fn add_relay(&self, url: String) -> Result<(), ConversationError> {
+        self.channel()
+            .add_relay(url.clone())
+            .await
+            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
         let mut relay_nodes = self.relay_nodes.lock().await;
 
         relay_nodes
             .entry(url.clone())
             .or_insert_with(|| RelayNode::new());
+
+        // Subscribe existing conversations to new relays
+        let global_relay_node = self.global_relay_node.lock().await;
+        let filters = self.filters.read().await;
+        for conversation_id in global_relay_node.conversations.iter() {
+            if let Some(filter) = filters.get(conversation_id) {
+                log::trace!(
+                    "Subscribing {:?} to new relay = {:?}",
+                    conversation_id,
+                    &url
+                );
+                self.channel
+                    .subscribe_to(vec![url.clone()], conversation_id.to_string(), filter.clone())
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+            }
+        }
         Ok(())
     }
 
