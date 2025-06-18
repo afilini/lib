@@ -8,7 +8,7 @@ use channel::Channel;
 use futures::{Stream, StreamExt};
 use nostr_relay_pool::RelayPoolNotification;
 use serde::{Serialize, de::DeserializeOwned};
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::{Mutex, RwLock, RwLockReadGuard, mpsc};
 
 use nostr::{
     event::{Event, EventBuilder, EventId, Kind, Tags},
@@ -16,7 +16,6 @@ use nostr::{
     key::PublicKey,
     message::{RelayMessage, SubscriptionId},
     nips::nip44,
-    types::TryIntoUrl,
 };
 
 use crate::{
@@ -59,8 +58,8 @@ pub struct MessageRouter<C: Channel> {
     filters: RwLock<HashMap<String, Filter>>,
     subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<serde_json::Value>>>>,
 
-    relay_nodes: Mutex<HashMap<String, RelayNode>>,
-    global_relay_node: Mutex<RelayNode>,
+    relay_nodes: RwLock<HashMap<String, RelayNode>>,
+    global_relay_node: RwLock<RelayNode>,
 }
 
 impl<C: Channel> MessageRouter<C>
@@ -83,8 +82,8 @@ where
             aliases: Mutex::new(HashMap::new()),
             subscribers: Mutex::new(HashMap::new()),
             filters: RwLock::new(HashMap::new()),
-            relay_nodes: Mutex::new(HashMap::new()),
-            global_relay_node: Mutex::new(RelayNode::new()),
+            relay_nodes: RwLock::new(HashMap::new()),
+            global_relay_node: RwLock::new(RelayNode::new()),
         }
     }
 
@@ -94,28 +93,37 @@ where
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-        let mut relay_nodes = self.relay_nodes.lock().await;
-
-        relay_nodes
-            .entry(url.clone())
-            .or_insert_with(|| RelayNode::new());
-
         // Subscribe existing conversations to new relays
-        let global_relay_node = self.global_relay_node.lock().await;
-        let filters = self.filters.read().await;
-        for conversation_id in global_relay_node.conversations.iter() {
-            if let Some(filter) = filters.get(conversation_id) {
-                log::trace!(
-                    "Subscribing {:?} to new relay = {:?}",
-                    conversation_id,
-                    &url
-                );
-                self.channel
-                    .subscribe_to(vec![url.clone()], conversation_id.to_string(), filter.clone())
-                    .await
-                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        {
+            let global_relay_node = self.global_relay_node.read().await;
+            let filters = self.filters.read().await;
+            for conversation_id in global_relay_node.conversations.iter() {
+                if let Some(filter) = filters.get(conversation_id) {
+                    log::trace!(
+                        "Subscribing {:?} to new relay = {:?}",
+                        conversation_id,
+                        &url
+                    );
+                    self.channel
+                        .subscribe_to(
+                            vec![url.clone()],
+                            conversation_id.to_string(),
+                            filter.clone(),
+                        )
+                        .await
+                        .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                }
             }
         }
+
+        {
+            let mut relay_nodes = self.relay_nodes.write().await;
+
+            relay_nodes
+                .entry(url.clone())
+                .or_insert_with(|| RelayNode::new());
+        }
+
         Ok(())
     }
 
@@ -125,17 +133,16 @@ where
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-        // Acquire the lock and remove the node, but collect conversations before dropping the lock
-        let conversations = {
-            let mut relay_nodes = self.relay_nodes.lock().await;
-            relay_nodes
-                .remove(&url)
-                .map(|node| node.conversations.into_iter().collect::<Vec<_>>())
-        };
+        let global_relay_guard = self.global_relay_node.read().await;
+        let mut relay_nodes_guard = self.relay_nodes.write().await;
 
-        if let Some(conversations) = conversations {
-            for conv in conversations.iter() {
-                let relays_of_conversation = self.get_relays_by_conversation(conv).await?;
+        if let Some(node) = relay_nodes_guard.remove(&url) {
+            let relay_nodes_guard = relay_nodes_guard.downgrade();
+
+            for conv in node.conversations.iter() {
+                let relays_of_conversation = self
+                    .get_relays_by_conversation(conv, &global_relay_guard, &relay_nodes_guard)
+                    .await?;
                 match relays_of_conversation {
                     Some(urls) => {
                         // If conversation it not present in other relays, clean it
@@ -153,24 +160,25 @@ where
         Ok(())
     }
 
-    async fn get_relays_by_conversation(
+    async fn get_relays_by_conversation<'g>(
         &self,
         conversation_id: &str,
+        global_relay_guard: &RwLockReadGuard<'g, RelayNode>,
+        relay_nodes_guard: &RwLockReadGuard<'g, HashMap<String, RelayNode>>,
     ) -> Result<Option<HashSet<String>>, ConversationError> {
-        let global_relay_node = self.global_relay_node.lock().await;
-        if global_relay_node.conversations.contains(conversation_id) {
-            return Result::Ok(None);
+        if global_relay_guard.conversations.contains(conversation_id) {
+            return Ok(None);
         }
 
         let mut relays = HashSet::new();
-        let relay_nodes = self.relay_nodes.lock().await;
 
-        for (url, node) in relay_nodes.iter() {
+        for (url, node) in relay_nodes_guard.iter() {
             if node.conversations.contains(conversation_id) {
                 relays.insert(url.clone());
             }
         }
-        Result::Ok(Some(relays))
+
+        Ok(Some(relays))
     }
 
     pub async fn cleanup_conversation(&self, conversation: &str) -> Result<(), ConversationError> {
@@ -181,13 +189,17 @@ where
         let aliases = self.aliases.lock().await.remove(conversation);
 
         // Remove from global relay node
-        let mut global_relay_node = self.global_relay_node.lock().await;
-        global_relay_node.conversations.remove(conversation);
+        {
+            let mut global_relay_node = self.global_relay_node.write().await;
+            global_relay_node.conversations.remove(conversation);
+        }
 
         // Remove from specific relay node
-        let mut relay_nodes = self.relay_nodes.lock().await;
-        for (_, relay_node) in relay_nodes.iter_mut() {
-            relay_node.conversations.remove(conversation);
+        {
+            let mut relay_nodes = self.relay_nodes.write().await;
+            for (_, relay_node) in relay_nodes.iter_mut() {
+                relay_node.conversations.remove(conversation);
+            }
         }
 
         // Remove filters from relays
@@ -212,7 +224,8 @@ where
         self.subscribers.lock().await.clear();
         self.aliases.lock().await.clear();
         self.filters.write().await.clear();
-        self.relay_nodes.lock().await.clear();
+        self.global_relay_node.write().await.conversations.clear();
+        self.relay_nodes.write().await.clear();
     }
 
     /// Starts listening for incoming messages and routes them to the appropriate conversations.
@@ -388,29 +401,33 @@ where
     ) -> Result<(), ConversationError> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
-        let selected_relays_optional = self.get_relays_by_conversation(id).await?;
+        let selected_relays_optional = {
+            let global_relay_guard = self.global_relay_node.read().await;
+            let relay_nodes_guard = self.relay_nodes.read().await;
+
+            self.get_relays_by_conversation(id, &global_relay_guard, &relay_nodes_guard)
+                .await?
+        };
+        log::debug!("Selected relays optional = {:?}", selected_relays_optional);
 
         if !response.filter.is_empty() {
+            self.filters
+                .write()
+                .await
+                .insert(id.to_string(), response.filter.clone());
+
             if let Some(selected_relays) = selected_relays_optional.clone() {
                 log::trace!("Subscribing to relays = {:?}", selected_relays);
                 self.channel
                     .subscribe_to(selected_relays, id.to_string(), response.filter.clone())
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-                self.filters
-                    .write()
-                    .await
-                    .insert(id.to_string(), response.filter.clone());
             } else {
                 log::trace!("Subscribing to all relays");
                 self.channel
                     .subscribe(id.to_string(), response.filter.clone())
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-                self.filters
-                    .write()
-                    .await
-                    .insert(id.to_string(), response.filter.clone());
             }
         }
 
@@ -532,8 +549,34 @@ where
         &self,
         id: &str,
         mut conversation: Box<dyn Conversation + Send>,
+        relays: Option<Vec<String>>,
     ) -> Result<Response, ConversationError> {
         let response = conversation.init()?;
+
+        if let Some(relays) = relays {
+            // Update relays node
+            let mut relay_nodes = self.relay_nodes.write().await;
+            // for each relay parameter
+            for relay in relays {
+                // get relay node associated
+
+                match relay_nodes.get_mut(&relay) {
+                    Some(found_node) => {
+                        found_node.conversations.insert(id.to_string());
+                    }
+                    None => {
+                        return Err(ConversationError::RelayNotConnected(relay));
+                    }
+                }
+            }
+        } else {
+            // Update Global Relay Node
+            self.global_relay_node
+                .write()
+                .await
+                .conversations
+                .insert(id.to_string());
+        }
 
         self.conversations
             .lock()
@@ -559,14 +602,8 @@ where
     ) -> Result<String, ConversationError> {
         let conversation_id = random_string(32);
 
-        // Update Global Relay Node
-        let mut global_relay_node = self.global_relay_node.lock().await;
-        global_relay_node
-            .conversations
-            .insert(conversation_id.clone());
-
         let response = self
-            .internal_add_with_id(&conversation_id, conversation)
+            .internal_add_with_id(&conversation_id, conversation, None)
             .await?;
         self.process_response(&conversation_id, response).await?;
 
@@ -580,24 +617,8 @@ where
     ) -> Result<String, ConversationError> {
         let conversation_id = random_string(32);
 
-        // Update relays node
-        let mut relay_nodes = self.relay_nodes.lock().await;
-        // for each relay parameter
-        for relay in relays {
-            // get relay node associated
-
-            match relay_nodes.get_mut(&relay) {
-                Some(found_node) => {
-                    found_node.conversations.insert(conversation_id.clone());
-                }
-                None => {
-                    return Err(ConversationError::RelayNotConnected(relay));
-                }
-            }
-        }
-
         let response = self
-            .internal_add_with_id(&conversation_id, conversation)
+            .internal_add_with_id(&conversation_id, conversation, Some(relays))
             .await?;
         self.process_response(&conversation_id, response).await?;
 
@@ -660,7 +681,7 @@ where
             .subscribe_to_service_request::<Conv::Notification>(conversation_id.clone())
             .await?;
         let response = self
-            .internal_add_with_id(&conversation_id, Box::new(conversation))
+            .internal_add_with_id(&conversation_id, Box::new(conversation), None)
             .await?;
         self.process_response(&conversation_id, response).await?;
 
