@@ -5,7 +5,9 @@ pub mod runtime;
 
 use std::{collections::HashMap, sync::Arc};
 
+use base64::Engine;
 use bitcoin::bip32;
+use nostr::event::EventBuilder;
 use portal::{
     app::{
         auth::{
@@ -50,6 +52,8 @@ use crate::{
 };
 
 uniffi::setup_scaffolding!();
+
+const PROFILE_SERVICE_URL: &str = "https://profile.getportal.cc";
 
 #[uniffi::export]
 pub fn init_logger(callback: Arc<dyn LogCallback>, max_level: LogLevel) -> Result<(), AppError> {
@@ -503,7 +507,65 @@ impl PortalApp {
         self.router.remove_relay(url).await?;
         Ok(())
     }
+
+    pub async fn register_nip05(&self, local_part: String) -> Result<(), AppError> {
+        self.post_request_profile_service(EventContent {
+            nip_05: Some(local_part),
+            img: None,
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    pub async fn register_img(&self, img: Vec<u8>) -> Result<(), AppError> {
+        self.post_request_profile_service(EventContent {
+            nip_05: None,
+            img: Some(base64::encode(img)),
+        })
+        .await?;
+
+        Ok(())
+    }
 }
+
+impl PortalApp {
+    async fn post_request_profile_service(&self, content: EventContent) -> Result<(), AppError> {
+        let event = EventBuilder::text_note(serde_json::to_string(&content).unwrap())
+            .sign_with_keys(&self.router.keypair().get_keys())
+            .map_err(|_| AppError::ProfileRegistrationError("Failed to sign event".to_string()))?;
+        let json_string = serde_json::to_string_pretty(&event).map_err(|_| {
+            AppError::ProfileRegistrationError("Failed to serialize event".to_string())
+        })?;
+
+        let task = async_utility::task::spawn(async move {
+            let client = reqwest::Client::new();
+            client
+                .post(PROFILE_SERVICE_URL)
+                .header("Content-Type", "application/json")
+                .body(json_string)
+                .send()
+                .await
+                .map_err(|e| AppError::ProfileRegistrationError(e.to_string()))
+        });
+
+        let _ = task.join().await.map_err(|_| {
+            AppError::ProfileRegistrationError("Failed to send request".to_string())
+        })??;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+struct EventContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nip_05: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub img: Option<String>,
+}
+
 #[derive(Hash, Eq, PartialEq)]
 pub struct RelayUrl(pub nostr::types::RelayUrl);
 
@@ -584,6 +646,9 @@ pub enum AppError {
 
     #[error("Logger error: {0}")]
     LoggerError(String),
+
+    #[error("Profile registration error: {0}")]
+    ProfileRegistrationError(String),
 }
 
 impl From<portal::router::ConversationError> for AppError {
