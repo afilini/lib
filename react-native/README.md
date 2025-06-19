@@ -136,3 +136,31 @@ const preimage = await wallet.payInvoice("lnbc...");
 // Lookup invoice
 const status = await wallet.lookupInvoice("lnbc...");
 ```
+
+You can receive logs from Rust like this:
+
+```ts
+class Logger implements LogCallback {
+  log(entry: LogEntry) {
+    const message = `[${entry.target}] ${entry.message}`;
+    switch (entry.level) {
+      case LogLevel.Trace:
+        console.trace(message);
+        break;
+      case LogLevel.Debug:
+        console.debug(message);
+        break;
+      case LogLevel.Info:
+        console.info(message);
+        break;
+      case LogLevel.Warn:
+        console.warn(message);
+        break;
+      case LogLevel.Error:
+        console.error(message);
+        break;
+    }
+  }
+}
+initLogger(new Logger(), LogLevel.Debug);
+```

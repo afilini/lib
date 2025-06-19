@@ -1,4 +1,5 @@
 pub mod db;
+pub mod logger;
 pub mod nwc;
 pub mod runtime;
 
@@ -41,21 +42,26 @@ use portal::{
     },
 };
 
+pub use portal::app::*;
+
+use crate::{
+    logger::{CallbackLogger, LogCallback, LogLevel},
+    runtime::BindingsRuntime,
+};
+
 uniffi::setup_scaffolding!();
 
 #[uniffi::export]
-pub fn init_logger() {
-    use android_logger::Config;
-    use log::LevelFilter;
+pub fn init_logger(callback: Arc<dyn LogCallback>, max_level: LogLevel) -> Result<(), AppError> {
+    let callback = CallbackLogger::with_max_level(callback, max_level.into());
+    callback
+        .init()
+        .map_err(|e| AppError::LoggerError(e.to_string()))?;
 
-    android_logger::init_once(Config::default().with_max_level(LevelFilter::Trace));
+    log::info!("Logger set");
 
-    log::info!("Logger initialized");
+    Ok(())
 }
-
-pub use portal::app::*;
-
-use crate::runtime::BindingsRuntime;
 
 #[uniffi::export]
 pub fn generate_mnemonic() -> Result<Mnemonic, MnemonicError> {
@@ -571,6 +577,9 @@ pub enum AppError {
     // database errors
     #[error("Database error: {0}")]
     DatabaseError(String),
+
+    #[error("Logger error: {0}")]
+    LoggerError(String),
 }
 
 impl From<portal::router::ConversationError> for AppError {
