@@ -60,6 +60,10 @@ pub fn init_logger(callback: Arc<dyn LogCallback>, max_level: LogLevel) -> Resul
 
     log::info!("Logger set");
 
+    std::panic::set_hook(Box::new(|info| {
+        log::error!("Panic: {:?}", info);
+    }));
+
     Ok(())
 }
 
