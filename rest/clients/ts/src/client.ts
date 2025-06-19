@@ -15,7 +15,8 @@ import {
   InvoicePaymentRequestContent,
   RecurringPaymentResponseContent,
   CloseRecurringPaymentNotification,
-  InvoiceStatus
+  InvoiceStatus,
+  InvoiceResponseContent
 } from './types';
 
 /**
@@ -423,4 +424,19 @@ export class PortalSDK {
     throw new Error('Unexpected response type');
   }
 
-} 
+  /**
+   * Request an invoice
+   */
+  public async requestInvoice(
+    recipientKey: string,
+    content: InvoicePaymentRequestContent) : Promise<InvoiceResponseContent> {
+    
+    const response = await this.sendCommand('RequestInvoice', { recipient_key: recipientKey, content });
+
+    if (response.type === 'invoice_payment') {
+      return response as InvoiceResponseContent ;
+    }
+
+    throw new Error('Unexpected response type');
+  }
+}
