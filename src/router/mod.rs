@@ -57,6 +57,7 @@ pub struct MessageRouter<C: Channel> {
     aliases: Mutex<HashMap<String, Vec<u64>>>,
     filters: RwLock<HashMap<String, Filter>>,
     subscribers: Mutex<HashMap<String, Vec<mpsc::Sender<serde_json::Value>>>>,
+    end_of_stored_events: Mutex<HashMap<String, usize>>,
 
     relay_nodes: RwLock<HashMap<String, RelayNode>>,
     global_relay_node: RwLock<RelayNode>,
@@ -81,6 +82,7 @@ where
             conversations: Mutex::new(HashMap::new()),
             aliases: Mutex::new(HashMap::new()),
             subscribers: Mutex::new(HashMap::new()),
+            end_of_stored_events: Mutex::new(HashMap::new()),
             filters: RwLock::new(HashMap::new()),
             relay_nodes: RwLock::new(HashMap::new()),
             global_relay_node: RwLock::new(RelayNode::new()),
@@ -113,6 +115,8 @@ where
                         )
                         .await
                         .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+                    self.end_of_stored_events.lock().await.get_mut(conversation_id).and_then(|v| Some(*v += 1));
                 }
 
                 if let Some(aliases) = aliases.get(conversation_id) {
@@ -164,6 +168,8 @@ where
                         // If conversation is present also on the global node relay, should'nt happen, dont clean it
                     }
                 }
+
+                self.end_of_stored_events.lock().await.get_mut(conv).and_then(|v| Some(*v = v.saturating_sub(1)));
             }
         }
 
@@ -196,6 +202,7 @@ where
         self.conversations.lock().await.remove(conversation);
         self.subscribers.lock().await.remove(conversation);
         self.filters.write().await.remove(conversation);
+        self.end_of_stored_events.lock().await.remove(conversation);
         let aliases = self.aliases.lock().await.remove(conversation);
 
         // Remove from global relay node
@@ -234,6 +241,7 @@ where
         self.subscribers.lock().await.clear();
         self.aliases.lock().await.clear();
         self.filters.write().await.clear();
+        self.end_of_stored_events.lock().await.clear();
         self.global_relay_node.write().await.conversations.clear();
         self.relay_nodes.write().await.clear();
     }
@@ -275,11 +283,21 @@ where
                     message: RelayMessage::EndOfStoredEvents(subscription_id),
                     ..
                 } => {
-                    // TODO: we should only send this event when we know all the relays have replied with EndOfStoredEvents. There's another
-                    // TODO in the `process_response` function to check for confirmation from relays after sending a message. Once we have that
-                    // and we know which relays have received the message, we can then know if all relays have replied with EOSE here.
+                    let mut eose = self.end_of_stored_events.lock().await;
 
-                    (subscription_id.into_owned(), LocalEvent::EndOfStoredEvents)
+                    let remaining = eose.get_mut(&subscription_id.to_string()).and_then(|v| {
+                        *v -= 1;
+                        Some(*v)
+                    });
+
+                    log::trace!("{:?} EOSE left for {:?}", remaining, subscription_id);
+
+                    if remaining == Some(0) {
+                        eose.remove(&subscription_id.to_string());
+                        (subscription_id.into_owned(), LocalEvent::EndOfStoredEvents)
+                    } else {
+                        continue;
+                    }
                 }
                 _ => continue,
             };
@@ -422,19 +440,27 @@ where
                 .await
                 .insert(id.to_string(), response.filter.clone());
 
-            if let Some(selected_relays) = selected_relays_optional.clone() {
+            let num_relays = if let Some(selected_relays) = selected_relays_optional.clone() {
+                let num_relays = selected_relays.len();
+
                 log::trace!("Subscribing to relays = {:?}", selected_relays);
                 self.channel
                     .subscribe_to(selected_relays, id.to_string(), response.filter.clone())
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+                num_relays
             } else {
                 log::trace!("Subscribing to all relays");
                 self.channel
                     .subscribe(id.to_string(), response.filter.clone())
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-            }
+
+                self.channel.num_relays().await.map_err(|e| ConversationError::Inner(Box::new(e)))?
+            };
+
+            self.end_of_stored_events.lock().await.insert(id.to_string(), num_relays);
         }
 
         let mut events_to_broadcast = vec![];
