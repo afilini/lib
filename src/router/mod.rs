@@ -97,6 +97,7 @@ where
         {
             let global_relay_node = self.global_relay_node.read().await;
             let filters = self.filters.read().await;
+            let aliases = self.aliases.lock().await;
             for conversation_id in global_relay_node.conversations.iter() {
                 if let Some(filter) = filters.get(conversation_id) {
                     log::trace!(
@@ -112,6 +113,15 @@ where
                         )
                         .await
                         .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                }
+
+                if let Some(aliases) = aliases.get(conversation_id) {
+                    for alias in aliases {
+                        let alias = format!("{}_{}", conversation_id, alias);
+                        if let Some(filter) = filters.get(&alias) {
+                            self.channel.subscribe_to(vec![url.clone()], alias, filter.clone()).await.map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                        }
+                    }
                 }
             }
         }
@@ -337,7 +347,6 @@ where
 
                 if let LocalEvent::Message(event) = &event {
                     if filter.match_event(&event) {
-                        log::warn!("Dispatching event to {:?}", id);
                         other_conversations.push(id.clone());
                     }
                 }
@@ -348,10 +357,8 @@ where
             }
 
             for id in other_conversations {
-                log::warn!("Dispatching event to {:?}", id);
                 self.dispatch_event(SubscriptionId::new(id.clone()), message.clone())
                     .await?;
-                log::warn!("Finished dispatching event to {:?}", id);
             }
         }
 
@@ -408,7 +415,6 @@ where
             self.get_relays_by_conversation(id, &global_relay_guard, &relay_nodes_guard)
                 .await?
         };
-        log::debug!("Selected relays optional = {:?}", selected_relays_optional);
 
         if !response.filter.is_empty() {
             self.filters
@@ -495,25 +501,25 @@ where
                 .events(events_to_broadcast.iter().map(|e| e.id));
 
             let alias = format!("{}_{}", id, alias_num);
+            self.filters.write().await.insert(alias.clone(), filter.clone());
+
             if let Some(selected_relays) = selected_relays_optional.clone() {
                 log::trace!(
                     "Subscribing 'subkey proof' to relays = {:?}",
                     selected_relays
                 );
                 self.channel
-                    .subscribe_to(selected_relays, alias.clone(), filter.clone())
+                    .subscribe_to(selected_relays, alias, filter)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-                self.filters.write().await.insert(alias, filter);
             } else {
                 log::trace!("Subscribing 'subkey proof' to all relays");
                 // Subscribe to subkey proofs to all
 
                 self.channel
-                    .subscribe(alias.clone(), filter.clone())
+                    .subscribe(alias, filter)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-                self.filters.write().await.insert(alias, filter);
             }
         }
 
