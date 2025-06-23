@@ -167,6 +167,36 @@ export class DatabaseManager {
     }));
   }
 
+  public markOldPendingPaymentsFailed(): void {
+    const stmt = this.db.prepare(`
+      UPDATE payments 
+      SET status = 'failed', updated_at = unixepoch()
+      WHERE status = 'pending' 
+      AND created_at < unixepoch() - 300
+    `);
+    stmt.run();
+  }
+
+  public getSubscriptionRecentPayments(publicKey: string, subscriptionId: string, limit: number = 3): Payment[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM payments 
+      WHERE public_key = ? AND description LIKE '%' || ? || '%'
+      ORDER BY created_at DESC 
+      LIMIT ?
+    `);
+    const rows = stmt.all(publicKey, subscriptionId, limit) as any[];
+    
+    return rows.map(row => ({
+      id: row.id,
+      publicKey: row.public_key,
+      amount: row.amount,
+      description: row.description,
+      status: row.status,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  }
+
   // Subscription methods
   public createSubscription(subscription: Omit<Subscription, 'createdAt'>): Subscription {
     const stmt = this.db.prepare(`

@@ -83,8 +83,10 @@ export interface RecurringPaymentResponseContent {
   status: RecurringPaymentStatusContent;
 }
 
-export interface PaymentStatusContent {
-  status: "pending" | "paid" | "timeout" | "failed" | "rejected";
+export type PaymentStatusContent = "pending" | { rejected: { reason: string | null } } | { failed: { reason: string | null } };
+
+export interface InvoiceStatus {
+  status: 'paid' | 'timeout' | 'error';
   preimage?: string;
   reason?: string;
 }
@@ -147,7 +149,7 @@ export type Response =
 // Notification data types
 export type NotificationData = 
   | { type: 'auth_init', main_key: string }
-  | { type: 'payment_status_update', status: PaymentStatusContent }
+  | { type: 'payment_status_update', status: InvoiceStatus }
   | { type: 'closed_recurring_payment', reason: string | null, subscription_id: string, main_key: string, recipient: string }
   ;
 

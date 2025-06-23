@@ -45,7 +45,7 @@ async function testFullFlow(client: PortalSDK, mainKey: string, subkeys: string[
         console.log('Payment status update:', status);
       }
     );
-    console.log('Initial payment status:', paymentResult.status);
+    console.log('Initial payment status:', paymentResult);
     
     // Example 5: Fetch Profile
     console.log('\n=== Fetch Profile ===');

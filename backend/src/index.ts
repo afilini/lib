@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AuthResponseData, Currency, PaymentStatusContent, PortalSDK, Profile, RecurringPaymentStatusContent, Timestamp } from 'portal-sdk';
 import { DatabaseManager, Payment } from './session';
 import { bech32 } from 'bech32';
-import { CloseRecurringPaymentNotification } from 'portal-sdk/dist/src/types';
+import { CloseRecurringPaymentNotification, InvoiceStatus } from 'portal-sdk/dist/src/types';
 
 interface LoginStatus {
   type: 'waiting' | 'sending_challenge' | 'approved' | 'timeout';
@@ -474,7 +474,7 @@ async function claimSinglePayment(
     subscriptionId: string | undefined,
     authToken: string | undefined,
     payment: PaymentRequest,
-    successCallback?: (status: PaymentStatusContent) => void
+    successCallback?: (status: InvoiceStatus) => void
 ) {
     const paymentId = uuidv4();
     
@@ -511,7 +511,7 @@ async function claimSinglePayment(
                     successCallback(status);
                 }
                 dbStatus = 'completed';
-            } else if (status.status === 'failed' || status.status === 'rejected' || status.status === 'timeout') {
+            } else if (status.status === 'error' || status.status === 'timeout') {
                 dbStatus = 'failed';
             } else {
                 dbStatus = 'pending';
@@ -524,13 +524,13 @@ async function claimSinglePayment(
     );
 
     console.log('Single payment result:', paymentResult);
-    let finalStatus: 'pending' | 'completed' | 'failed';
-    if (paymentResult.status === 'paid') {
-        finalStatus = 'completed';
-    } else if (paymentResult.status === 'failed' || paymentResult.status === 'rejected' || paymentResult.status === 'timeout') {
-        finalStatus = 'failed';
+    let finalStatus: 'pending' | 'failed';
+    if (paymentResult === 'pending') {
+      finalStatus = 'pending';
+    } else if ('rejected' in paymentResult || 'failed' in paymentResult) {
+      finalStatus = 'failed';
     } else {
-        finalStatus = 'pending';
+      finalStatus = 'pending';
     }
     db.updatePaymentStatus(paymentId, finalStatus);
     for (const w of ws) {
@@ -566,11 +566,39 @@ function calculateNextPayment(fromTimestamp: number, frequency: string): number 
 
 // Process subscriptions every minute
 setInterval(() => {
+  // Make stale payments as failed
+  db.markOldPendingPaymentsFailed();
+
   const now = Math.floor(Date.now() / 1000);
   const subscriptions = db.getDueSubscriptions(now);
   for (const subscription of subscriptions) {
     if (!subscription.portalSubscriptionId || subscription.status !== 'active') {
       continue;
+    }
+
+    // Check if last 3 payments failed
+    const recentPayments = db.getSubscriptionRecentPayments(subscription.publicKey, subscription.portalSubscriptionId, 3);
+    if (recentPayments.length >= 3 && recentPayments.every(p => p.status === 'failed')) {
+      console.log(`Cancelling subscription ${subscription.id} due to 3 consecutive payment failures`);
+
+      // Cancel the subscription
+      db.updateSubscriptionStatus(subscription.id, 'cancelled');
+
+      // Close the recurring payment with Portal
+      if (subscription.portalSubscriptionId) {
+        portalClient.closeRecurringPayment(subscription.publicKey, [], subscription.portalSubscriptionId)
+          .catch(error => {
+            console.error('Error closing recurring payment:', error);
+          });
+      }
+
+      // Notify connected clients
+      const connections = connectionMap.get(subscription.publicKey) || [];
+      for (const conn of connections) {
+        sendHistory(conn, subscription.publicKey);
+      }
+
+      continue; // Skip payment attempt for cancelled subscription
     }
 
     const ws = connectionMap.get(subscription.publicKey);

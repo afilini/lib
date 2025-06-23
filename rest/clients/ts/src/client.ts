@@ -14,7 +14,8 @@ import {
   Event,
   InvoicePaymentRequestContent,
   RecurringPaymentResponseContent,
-  CloseRecurringPaymentNotification
+  CloseRecurringPaymentNotification,
+  InvoiceStatus
 } from './types';
 
 /**
@@ -312,14 +313,14 @@ export class PortalSDK {
     mainKey: string,
     subkeys: string[] = [],
     paymentRequest: SinglePaymentRequestContent,
-    onStatusChange: (status: PaymentStatusContent) => void
+    onStatusChange: (status: InvoiceStatus) => void
   ): Promise<PaymentStatusContent> {
     const _self = this;
     let streamId: string | null = null;
 
     const handler = (data: NotificationData) => {
       if (data.type === 'payment_status_update') {
-        onStatusChange(data.status as PaymentStatusContent);
+        onStatusChange(data.status as InvoiceStatus);
 
         if (streamId) {
           _self.activeStreams.delete(streamId);
@@ -335,7 +336,7 @@ export class PortalSDK {
         this.activeStreams.set(streamId, handler);
       }
 
-      return response;
+      return response.status.status;
     }
     
     throw new Error('Unexpected response type');
