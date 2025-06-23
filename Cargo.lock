@@ -143,7 +143,6 @@ dependencies = [
  "async",
  "async-trait",
  "async-utility",
- "base64 0.22.1",
  "bip39",
  "bitcoin",
  "futures",

@@ -5,7 +5,6 @@ pub mod runtime;
 
 use std::{collections::HashMap, sync::Arc};
 
-use base64::Engine;
 use bitcoin::bip32;
 use nostr::event::EventBuilder;
 use portal::{
@@ -518,10 +517,10 @@ impl PortalApp {
         Ok(())
     }
 
-    pub async fn register_img(&self, img: Vec<u8>) -> Result<(), AppError> {
+    pub async fn register_img(&self, img_base64: String) -> Result<(), AppError> {
         self.post_request_profile_service(EventContent {
             nip_05: None,
-            img: Some(base64::encode(img)),
+            img: Some(img_base64),
         })
         .await?;
 
