@@ -653,9 +653,13 @@ impl PortalApp {
                 })
         });
 
-        let _ = task.join().await.map_err(|_| {
+        let response = task.join().await.map_err(|_| {
             AppError::ProfileRegistrationError("Failed to send request".to_string())
         })??;
+
+        if let Err(e) = response.error_for_status() {
+            return Err(AppError::ProfileRegistrationError(e.to_string()));
+        }
 
         Ok(())
     }
@@ -756,6 +760,9 @@ pub enum AppError {
 
     #[error("{0}")]
     ProfileRegistrationStatusError(u16),
+
+    #[error("Profile fetching error: {0}")]
+    ProfileFetchingError(String),
 }
 
 impl From<portal::router::ConversationError> for AppError {
