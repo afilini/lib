@@ -32,7 +32,7 @@ pub struct InvoiceRequestConversation {
 }
 
 impl MultiKeySender for InvoiceRequestConversation {
-    const VALIDITY_SECONDS: u64 = 60 * 5;
+    const VALIDITY_SECONDS: Option<u64> = Some(60 * 5);
 
     type Error = ConversationError;
     type Message = InvoiceResponse;
@@ -104,7 +104,7 @@ pub struct InvoiceReceiverConversation {
 }
 
 impl MultiKeyListener for InvoiceReceiverConversation {
-    const VALIDITY_SECONDS: u64 = 60 * 5;
+    const VALIDITY_SECONDS: Option<u64> = Some(60 * 5);
 
     type Error = ConversationError;
     type Message = InvoiceRequestContent;
