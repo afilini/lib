@@ -550,8 +550,7 @@ impl PortalApp {
         while let Ok(request) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             log::debug!("Received invoice request payment: {:?}", request);
 
-            let recipient: nostr::key::PublicKey = request.key.into();
-            let local_key = self.router.keypair().public_key();
+            let recipient: nostr::key::PublicKey = request.recipient.into();
 
             let evt = Arc::clone(&evt);
             let router = Arc::clone(&self.router);
@@ -565,7 +564,7 @@ impl PortalApp {
                     payment_hash: invoice.payment_hash,
                 };
 
-                let conv = InvoiceSenderConversation::new(invoice_response, local_key, recipient);
+                let conv = InvoiceSenderConversation::new(invoice_response);
 
                 router
                     .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(

@@ -145,7 +145,8 @@ impl MultiKeyListener for InvoiceReceiverConversation {
 
         let res = InvoiceRequestContentWithKey {
             inner: message.clone(),
-            key: sender_key,
+            main_key: sender_key,
+            recipient: event.pubkey.into(),
         };
 
         Ok(Response::new().notify(res))
@@ -160,8 +161,6 @@ impl ConversationWithNotification for MultiKeyListenerAdapter<InvoiceReceiverCon
 #[derive(new)]
 pub struct InvoiceSenderConversation {
     content: InvoiceResponse,
-    local_key: PublicKey,
-    recipient: PublicKey,
 }
 
 impl OneShotSender for InvoiceSenderConversation {
@@ -171,13 +170,13 @@ impl OneShotSender for InvoiceSenderConversation {
         state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>,
     ) -> Result<Response, Self::Error> {
         let mut keys = HashSet::new();
-        keys.insert(state.local_key);
-        keys.insert(state.recipient);
+        keys.insert(state.content.request.recipient);
+        keys.insert(state.content.request.main_key);
 
         let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
         let response = Response::new()
             .reply_to(
-                state.recipient,
+                state.content.request.recipient.into(),
                 Kind::from(INVOICE_RESPONSE),
                 tags,
                 state.content.clone(),

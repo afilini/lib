@@ -785,6 +785,7 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
         }
         Command::RequestInvoice {
             recipient_key,
+            subkeys,
             content,
         } => {
             // Parse keys
@@ -798,7 +799,18 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             };
 
-            match ctx.sdk.request_invoice(recipient_key.into(), content).await {
+            // Parse subkeys
+            let subkeys = match parse_subkeys(&subkeys) {
+                Ok(keys) => keys,
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid subkeys: {}", e))
+                        .await;
+                    return;
+                }
+            };
+
+            match ctx.sdk.request_invoice(recipient_key.into(), subkeys, content).await {
                 Ok(invoice_response) => {
                     match invoice_response {
                         Some(invoice_response) => {

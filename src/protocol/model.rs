@@ -367,7 +367,8 @@ pub mod payment {
     #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct InvoiceRequestContentWithKey {
         pub inner: InvoiceRequestContent,
-        pub key: PublicKey,
+        pub main_key: PublicKey,
+        pub recipient: PublicKey,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

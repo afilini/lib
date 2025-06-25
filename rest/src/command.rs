@@ -56,6 +56,7 @@ pub enum Command {
     ListenClosedRecurringPayment,
     RequestInvoice {
         recipient_key: String,
+        subkeys: Vec<String>,
         content: InvoiceRequestContent,
     },
 }
