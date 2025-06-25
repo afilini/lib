@@ -237,17 +237,18 @@ impl PortalSDK {
 
     pub async fn request_invoice(
         &self,
-        content: InvoiceRequestContentWithKey,
+        recipient: PublicKey,
+        content: InvoiceRequestContent,
     ) -> Result<Option<InvoiceResponse>, PortalSDKError> {
         let conv = InvoiceRequestConversation::new(
             self.router.keypair().public_key(),
             self.router.keypair().subkey_proof().cloned(),
-            content.inner,
+            content,
         );
         let mut rx = self
             .router
             .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
-                content.key.into(),
+                recipient,
                 vec![],
                 conv,
             ))
