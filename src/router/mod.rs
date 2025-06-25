@@ -94,7 +94,7 @@ where
             .add_relay(url.clone())
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-        
+
         // Subscribe existing conversations to new relays
         {
             let global_relay_node = self.global_relay_node.read().await;
@@ -631,7 +631,7 @@ where
         conversation: Box<dyn Conversation + Send>,
     ) -> Result<String, ConversationError> {
         let conversation_id = random_string(32);
-        
+
         let response = self
             .internal_add_with_id(&conversation_id, conversation, None)
             .await?;

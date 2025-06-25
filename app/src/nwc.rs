@@ -60,7 +60,6 @@ impl NWC {
         Ok(balance)
     }
 
-
     pub async fn connection_status(&self) -> HashMap<RelayUrl, RelayStatus> {
         self.inner
             .status()
@@ -69,7 +68,7 @@ impl NWC {
             .map(|(u, s)| (RelayUrl(u), RelayStatus::from(s)))
             .collect()
     }
-    
+
     pub async fn make_invoice(
         &self,
         request: MakeInvoiceRequest,

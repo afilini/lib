@@ -73,6 +73,7 @@ pub fn init_logger(callback: Arc<dyn LogCallback>, max_level: LogLevel) -> Resul
 }
 use crate::runtime::BindingsRuntime;
 use crate::nwc::MakeInvoiceResponse;
+use crate::runtime::BindingsRuntime;
 
 #[uniffi::export]
 pub fn generate_mnemonic() -> Result<Mnemonic, MnemonicError> {
@@ -552,28 +553,32 @@ impl PortalApp {
             log::debug!("Received invoice request payment: {:?}", request);
 
             let recipient: nostr::key::PublicKey = request.key.into();
+            let local_key = self.router.keypair().public_key();
 
-            let invoice = evt.on_invoice_requests(request.clone()).await?;
+            let evt = Arc::clone(&evt);
+            let router = Arc::clone(&self.router);
 
-            let invoice_response = InvoiceResponse {
-                request: request,
-                invoice: invoice.invoice,
-                payment_hash: invoice.payment_hash,
-            };
+            let _ = self.runtime.add_task(async move {
+                let invoice = evt.on_invoice_requests(request.clone()).await?;
 
-            let conv = InvoiceSenderConversation::new(
-                invoice_response,
-                self.router.keypair().public_key(),
-                recipient,
-            );
+                let invoice_response = InvoiceResponse {
+                    request: request,
+                    invoice: invoice.invoice,
+                    payment_hash: invoice.payment_hash,
+                };
 
-            self.router
-                .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-                    recipient.to_owned(),
-                    vec![],
-                    conv,
-                )))
-                .await?;
+                let conv = InvoiceSenderConversation::new(invoice_response, local_key, recipient);
+
+                router
+                    .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                        recipient.to_owned(),
+                        vec![],
+                        conv,
+                    )))
+                    .await?;
+
+                Ok::<(), AppError>(())
+            });
         }
 
         Ok(())
@@ -590,7 +595,7 @@ impl PortalApp {
 
     pub async fn request_invoice(
         &self,
-        recipient : PublicKey,
+        recipient: PublicKey,
         content: InvoiceRequestContent,
         evt: Arc<dyn InvoiceResponseListener>,
     ) -> Result<(), AppError> {

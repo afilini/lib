@@ -79,7 +79,7 @@ async fn main() -> Result<(), CliError> {
 
         _sender
             .request_invoice(
-                receiver_key, 
+                receiver_key,
                 InvoiceRequestContent {
                     request_id: String::from("my_id"),
                     amount: 5000,
@@ -87,6 +87,7 @@ async fn main() -> Result<(), CliError> {
                     current_exchange_rate: None,
                     expires_at: Timestamp::now_plus_seconds(120),
                     description: Some(String::from("Dinner")),
+                    refund_invoice: None,
                 },
                 Arc::new(LogInvoiceResponseListener),
             )

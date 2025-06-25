@@ -783,7 +783,10 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             }
         }
-        Command::RequestInvoice { recipient_key, content } => {
+        Command::RequestInvoice {
+            recipient_key,
+            content,
+        } => {
             // Parse keys
             let recipient_key = match hex_to_pubkey(&recipient_key) {
                 Ok(key) => key,
@@ -795,10 +798,14 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             };
 
-            match ctx.sdk.request_invoice(InvoiceRequestContentWithKey {
-                key: recipient_key.into(),
-                inner: content,
-            }).await {
+            match ctx
+                .sdk
+                .request_invoice(InvoiceRequestContentWithKey {
+                    key: recipient_key.into(),
+                    inner: content,
+                })
+                .await
+            {
                 Ok(invoice_response) => {
                     match invoice_response {
                         Some(invoice_response) => {

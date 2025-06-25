@@ -360,6 +360,7 @@ pub mod payment {
         pub current_exchange_rate: Option<ExchangeRate>,
         pub expires_at: Timestamp,
         pub description: Option<String>,
+        pub refund_invoice: Option<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
