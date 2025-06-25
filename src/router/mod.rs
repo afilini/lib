@@ -116,14 +116,21 @@ where
                         .await
                         .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-                    self.end_of_stored_events.lock().await.get_mut(conversation_id).and_then(|v| Some(*v += 1));
+                    self.end_of_stored_events
+                        .lock()
+                        .await
+                        .get_mut(conversation_id)
+                        .and_then(|v| Some(*v += 1));
                 }
 
                 if let Some(aliases) = aliases.get(conversation_id) {
                     for alias in aliases {
                         let alias = format!("{}_{}", conversation_id, alias);
                         if let Some(filter) = filters.get(&alias) {
-                            self.channel.subscribe_to(vec![url.clone()], alias, filter.clone()).await.map_err(|e| ConversationError::Inner(Box::new(e)))?;
+                            self.channel
+                                .subscribe_to(vec![url.clone()], alias, filter.clone())
+                                .await
+                                .map_err(|e| ConversationError::Inner(Box::new(e)))?;
                         }
                     }
                 }
@@ -169,7 +176,11 @@ where
                     }
                 }
 
-                self.end_of_stored_events.lock().await.get_mut(conv).and_then(|v| Some(*v = v.saturating_sub(1)));
+                self.end_of_stored_events
+                    .lock()
+                    .await
+                    .get_mut(conv)
+                    .and_then(|v| Some(*v = v.saturating_sub(1)));
             }
         }
 
@@ -455,10 +466,16 @@ where
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-                self.channel.num_relays().await.map_err(|e| ConversationError::Inner(Box::new(e)))?
+                self.channel
+                    .num_relays()
+                    .await
+                    .map_err(|e| ConversationError::Inner(Box::new(e)))?
             };
 
-            self.end_of_stored_events.lock().await.insert(id.to_string(), num_relays);
+            self.end_of_stored_events
+                .lock()
+                .await
+                .insert(id.to_string(), num_relays);
         }
 
         let mut events_to_broadcast = vec![];
@@ -525,7 +542,10 @@ where
                 .events(events_to_broadcast.iter().map(|e| e.id));
 
             let alias = format!("{}_{}", id, alias_num);
-            self.filters.write().await.insert(alias.clone(), filter.clone());
+            self.filters
+                .write()
+                .await
+                .insert(alias.clone(), filter.clone());
 
             if let Some(selected_relays) = selected_relays_optional.clone() {
                 log::trace!(

@@ -71,8 +71,8 @@ pub fn init_logger(callback: Arc<dyn LogCallback>, max_level: LogLevel) -> Resul
 
     Ok(())
 }
-use crate::runtime::BindingsRuntime;
 use crate::nwc::MakeInvoiceResponse;
+use crate::runtime::BindingsRuntime;
 use crate::runtime::BindingsRuntime;
 
 #[uniffi::export]
