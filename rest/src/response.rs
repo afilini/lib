@@ -23,8 +23,8 @@ pub enum ResponseData {
     #[serde(rename = "auth_success")]
     AuthSuccess { message: String },
 
-    #[serde(rename = "auth_init_url")]
-    AuthInitUrl { url: String, stream_id: String },
+    #[serde(rename = "key_handshake_url")]
+    KeyHandshakeUrl { url: String, stream_id: String },
 
     #[serde(rename = "auth_response")]
     AuthResponse { event: AuthResponseData },
@@ -67,8 +67,8 @@ pub struct AuthResponseData {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type")]
 pub enum NotificationData {
-    #[serde(rename = "auth_init")]
-    AuthInit { main_key: String },
+    #[serde(rename = "key_handshake")]
+    KeyHandshake { main_key: String },
     #[serde(rename = "payment_status_update")]
     PaymentStatusUpdate { status: InvoiceStatus },
     #[serde(rename = "closed_recurring_payment")]

@@ -87,7 +87,7 @@ async function main() {
 
     // Example 1: Authentication Flow
     console.log('\n=== Authentication Flow ===');
-    const url = await client.newAuthInitUrl((mainKey) => {
+    const url = await client.newKeyHandshakeUrl((mainKey) => {
       console.log('Auth Init received for key:', mainKey);
       testFullFlow(client, mainKey, []);
     });

@@ -247,20 +247,20 @@ export class PortalSDK {
   /**
    * Generate a new auth init URL for Portal authentication
    */
-  public async newAuthInitUrl(onAuthInit: (mainKey: string) => void): Promise<string> {
+  public async newKeyHandshakeUrl(onKeyHandshake: (mainKey: string) => void): Promise<string> {
     const _self = this;
     let streamId = '';
 
     const handler = (data: NotificationData) => {
-      if (data.type === 'auth_init') {
-        onAuthInit(data.main_key);
+      if (data.type === 'key_handshake') {
+        onKeyHandshake(data.main_key);
         _self.activeStreams.delete(streamId);
       }
     };
     
-    const response = await this.sendCommand('NewAuthInitUrl');
+    const response = await this.sendCommand('NewKeyHandshakeUrl');
     
-    if (response.type === 'auth_init_url') {
+    if (response.type === 'key_handshake_url') {
       const { url, stream_id } = response;
 
       streamId = stream_id;

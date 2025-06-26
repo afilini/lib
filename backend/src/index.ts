@@ -279,7 +279,7 @@ function mainFunction() {
             });
       }
     } else {
-      const loginUrl = await portalClient.newAuthInitUrl((mainKey) => {
+      const loginUrl = await portalClient.newKeyHandshakeUrl((mainKey) => {
           console.log('Auth Init received for key:', mainKey);
 
           const status = loginTokens.get(loginUrl);

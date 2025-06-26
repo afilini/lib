@@ -7,14 +7,14 @@ use super::model::bindings::PublicKey;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
-pub struct AuthInitUrl {
+pub struct KeyHandshakeUrl {
     pub main_key: PublicKey,
     pub relays: Vec<String>,
     pub token: String,
     pub subkey: Option<PublicKey>,
 }
 
-impl fmt::Display for AuthInitUrl {
+impl fmt::Display for KeyHandshakeUrl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let relays = self
             .relays
@@ -45,7 +45,7 @@ impl fmt::Display for AuthInitUrl {
     }
 }
 
-impl AuthInitUrl {
+impl KeyHandshakeUrl {
     pub fn send_to(&self) -> nostr::PublicKey {
         if let Some(subkey) = self.subkey {
             subkey.into()
@@ -65,7 +65,7 @@ impl AuthInitUrl {
     }
 }
 
-impl FromStr for AuthInitUrl {
+impl FromStr for KeyHandshakeUrl {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {

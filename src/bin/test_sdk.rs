@@ -3,19 +3,19 @@ use std::sync::Arc;
 use nostr::Keys;
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
-    protocol::{LocalKeypair, auth_init::AuthInitUrl},
+    protocol::{LocalKeypair, key_handshake::KeyHandshakeUrl},
     router::{MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream},
     sdk::auth::{
-        AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation,
-        AuthResponseEvent,
+        AuthChallengeSenderConversation, AuthResponseEvent, KeyHandshakeEvent,
+        KeyHandshakeReceiverConversation,
     },
     utils::random_string,
 };
 // use portal::{protocol::LocalKeypair, router::connector::Connector, sdk::SDKMethods};
 
-// impl Conversation for AuthInitReceiverConversation {
+// impl Conversation for KeyHandshakeReceiverConversation {
 //     fn init(&self) -> Result<Response, ConversationError> {
-//         Ok(Response::new().filter(Filter::new().kinds(vec![Kind::from(AUTH_INIT)])))
+//         Ok(Response::new().filter(Filter::new().kinds(vec![Kind::from(key_handshake)])))
 //     }
 //
 //     fn on_message(
@@ -27,7 +27,7 @@ use portal::{
 //         match message {
 //             portal::router::ConversationMessage::Encrypted(_) => return Ok(Response::default()),
 //             portal::router::ConversationMessage::Cleartext(event) => {
-//                 let content = serde_json::from_value::<AuthInitContent>(event.content).unwrap();
+//                 let content = serde_json::from_value::<KeyHandshakeContent>(event.content).unwrap();
 //                 if content.token == self.token {
 //                     let response = Response::new()
 //                         .notify(serde_json::json!({
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate a random token
     let token = random_string(20);
 
-    let url = AuthInitUrl {
+    let url = KeyHandshakeUrl {
         main_key: main_key.into(),
         relays,
         token: token.clone(),
@@ -101,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log::info!("Auth init URL: {}", url);
 
-    let inner = AuthInitReceiverConversation::new(router.keypair().public_key(), token);
+    let inner = KeyHandshakeReceiverConversation::new(router.keypair().public_key(), token);
     let id = router
         .add_conversation(Box::new(MultiKeyListenerAdapter::new(
             inner,
@@ -109,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )))
         .await?;
     log::debug!("Added conversation with id: {}", id);
-    let mut event: NotificationStream<AuthInitEvent> =
+    let mut event: NotificationStream<KeyHandshakeEvent> =
         router.subscribe_to_service_request(id).await?;
     log::debug!("Waiting for notification...");
     let event = event.next().await.unwrap()?;

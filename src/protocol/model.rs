@@ -18,7 +18,7 @@ pub mod event_kinds {
     pub const AUTH_CHALLENGE: u16 = 27000;
     pub const AUTH_RESPONSE: u16 = 27001;
     pub const AUTH_SUCCESS: u16 = 27002;
-    pub const AUTH_INIT: u16 = 27010;
+    pub const KEY_HANDSHAKE: u16 = 27010;
 
     // Payment events (28000-28999)
     pub const PAYMENT_REQUEST: u16 = 28000;
@@ -161,7 +161,7 @@ pub mod auth {
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
-    pub struct AuthInitContent {
+    pub struct KeyHandshakeContent {
         pub token: String,
         pub client_info: ClientInfo,
         pub preferred_relays: Vec<String>,

@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     protocol::{
-        auth_init::AuthInitUrl,
+        key_handshake::KeyHandshakeUrl,
         model::{
             auth::{
-                AuthChallengeContent, AuthInitContent, AuthResponseContent, AuthResponseStatus,
-                ClientInfo, SubkeyProof,
+                AuthChallengeContent, AuthResponseContent, AuthResponseStatus, ClientInfo,
+                KeyHandshakeContent, SubkeyProof,
             },
             bindings,
-            event_kinds::{AUTH_CHALLENGE, AUTH_INIT, AUTH_RESPONSE},
+            event_kinds::{AUTH_CHALLENGE, AUTH_RESPONSE, KEY_HANDSHAKE},
         },
     },
     router::{
@@ -21,18 +21,19 @@ use crate::{
     },
 };
 
-pub struct AuthInitConversation {
-    pub url: AuthInitUrl,
+#[derive(derive_new::new)]
+pub struct KeyHandshakeConversation {
+    pub url: KeyHandshakeUrl,
     pub relays: Vec<String>,
 }
 
-impl OneShotSender for AuthInitConversation {
+impl OneShotSender for KeyHandshakeConversation {
     type Error = ConversationError;
 
     fn send(
         state: &mut crate::router::adapters::one_shot::OneShotSenderAdapter<Self>,
     ) -> Result<Response, Self::Error> {
-        let content = AuthInitContent {
+        let content = KeyHandshakeContent {
             token: state.url.token.clone(),
             client_info: ClientInfo {
                 version: env!("CARGO_PKG_VERSION").to_string(),
@@ -48,7 +49,12 @@ impl OneShotSender for AuthInitConversation {
             .map(|k| Tag::public_key(*k.deref()))
             .collect();
         let response = Response::new()
-            .reply_to(state.url.send_to(), Kind::from(AUTH_INIT), tags, content)
+            .reply_to(
+                state.url.send_to(),
+                Kind::from(KEY_HANDSHAKE),
+                tags,
+                content,
+            )
             .finish();
 
         Ok(response)

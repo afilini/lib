@@ -24,7 +24,7 @@ class CommandWithIdSerializer : JsonSerializer<CommandWithId>() {
         gen.writeStringField("id", value.id)
         gen.writeStringField("cmd", cmd)
 
-        // fix serde deserialization of unit types like NewAuthInitUrl
+        // fix serde deserialization of unit types like NewKeyHandshakeUrl
         if (!paramsTree.isEmpty) {
             gen.writeFieldName("params")
             objectMapper.writeTree(gen, paramsTree)

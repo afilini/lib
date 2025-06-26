@@ -78,7 +78,7 @@ const client = new PortalClient({
 await client.connect('your-auth-token');
 
 // Generate authentication URL
-const { url, stream_id } = await client.getAuthInitUrl();
+const { url, stream_id } = await client.getKeyHandshakeUrl();
 
 // Request payment
 const paymentResult = await client.requestSinglePayment({

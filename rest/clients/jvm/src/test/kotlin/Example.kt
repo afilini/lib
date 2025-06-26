@@ -15,7 +15,7 @@ fun main() {
         }
     )
 
-    portal.sendCommand(Command.NewAuthInitUrl, onError = {}) { (url, stream_id) ->
+    portal.sendCommand(Command.NewKeyHandshakeUrl, onError = {}) { (url, stream_id) ->
         // logic
     }
 

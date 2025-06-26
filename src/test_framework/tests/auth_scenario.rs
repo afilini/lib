@@ -1,17 +1,17 @@
 use crate::{
     app::auth::{
-        AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation,
+        AuthChallengeListenerConversation, AuthResponseConversation, KeyHandshakeConversation,
     },
     protocol::{
         LocalKeypair,
-        auth_init::AuthInitUrl,
+        key_handshake::KeyHandshakeUrl,
         model::{Nonce, Timestamp, auth::AuthResponseStatus},
         subkey::{PrivateSubkeyManager, SubkeyMetadata},
     },
     router::{
         MultiKeyListenerAdapter, MultiKeySenderAdapter, adapters::one_shot::OneShotSenderAdapter,
     },
-    sdk::auth::{AuthChallengeSenderConversation, AuthInitReceiverConversation},
+    sdk::auth::{AuthChallengeSenderConversation, KeyHandshakeReceiverConversation},
     test_framework::{ScenarioBuilder, logger::init_logger},
     utils::random_string,
 };
@@ -27,7 +27,7 @@ async fn test_auth_flow() {
 
     // Create the auth init URL
     let token = random_string(32);
-    let url = AuthInitUrl {
+    let url = KeyHandshakeUrl {
         main_key: service_keys.public_key().into(),
         relays: vec!["simulated".to_string()],
         token: token.clone(),
@@ -56,7 +56,7 @@ async fn test_auth_flow() {
     // 1. Service sets up to receive auth init
     let mut service_notifications = service_router
         .add_and_subscribe(MultiKeyListenerAdapter::new(
-            AuthInitReceiverConversation::new(service_keys.public_key(), token.clone()),
+            KeyHandshakeReceiverConversation::new(service_keys.public_key(), token.clone()),
             None,
         ))
         .await
@@ -72,31 +72,28 @@ async fn test_auth_flow() {
         .unwrap();
 
     // 3. Client initiates auth flow
-    let auth_init = AuthInitConversation {
-        url,
-        relays: vec!["simulated".to_string()],
-    };
+    let key_handshake = KeyHandshakeConversation::new(url, vec!["simulated".to_string()]);
     client_router
         .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-            auth_init.url.send_to(),
-            auth_init
+            key_handshake.url.send_to(),
+            key_handshake
                 .url
                 .subkey
                 .map(|s| vec![s.into()])
                 .unwrap_or_default(),
-            auth_init,
+            key_handshake,
         )))
         .await
         .unwrap();
 
     // 4. Service receives auth init
-    let auth_init_event = service_notifications.next().await.unwrap().unwrap();
-    assert_eq!(auth_init_event.main_key, client_keys.public_key());
+    let key_handshake_event = service_notifications.next().await.unwrap().unwrap();
+    assert_eq!(key_handshake_event.main_key, client_keys.public_key());
 
     // 5. Service sends auth challenge
     let mut auth_response_event = service_router
         .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
-            auth_init_event.main_key,
+            key_handshake_event.main_key,
             vec![],
             AuthChallengeSenderConversation::new(service_keys.public_key(), None),
         ))

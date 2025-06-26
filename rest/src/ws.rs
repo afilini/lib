@@ -246,8 +246,8 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
         Command::Auth { .. } => {
             // Already handled in the outer function
         }
-        Command::NewAuthInitUrl => {
-            match ctx.sdk.new_auth_init_url().await {
+        Command::NewKeyHandshakeUrl => {
+            match ctx.sdk.new_key_handshake_url().await {
                 Ok((url, notification_stream)) => {
                     // Generate a unique stream ID
                     let stream_id = Uuid::new_v4().to_string();
@@ -267,7 +267,7 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                             // Convert the event to a notification response
                             let notification = Response::Notification {
                                 id: stream_id_clone.clone(),
-                                data: NotificationData::AuthInit {
+                                data: NotificationData::KeyHandshake {
                                     main_key: event.main_key.to_string(),
                                 },
                             };
@@ -288,7 +288,7 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                     // Convert the URL to a proper response struct
                     let response = Response::Success {
                         id: command.id,
-                        data: ResponseData::AuthInitUrl {
+                        data: ResponseData::KeyHandshakeUrl {
                             url: url.to_string(),
                             stream_id,
                         },
@@ -810,7 +810,11 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             };
 
-            match ctx.sdk.request_invoice(recipient_key.into(), subkeys, content).await {
+            match ctx
+                .sdk
+                .request_invoice(recipient_key.into(), subkeys, content)
+                .await
+            {
                 Ok(invoice_response) => {
                     match invoice_response {
                         Some(invoice_response) => {

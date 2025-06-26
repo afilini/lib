@@ -64,7 +64,7 @@ Authentication command.
 }
 ```
 
-#### `NewAuthInitUrl`
+#### `NewKeyHandshakeUrl`
 
 Generate a new authentication initialization URL.
 
@@ -72,7 +72,7 @@ Generate a new authentication initialization URL.
 ```json
 {
   "id": "unique-id",
-  "cmd": "NewAuthInitUrl"
+  "cmd": "NewKeyHandshakeUrl"
 }
 ```
 
@@ -184,7 +184,7 @@ ws.onmessage = (event) => {
   if (response.type === 'success' && response.data.message === 'Authenticated successfully') {
     // Now authenticated, can send commands
     ws.send(JSON.stringify({
-      cmd: 'NewAuthInitUrl'
+      cmd: 'NewKeyHandshakeUrl'
     }));
   }
 };

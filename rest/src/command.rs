@@ -22,7 +22,7 @@ pub enum Command {
     },
 
     // SDK methods
-    NewAuthInitUrl,
+    NewKeyHandshakeUrl,
     AuthenticateKey {
         main_key: String,
         subkeys: Vec<String>,

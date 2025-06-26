@@ -33,11 +33,11 @@ const portalInstance = await PortalApp.create(keypair, ["wss://relay.nostr.net"]
 portalInstance.listen(); // Notice the missing await here
 ```
 
-The `PortalApp` instance exposes a few methods to interact with the protocol. First, when scanning a QR code or receiving a `portal://` deep link, you can use the library to send the "AUTH_INIT" ping to the service like this:
+The `PortalApp` instance exposes a few methods to interact with the protocol. First, when scanning a QR code or receiving a `portal://` deep link, you can use the library to send the "key_handshake" ping to the service like this:
 
 ```ts
-const parsedUrl = parseAuthInitUrl(url);
-await portalInstance.sendAuthInit(parsedUrl);
+const parsedUrl = parseKeyHandshakeUrl(url);
+await portalInstance.sendKeyHandshake(parsedUrl);
 ```
 
 After sending this ping, the service will discover the user's public key, and will decide how to move forward. Generally it will send an authentication challenge or a payment request.

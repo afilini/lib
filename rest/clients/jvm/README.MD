@@ -46,7 +46,7 @@ fun main() {
     )
 
     // Request new authentication init URL
-    portal.sendCommand(Command.NewAuthInitUrl, 
+    portal.sendCommand(Command.NewKeyHandshakeUrl, 
       onError = { error -> println("Error: $error") }) { response ->
         val url = response.url
         val streamId = response.stream_id

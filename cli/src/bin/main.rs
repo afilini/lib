@@ -9,7 +9,7 @@ use portal::{
     nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
     profile::Profile,
     protocol::{
-        auth_init::AuthInitUrl,
+        key_handshake::KeyHandshakeUrl,
         model::{
             auth::AuthResponseStatus,
             payment::{
@@ -192,10 +192,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nEnter the auth init URL:");
     std::io::stdout().flush()?;
 
-    let mut auth_init_url = String::new();
-    std::io::stdin().read_line(&mut auth_init_url)?;
-    let url = AuthInitUrl::from_str(auth_init_url.trim())?;
-    app.send_auth_init(url).await?;
+    let mut key_handshake_url = String::new();
+    std::io::stdin().read_line(&mut key_handshake_url)?;
+    let url = KeyHandshakeUrl::from_str(key_handshake_url.trim())?;
+    app.send_key_handshake(url).await?;
 
     tokio::time::sleep(std::time::Duration::from_secs(600)).await;
 

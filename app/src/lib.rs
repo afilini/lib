@@ -10,8 +10,8 @@ use nostr::event::EventBuilder;
 use portal::{
     app::{
         auth::{
-            AuthChallengeEvent, AuthChallengeListenerConversation, AuthInitConversation,
-            AuthResponseConversation,
+            AuthChallengeEvent, AuthChallengeListenerConversation, AuthResponseConversation,
+            KeyHandshakeConversation,
         },
         payments::{
             PaymentRequestContent, PaymentRequestListenerConversation,
@@ -26,7 +26,7 @@ use portal::{
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
-        auth_init::AuthInitUrl,
+        key_handshake::KeyHandshakeUrl,
         model::{
             Timestamp,
             auth::{AuthResponseStatus, SubkeyProof},
@@ -176,9 +176,9 @@ pub struct PortalApp {
 }
 
 #[uniffi::export]
-pub fn parse_auth_init_url(url: &str) -> Result<AuthInitUrl, ParseError> {
+pub fn parse_key_handshake_url(url: &str) -> Result<KeyHandshakeUrl, ParseError> {
     use std::str::FromStr;
-    Ok(AuthInitUrl::from_str(url)?)
+    Ok(KeyHandshakeUrl::from_str(url)?)
 }
 
 #[uniffi::export]
@@ -192,8 +192,8 @@ pub enum ParseError {
     #[error("Parse error: {0}")]
     Inner(String),
 }
-impl From<portal::protocol::auth_init::ParseError> for ParseError {
-    fn from(error: portal::protocol::auth_init::ParseError) -> Self {
+impl From<portal::protocol::key_handshake::ParseError> for ParseError {
+    fn from(error: portal::protocol::key_handshake::ParseError) -> Self {
         ParseError::Inner(error.to_string())
     }
 }
@@ -278,7 +278,7 @@ impl PortalApp {
         Ok(())
     }
 
-    pub async fn send_auth_init(&self, url: AuthInitUrl) -> Result<(), AppError> {
+    pub async fn send_key_handshake(&self, url: KeyHandshakeUrl) -> Result<(), AppError> {
         let relays = self
             .router
             .channel()
@@ -292,7 +292,7 @@ impl PortalApp {
             .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
                 url.send_to(),
                 url.subkey.map(|s| vec![s.into()]).unwrap_or_default(),
-                AuthInitConversation { url, relays },
+                KeyHandshakeConversation::new(url, relays),
             )))
             .await?;
         // let rx = self.router.subscribe_to_service_request(id).await?;

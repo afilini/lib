@@ -14,7 +14,7 @@ data class CommandWithId(
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "cmd")
 @JsonSubTypes(
     JsonSubTypes.Type(Command.Auth::class, name = "Auth"),
-    JsonSubTypes.Type(Command.NewAuthInitUrl::class, name = "NewAuthInitUrl"),
+    JsonSubTypes.Type(Command.NewKeyHandshakeUrl::class, name = "NewKeyHandshakeUrl"),
     JsonSubTypes.Type(Command.AuthenticateKey::class, name = "AuthenticateKey"),
     JsonSubTypes.Type(Command.RequestRecurringPayment::class, name = "RequestRecurringPayment"),
     JsonSubTypes.Type(Command.RequestSinglePayment::class, name = "RequestSinglePayment"),
@@ -25,7 +25,7 @@ data class CommandWithId(
 sealed interface Command<R : ResponseData> {
     // --- Command implementations ---
     data class Auth(val token: String) : Command<ResponseData.AuthSuccess>
-    data object NewAuthInitUrl : Command<ResponseData.AuthInitUrl>
+    data object NewKeyHandshakeUrl : Command<ResponseData.KeyHandshakeUrl>
     data class AuthenticateKey(val main_key: String, val subkeys: List<String>) : Command<ResponseData.AuthResponse>
 
     @Deprecated("Not fully implemented")
@@ -72,7 +72,7 @@ sealed class Response {
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
 @JsonSubTypes(
     JsonSubTypes.Type(ResponseData.AuthSuccess::class, name = "auth_success"),
-    JsonSubTypes.Type(ResponseData.AuthInitUrl::class, name = "auth_init_url"),
+    JsonSubTypes.Type(ResponseData.KeyHandshakeUrl::class, name = "key_handshake_url"),
     JsonSubTypes.Type(ResponseData.AuthResponse::class, name = "auth_response"),
     JsonSubTypes.Type(ResponseData.RecurringPayment::class, name = "recurring_payment"),
     JsonSubTypes.Type(ResponseData.SinglePayment::class, name = "single_payment"),
@@ -80,7 +80,7 @@ sealed class Response {
 )
 sealed class ResponseData {
     data class AuthSuccess(val message: String) : ResponseData()
-    data class AuthInitUrl(val url: String, val stream_id: String) : ResponseData()
+    data class KeyHandshakeUrl(val url: String, val stream_id: String) : ResponseData()
     data class AuthResponse(val event: AuthResponseData) : ResponseData()
     @Deprecated("Not fully implemented")
     data class RecurringPayment(val status: Any) : ResponseData() // TODO: Replace Any
@@ -99,7 +99,7 @@ data class AuthResponseData(
 
 // ---------- NotificationData sealed class ----------
 sealed class NotificationData {
-    data class AuthInit(val main_key: String) : NotificationData()
+    data class KeyHandshake(val main_key: String) : NotificationData()
     data class PaymentStatusUpdate(val status: InvoiceStatus) : NotificationData()
 }
 

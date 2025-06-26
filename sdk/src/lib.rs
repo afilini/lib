@@ -10,7 +10,7 @@ use portal::{
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
         LocalKeypair,
-        auth_init::AuthInitUrl,
+        key_handshake::KeyHandshakeUrl,
         model::payment::{
             CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
             InvoiceRequestContentWithKey, InvoiceResponse, PaymentResponseContent,
@@ -24,8 +24,8 @@ use portal::{
     },
     sdk::{
         auth::{
-            AuthChallengeSenderConversation, AuthInitEvent, AuthInitReceiverConversation,
-            AuthResponseEvent,
+            AuthChallengeSenderConversation, AuthResponseEvent, KeyHandshakeEvent,
+            KeyHandshakeReceiverConversation,
         },
         payments::{
             RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation,
@@ -56,13 +56,15 @@ impl PortalSDK {
         Ok(Self { router, _listener })
     }
 
-    pub async fn new_auth_init_url(
+    pub async fn new_key_handshake_url(
         &self,
-    ) -> Result<(AuthInitUrl, NotificationStream<AuthInitEvent>), PortalSDKError> {
+    ) -> Result<(KeyHandshakeUrl, NotificationStream<KeyHandshakeEvent>), PortalSDKError> {
         let token = Uuid::new_v4().to_string();
 
-        let inner =
-            AuthInitReceiverConversation::new(self.router.keypair().public_key(), token.clone());
+        let inner = KeyHandshakeReceiverConversation::new(
+            self.router.keypair().public_key(),
+            token.clone(),
+        );
         let event = self
             .router
             .add_and_subscribe(MultiKeyListenerAdapter::new(
@@ -89,7 +91,7 @@ impl PortalSDK {
             (self.router.keypair().public_key(), None)
         };
 
-        let url = AuthInitUrl {
+        let url = KeyHandshakeUrl {
             main_key: main_key.into(),
             relays,
             token: token.clone(),
@@ -249,9 +251,7 @@ impl PortalSDK {
         let mut rx = self
             .router
             .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
-                recipient,
-                subkeys,
-                conv,
+                recipient, subkeys, conv,
             ))
             .await?;
 

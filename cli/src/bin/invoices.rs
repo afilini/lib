@@ -8,17 +8,14 @@ use app::{
 use portal::{
     nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
     profile::Profile,
-    protocol::{
-        auth_init::AuthInitUrl,
-        model::{
-            Timestamp,
-            auth::AuthResponseStatus,
-            bindings::PublicKey,
-            payment::{
-                CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
-                InvoiceResponse, PaymentResponseContent, PaymentStatus,
-                RecurringPaymentResponseContent, RecurringPaymentStatus,
-            },
+    protocol::model::{
+        Timestamp,
+        auth::AuthResponseStatus,
+        bindings::PublicKey,
+        payment::{
+            CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
+            InvoiceResponse, PaymentResponseContent, PaymentStatus,
+            RecurringPaymentResponseContent, RecurringPaymentStatus,
         },
     },
 };

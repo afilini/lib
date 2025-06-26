@@ -4,9 +4,9 @@ use nostr::{Keys, nips::nip19::ToBech32};
 use nostr_relay_pool::{RelayOptions, RelayPool};
 use portal::{
     app::auth::{
-        AuthChallengeListenerConversation, AuthInitConversation, AuthResponseConversation,
+        AuthChallengeListenerConversation, AuthResponseConversation, KeyHandshakeConversation,
     },
-    protocol::{LocalKeypair, auth_init::AuthInitUrl, model::auth::AuthResponseStatus},
+    protocol::{LocalKeypair, key_handshake::KeyHandshakeUrl, model::auth::AuthResponseStatus},
     router::{MessageRouter, MultiKeyListenerAdapter, adapters::one_shot::OneShotSenderAdapter},
 };
 
@@ -40,21 +40,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     print!("Enter the auth init URL: ");
     std::io::stdout().flush()?;
 
-    let mut auth_init_url = String::new();
-    std::io::stdin().read_line(&mut auth_init_url)?;
-    let auth_init_url = AuthInitUrl::from_str(auth_init_url.trim())?;
+    let mut key_handshake_url = String::new();
+    std::io::stdin().read_line(&mut key_handshake_url)?;
+    let key_handshake_url = KeyHandshakeUrl::from_str(key_handshake_url.trim())?;
 
     // send auth init
-    let conv = AuthInitConversation {
-        url: auth_init_url,
-        relays: router
+    let conv = KeyHandshakeConversation::new(
+        key_handshake_url,
+        router
             .channel()
             .relays()
             .await
             .keys()
             .map(|r| r.to_string())
             .collect(),
-    };
+    );
+
     router
         .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
             conv.url.send_to(),
@@ -125,7 +126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //
     //     let _service = Arc::clone(&service);
     //     tokio::spawn(async move {
-    //         _service.send_auth_init(auth_init_url).await.unwrap();
+    //         _service.send_key_handshake(key_handshake_url).await.unwrap();
     //     });
     //     let _service = Arc::clone(&service);
     //     tokio::spawn(async move {

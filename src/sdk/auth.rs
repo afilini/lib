@@ -9,7 +9,7 @@ use crate::{
     protocol::model::{
         Timestamp,
         auth::{
-            AuthChallengeContent, AuthInitContent, AuthResponseContent, AuthResponseStatus,
+            AuthChallengeContent, AuthResponseContent, AuthResponseStatus, KeyHandshakeContent,
             SubkeyProof,
         },
         event_kinds::*,
@@ -21,31 +21,26 @@ use crate::{
     utils::random_string,
 };
 
-pub struct AuthInitReceiverConversation {
+#[derive(derive_new::new)]
+pub struct KeyHandshakeReceiverConversation {
     local_key: PublicKey,
     token: String,
 }
 
-impl AuthInitReceiverConversation {
-    pub fn new(local_key: PublicKey, token: String) -> Self {
-        Self { local_key, token }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuthInitEvent {
+pub struct KeyHandshakeEvent {
     pub main_key: PublicKey,
 }
 
-impl MultiKeyListener for AuthInitReceiverConversation {
+impl MultiKeyListener for KeyHandshakeReceiverConversation {
     const VALIDITY_SECONDS: Option<u64> = None;
 
     type Error = ConversationError;
-    type Message = AuthInitContent;
+    type Message = KeyHandshakeContent;
 
     fn init(state: &crate::router::MultiKeyListenerAdapter<Self>) -> Result<Response, Self::Error> {
         let mut filter = Filter::new()
-            .kinds(vec![Kind::from(AUTH_INIT)])
+            .kinds(vec![Kind::from(KEY_HANDSHAKE)])
             .pubkey(state.local_key);
 
         if let Some(subkey_proof) = &state.subkey_proof {
@@ -62,7 +57,7 @@ impl MultiKeyListener for AuthInitReceiverConversation {
     ) -> Result<Response, Self::Error> {
         if message.token == state.token {
             Ok(Response::new()
-                .notify(AuthInitEvent {
+                .notify(KeyHandshakeEvent {
                     main_key: event.pubkey,
                 })
                 .finish())
@@ -72,8 +67,8 @@ impl MultiKeyListener for AuthInitReceiverConversation {
     }
 }
 
-impl ConversationWithNotification for MultiKeyListenerAdapter<AuthInitReceiverConversation> {
-    type Notification = AuthInitEvent;
+impl ConversationWithNotification for MultiKeyListenerAdapter<KeyHandshakeReceiverConversation> {
+    type Notification = KeyHandshakeEvent;
 }
 
 pub struct AuthChallengeSenderConversation {

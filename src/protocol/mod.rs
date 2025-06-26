@@ -2,9 +2,9 @@ use std::ops::Deref;
 
 use model::auth::SubkeyProof;
 
-pub mod auth_init;
 pub mod calendar;
 pub mod identity;
+pub mod key_handshake;
 pub mod model;
 pub mod subkey;
 

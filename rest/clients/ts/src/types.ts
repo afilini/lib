@@ -141,7 +141,7 @@ export interface ExchangeRate {
 // Command/Request types
 export type Command = 
   | { cmd: 'Auth', params: { token: string } }
-  | { cmd: 'NewAuthInitUrl' }
+  | { cmd: 'NewKeyHandshakeUrl' }
   | { cmd: 'AuthenticateKey', params: { main_key: string, subkeys: string[] } }
   | { cmd: 'RequestRecurringPayment', params: { main_key: string, subkeys: string[], payment_request: RecurringPaymentRequestContent } }
   | { cmd: 'RequestSinglePayment', params: { main_key: string, subkeys: string[], payment_request: SinglePaymentRequestContent } }
@@ -154,7 +154,7 @@ export type Command =
 // Response types
 export type ResponseData = 
   | { type: 'auth_success', message: string }
-  | { type: 'auth_init_url', url: string, stream_id: string }
+  | { type: 'key_handshake_url', url: string, stream_id: string }
   | { type: 'auth_response', event: AuthResponseData }
   | { type: 'recurring_payment', status: RecurringPaymentStatusContent }
   | { type: 'single_payment', status: PaymentStatusContent, stream_id: string | null }
@@ -171,7 +171,7 @@ export type Response =
 
 // Notification data types
 export type NotificationData = 
-  | { type: 'auth_init', main_key: string }
+  | { type: 'key_handshake', main_key: string }
   | { type: 'payment_status_update', status: InvoiceStatus }
   | { type: 'closed_recurring_payment', reason: string | null, subscription_id: string, main_key: string, recipient: string }
   ;
@@ -185,7 +185,7 @@ export type CloseRecurringPaymentNotification = {
 
 // Events 
 export interface EventCallbacks {
-  onAuthInit?: (mainKey: string) => void;
+  onKeyHandshake?: (mainKey: string) => void;
   onError?: (error: Error) => void;
   onConnected?: () => void;
   onDisconnected?: () => void;
@@ -211,7 +211,7 @@ export interface PaymentRequest {
   expiry: number;
 }
 
-export interface AuthInitUrlResponse {
+export interface KeyHandshakeUrlResponse {
   url: string;
   stream_id: string;
 } 
