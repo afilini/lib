@@ -46,6 +46,7 @@ use portal::{
 };
 
 pub use portal::app::*;
+use reqwest::StatusCode;
 
 use crate::{
     logger::{CallbackLogger, LogCallback, LogLevel},
@@ -635,7 +636,12 @@ impl PortalApp {
                 .body(json_string)
                 .send()
                 .await
-                .map_err(|e| AppError::ProfileRegistrationError(e.to_string()))
+                .map_err(|e| match e.status() {
+                    Some(status_code) => {
+                        AppError::ProfileRegistrationStatusError(status_code.as_u16())
+                    }
+                    None => AppError::ProfileRegistrationError(format!("Request failed: {}", e)),
+                })
         });
 
         let _ = task.join().await.map_err(|_| {
@@ -738,6 +744,9 @@ pub enum AppError {
 
     #[error("Profile registration error: {0}")]
     ProfileRegistrationError(String),
+
+    #[error("{0}")]
+    ProfileRegistrationStatusError(u16),
 }
 
 impl From<portal::router::ConversationError> for AppError {
