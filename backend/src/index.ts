@@ -382,7 +382,7 @@ async function authenticateKey(portalClient: PortalSDK, ws: WebSocket, loginUrl:
         new Promise((resolve, reject) => {
           timeout = setTimeout(() => {
             reject(new Error('Authentication timed out'));
-          }, 10000);
+          }, 60000);
         })
       ]) as AuthResponseData | null;
 

@@ -33,7 +33,7 @@ pub struct KeyHandshakeEvent {
 }
 
 impl MultiKeyListener for KeyHandshakeReceiverConversation {
-    const VALIDITY_SECONDS: Option<u64> = None;
+    const VALIDITY_SECONDS: Option<u64> = Some(5 * 60);
 
     type Error = ConversationError;
     type Message = KeyHandshakeContent;
