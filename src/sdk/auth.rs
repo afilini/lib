@@ -1,7 +1,5 @@
 use nostr::{
-    Filter,
-    event::{Kind, Tag},
-    key::PublicKey,
+    event::{Kind, Tag}, key::PublicKey, Filter
 };
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +39,7 @@ impl MultiKeyListener for KeyHandshakeReceiverConversation {
     fn init(state: &crate::router::MultiKeyListenerAdapter<Self>) -> Result<Response, Self::Error> {
         let mut filter = Filter::new()
             .kinds(vec![Kind::from(KEY_HANDSHAKE)])
+            .since(nostr::types::Timestamp::now())
             .pubkey(state.local_key);
 
         if let Some(subkey_proof) = &state.subkey_proof {

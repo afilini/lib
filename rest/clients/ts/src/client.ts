@@ -245,9 +245,9 @@ export class PortalSDK {
   }
   
   /**
-   * Generate a new auth init URL for Portal authentication
+   * Generate a new key handshake URL
    */
-  public async newKeyHandshakeUrl(onKeyHandshake: (mainKey: string) => void): Promise<string> {
+  public async newKeyHandshakeUrl(onKeyHandshake: (mainKey: string) => void, staticToken: string | null = null): Promise<string> {
     const _self = this;
     let streamId = '';
 
@@ -258,7 +258,7 @@ export class PortalSDK {
       }
     };
     
-    const response = await this.sendCommand('NewKeyHandshakeUrl');
+    const response = await this.sendCommand('NewKeyHandshakeUrl', { static_token: staticToken });
     
     if (response.type === 'key_handshake_url') {
       const { url, stream_id } = response;

@@ -100,6 +100,82 @@ function mainFunction() {
         .find(c => c.trim().startsWith('session_id='))
         ?.split('=')[1];
   
+    // Add universal message handler for regenerate_qr action
+    ws.on('message', async (message: Buffer) => {
+      try {
+        const data = JSON.parse(message.toString());
+        console.log('Received message:', data);
+        
+        if (data.action === 'regenerate_qr' && data.static_token) {
+          console.log('Regenerating QR with static token:', data.static_token);
+          
+          let customLoginUrl: string;
+          
+          customLoginUrl = await portalClient.newKeyHandshakeUrl((mainKey) => {
+            console.log('Auth Init received for key:', mainKey);
+
+            const status = loginTokens.get(customLoginUrl);
+            if (status && status.type === 'waiting') {
+              loginTokens.set(customLoginUrl, {
+                type: 'sending_challenge',
+                displayName: formatNpub(mainKey),
+              });
+            } else {
+              return;
+            }
+            
+            ws.send(`
+              <div id="status" class="status sending">
+                Welcome back, ${formatNpub(mainKey)}!
+              </div>
+              <div id="qr-overlay" class="show">Loading...</div>
+              <div id="login-button-section">
+                <a href="#" class="login-button disabled" id="portal-login">Login with Portal</a>
+              </div>
+            `);
+
+            // Fetch the profile in background
+            portalClient.fetchProfile(mainKey)
+              .then(profile => {
+                console.log('Profile:', profile);
+
+                if (profile) {
+                  ws.send(`
+                    <div id="status" class="status sending">
+                      Welcome back, ${profile.name}!
+                    </div>
+                  `);
+
+                  const current = loginTokens.get(customLoginUrl);
+                  if (current) {
+                    current.displayName = profile.name || formatNpub(mainKey);
+                    loginTokens.set(customLoginUrl, current);
+                  }
+                }
+              })
+              .catch(error => {
+                console.log('Error fetching profile:', error);
+              });
+    
+            return authenticateKey(portalClient, ws, customLoginUrl, mainKey);
+          }, data.static_token);
+
+          loginTokens.set(customLoginUrl, { type: 'waiting' });
+          
+          // Send updated HTML with new QR code
+          ws.send(`
+            <div id="login-button-section">
+              <a href="${customLoginUrl}" class="login-button" id="portal-login">Login with Portal</a>
+            </div>
+            <canvas id="qrcode" data-url="${customLoginUrl}"></canvas>
+          `);
+          return; // Important: return here to prevent further message processing
+        }
+      } catch (err) {
+        console.error('Error processing message:', err);
+      }
+    });
+  
     const isDashboard = req.url?.includes('dashboard');
     if (isDashboard) {
       // Dashboard connection

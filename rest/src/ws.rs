@@ -246,8 +246,8 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
         Command::Auth { .. } => {
             // Already handled in the outer function
         }
-        Command::NewKeyHandshakeUrl => {
-            match ctx.sdk.new_key_handshake_url().await {
+        Command::NewKeyHandshakeUrl { static_token } => {
+            match ctx.sdk.new_key_handshake_url(static_token).await {
                 Ok((url, notification_stream)) => {
                     // Generate a unique stream ID
                     let stream_id = Uuid::new_v4().to_string();

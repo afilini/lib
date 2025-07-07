@@ -58,8 +58,9 @@ impl PortalSDK {
 
     pub async fn new_key_handshake_url(
         &self,
+        static_token: Option<String>,
     ) -> Result<(KeyHandshakeUrl, NotificationStream<KeyHandshakeEvent>), PortalSDKError> {
-        let token = Uuid::new_v4().to_string();
+        let token = static_token.unwrap_or_else(|| Uuid::new_v4().to_string());
 
         let inner = KeyHandshakeReceiverConversation::new(
             self.router.keypair().public_key(),

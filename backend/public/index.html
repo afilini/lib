@@ -78,6 +78,9 @@
         width: 100%;
         box-sizing: border-box;
       }
+      #forget-user-section {
+        margin-bottom: 1rem;
+      }
       .forget-user-button {
         /* blue-ish background */
         background-color: #2196F3 !important;
@@ -160,6 +163,81 @@
         opacity: 1;;
         z-index: 1;
       }
+      
+      .advanced-section {
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 1rem;
+      }
+      
+      .advanced-toggle {
+        padding: 0.75rem 1rem;
+        background-color: #f8f9fa;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        user-select: none;
+        transition: background-color 0.2s;
+      }
+      
+      .advanced-toggle:hover {
+        background-color: #e9ecef;
+      }
+      
+      .toggle-arrow {
+        font-size: 0.8rem;
+        transition: transform 0.2s;
+      }
+      
+      .advanced-toggle.active .toggle-arrow {
+        transform: rotate(180deg);
+      }
+      
+      .advanced-content {
+        padding: 0 1rem;
+        background-color: white;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+      }
+      
+      .advanced-content.show {
+        max-height: 200px;
+      }
+      
+      .token-input-container {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        margin-bottom: 1rem;
+        width: 100%;
+      }
+      
+      .token-input {
+        flex: 1;
+        padding: 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 1rem;
+        box-sizing: border-box;
+        max-width: 180px;
+      }
+      
+      .token-input:focus {
+        outline: none;
+        border-color: #4CAF50;
+      }
+      
+      #regenerate-qr {
+        background-color: #2196F3;
+        margin: 0;
+      }
+      
+      #regenerate-qr:hover {
+        background-color: #1976D2;
+      }
     </style>
   </head>
   <body>
@@ -185,11 +263,31 @@
             Or click below to login from this device
           </div>
         </div>
+       
         <div class="local-login" id="login-button-section">
           <a href="#" class="login-button" id="portal-login">Login with Portal</a>
         </div>
         <div class="local-login" id="forget-user-section">
         </div>
+
+        <div class="advanced-section">
+          <div class="advanced-toggle" onclick="toggleAdvanced()">
+            <span>Advanced Options</span>
+            <span class="toggle-arrow">▼</span>
+          </div>
+          <div class="advanced-content" id="advanced-content">
+            <div class="instructions">
+              Enter a static token to generate a custom QR code
+            </div>
+            <form class="token-input-container" ws-send>
+              <input type="hidden" name="action" value="regenerate_qr">
+              <input type="text" name="static_token" placeholder="Enter static token..." class="token-input" required>
+              <button type="submit" class="login-button">GO</button>
+            </form>
+          </div>
+        </div>
+ 
+
         <div id="status" class="status waiting">
           Waiting for login request...
         </div>
@@ -216,6 +314,17 @@
           console.error('Failed to copy URL:', err);
         }
       });
+
+      // Advanced dropdown toggle
+      function toggleAdvanced() {
+        const toggle = document.querySelector('.advanced-toggle');
+        const content = document.getElementById('advanced-content');
+        
+        toggle.classList.toggle('active');
+        content.classList.toggle('show');
+      }
+
+      // No need for manual WebSocket handling - the form with ws-send handles it automatically
 
       htmx.on('htmx:wsAfterMessage', function(evt) {
         const canvas = document.querySelector('#qrcode');
