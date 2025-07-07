@@ -12,10 +12,12 @@ use portal::{
     protocol::{
         key_handshake::KeyHandshakeUrl,
         model::{
-            auth::AuthResponseStatus, bindings::PublicKey, payment::{
+            auth::AuthResponseStatus,
+            bindings::PublicKey,
+            payment::{
                 CloseRecurringPaymentResponse, PaymentResponseContent, PaymentStatus,
                 RecurringPaymentResponseContent, RecurringPaymentStatus,
-            }
+            },
         },
     },
 };
@@ -155,7 +157,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         picture: Some("https://tr.rbxcdn.com/180DAY-4d8c678185e70957c8f9b5ca267cd335/420/420/Image/Png/noFilter".to_string()),
         nip05: Some("john.doe@example.com".to_string()),
     }).await?;
-    dbg!(app.fetch_profile(PublicKey(nostr::PublicKey::parse("1e48492f5515d70e4fb40841894701cd97a35d7ea5bf93c84d2eac300ce4c25c")?)).await?);
+    dbg!(
+        app.fetch_profile(PublicKey(nostr::PublicKey::parse(
+            "1e48492f5515d70e4fb40841894701cd97a35d7ea5bf93c84d2eac300ce4c25c"
+        )?))
+        .await?
+    );
 
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
@@ -177,12 +184,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .unwrap();
     });
-    
+
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
-        _app.register_nip05("phantomsto".to_owned())
-            .await
-            .unwrap();
+        _app.register_nip05("phantomsto".to_owned()).await.unwrap();
     });
 
     // let _app = Arc::clone(&app);

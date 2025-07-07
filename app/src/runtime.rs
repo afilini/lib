@@ -44,6 +44,11 @@ impl BindingsRuntime {
             waker: self.waker.clone(),
         }
     }
+
+    pub fn shutdown(&self) {
+        self.tasks.lock().unwrap().clear();
+        self.waker.lock().unwrap().take();
+    }
 }
 
 pub struct RuntimePoller {

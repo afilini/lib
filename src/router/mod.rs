@@ -246,13 +246,21 @@ where
         Ok(())
     }
 
-    pub async fn purge(&mut self) {
+    async fn purge(&self) {
         self.conversations.lock().await.clear();
         self.subscribers.lock().await.clear();
         self.aliases.lock().await.clear();
         self.filters.write().await.clear();
         self.end_of_stored_events.lock().await.clear();
         self.global_relay_node.write().await.conversations.clear();
+    }
+
+    /// Shuts down the router and disconnects from all relays.
+    pub async fn shutdown(&self) -> Result<(), ConversationError> {
+        self.channel.shutdown().await.map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+        self.purge().await;
+        Ok(())
     }
 
     /// Starts listening for incoming messages and routes them to the appropriate conversations.

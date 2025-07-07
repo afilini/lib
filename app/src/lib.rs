@@ -273,6 +273,13 @@ impl PortalApp {
         Ok(Arc::new(Self { router, runtime }))
     }
 
+    pub async fn shutdown(&self) -> Result<(), AppError> {
+        self.router.shutdown().await?;
+
+        self.runtime.shutdown();
+        Ok(())
+    }
+
     pub async fn listen(&self) -> Result<(), AppError> {
         let _ = futures::join!(self.router.listen(), self.runtime.run());
 
