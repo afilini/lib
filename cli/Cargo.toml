@@ -10,5 +10,5 @@ env_logger = "0.11.8"
 log = "0.4.27"
 portal = { path = "../", features = ["bindings"] }
 tokio = { version = "1.41.1", features = [] }
-nwc = "0.41.0"
+nwc = "0.42.0"
 base64 = "0.22.1"
