@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 sdk = { path = "../sdk" }
 portal = { version = "0.1.0", path = "../" }
-nwc = "0.41.0"
+nwc = "0.42.0"
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.6", features = ["ws"] }
 tower-http = { version = "0.4", features = ["cors", "trace"] }
