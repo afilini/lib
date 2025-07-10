@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use chrono::Duration;
 use portal::{
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
@@ -262,6 +263,27 @@ impl PortalSDK {
 
         Ok(None)
     }
+
+    pub fn issue_jwt(
+        &self,
+        claims: portal::protocol::jwt::CustomClaims,
+        duration: Duration,
+    ) -> Result<String, PortalSDKError> {
+        let token =
+            portal::protocol::jwt::encode(&self.router.keypair().secret_key(), claims, duration)
+                .map_err(PortalSDKError::JwtError)?;
+        Ok(token)
+    }
+
+    pub fn verify_jwt(
+        &self,
+        public_key: PublicKey,
+        token: &str,
+    ) -> Result<portal::protocol::jwt::CustomClaims, PortalSDKError> {
+        let claims =
+            portal::protocol::jwt::decode(&public_key, token).map_err(PortalSDKError::JwtError)?;
+        Ok(claims)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -280,4 +302,7 @@ pub enum PortalSDKError {
 
     #[error("Master key required")]
     MasterKeyRequired,
+
+    #[error("JWT error: {0}")]
+    JwtError(#[from] portal::protocol::jwt::JwtError),
 }

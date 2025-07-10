@@ -20,7 +20,9 @@ data class CommandWithId(
     JsonSubTypes.Type(Command.RequestSinglePayment::class, name = "RequestSinglePayment"),
     JsonSubTypes.Type(Command.RequestPaymentRaw::class, name = "RequestPaymentRaw"),
     JsonSubTypes.Type(Command.FetchProfile::class, name = "FetchProfile"),
-    JsonSubTypes.Type(Command.SetProfile::class, name = "SetProfile")
+    JsonSubTypes.Type(Command.SetProfile::class, name = "SetProfile"),
+    JsonSubTypes.Type(Command.IssueJwt::class, name = "IssueJwt"),
+    JsonSubTypes.Type(Command.VerifyJwt::class, name = "VerifyJwt")
 )
 sealed interface Command<R : ResponseData> {
     // --- Command implementations ---
@@ -51,6 +53,8 @@ sealed interface Command<R : ResponseData> {
 
     data class FetchProfile(val main_key: String) : Command<ResponseData.ProfileData>
     data class SetProfile(val profile: Profile) : Command<ResponseData.ProfileData>
+    data class IssueJwt(val pubkey: String, val expires_at: Long) : Command<ResponseData.IssueJwt>
+    data class VerifyJwt(val pubkey: String, val token: String) : Command<ResponseData.VerifyJwt>
 }
 
 
@@ -76,7 +80,9 @@ sealed class Response {
     JsonSubTypes.Type(ResponseData.AuthResponse::class, name = "auth_response"),
     JsonSubTypes.Type(ResponseData.RecurringPayment::class, name = "recurring_payment"),
     JsonSubTypes.Type(ResponseData.SinglePayment::class, name = "single_payment"),
-    JsonSubTypes.Type(ResponseData.ProfileData::class, name = "profile")
+    JsonSubTypes.Type(ResponseData.ProfileData::class, name = "profile"),
+    JsonSubTypes.Type(ResponseData.IssueJwt::class, name = "issue_jwt"),
+    JsonSubTypes.Type(ResponseData.VerifyJwt::class, name = "verify_jwt")
 )
 sealed class ResponseData {
     data class AuthSuccess(val message: String) : ResponseData()
@@ -87,6 +93,8 @@ sealed class ResponseData {
     @Deprecated("Not fully implemented")
     data class SinglePayment(val status: Any, val stream_id: String?) : ResponseData() // TODO: Replace Any
     data class ProfileData(val profile: Profile?) : ResponseData()
+    data class IssueJwt(val token: String) : ResponseData()
+    data class VerifyJwt(val target_key: String) : ResponseData()
 }
 
 data class AuthResponseData(

@@ -119,6 +119,40 @@ class Portal(
         commands[id] = InternalTask(onSuccess = onSuccess as (ResponseData) -> Unit, onError = onError)
     }
 
+    /**
+     * Issue a JWT token for a given target key
+     */
+    fun issueJwt(target_key: String, expiresAt: Long, onError: (String) -> Unit, onSuccess: (String) -> Unit) {
+        sendCommand(
+            Command.IssueJwt(pubkey = target_key, expires_at = expiresAt),
+            onError = onError,
+            onSuccess = { response ->
+                if (response is ResponseData.IssueJwt) {
+                    onSuccess(response.token)
+                } else {
+                    onError("Unexpected response type")
+                }
+            }
+        )
+    }
+
+    /**
+     * Verify a JWT token and return the claims
+     */
+    fun verifyJwt(public_key: String, token: String, onError: (String) -> Unit, onSuccess: (String) -> Unit) {
+        sendCommand(
+            Command.VerifyJwt(pubkey = public_key, token = token),
+            onError = onError,
+            onSuccess = { response ->
+                if (response is ResponseData.VerifyJwt) {
+                    onSuccess(response.target_key)
+                } else {
+                    onError("Unexpected response type")
+                }
+            }
+        )
+    }
+
 
     companion object {
         private val logger = LoggerFactory.getLogger(Portal::class.java)

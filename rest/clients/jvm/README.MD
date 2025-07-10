@@ -65,6 +65,30 @@ fun main() {
         val updatedProfile = profileData.profile
         println("Updated Profile: $updatedProfile")
     }
+
+    // Issue a JWT token
+    val pubkey = "02eec5685e141a8fc6ee91e3aad0556bdb4f7b8f3c8c8c8c8c8c8c8c8c8c8c8c8"
+    val expiresAt = System.currentTimeMillis() / 1000 + 3600 // 1 hour from now
+    
+    portal.issueJwt(
+        target_key = pubkey,
+        expiresAt = expiresAt,
+        onError = { error -> println("Failed to issue JWT: $error") },
+        onSuccess = { token ->
+            println("Issued JWT token: $token")
+            
+            // Verify the JWT token
+            portal.verifyJwt(
+                public_key = pubkey,
+                token = token,
+                onError = { error -> println("Failed to verify JWT: $error") },
+                onSuccess = { target_key ->
+                    println("JWT verification successful")
+                    println("Target key: $target_key")
+                }
+            )
+        }
+    )
 }
 ```
 

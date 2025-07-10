@@ -5,6 +5,7 @@ use app::{
     InvoiceResponseListener, Mnemonic, PaymentRequestListener, PortalApp, RecurringPaymentRequest,
     SinglePaymentRequest, auth::AuthChallengeEvent, db::PortalDB, nwc::MakeInvoiceResponse,
 };
+use cli::{CliError, create_app_instance};
 use portal::{
     nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
     profile::Profile,
@@ -45,8 +46,6 @@ impl InvoiceResponseListener for LogInvoiceResponseListener {
     }
 }
 
-type CliError = Box<dyn std::error::Error>;
-
 #[tokio::main]
 async fn main() -> Result<(), CliError> {
     env_logger::init();
@@ -76,7 +75,7 @@ async fn main() -> Result<(), CliError> {
 
         _sender
             .request_invoice(
-                receiver_key,
+                receiver_key.public_key(),
                 InvoiceRequestContent {
                     request_id: String::from("my_id"),
                     amount: 5000,
@@ -96,42 +95,4 @@ async fn main() -> Result<(), CliError> {
 
     tokio::time::sleep(std::time::Duration::from_secs(600)).await;
     Ok(())
-}
-
-async fn create_app_instance(
-    name: &str,
-    mnemonic: &str,
-) -> Result<(PublicKey, Arc<PortalApp>), CliError> {
-    log::info!("{}: Creating app instance", name);
-
-    let mnemonic = Mnemonic::new(mnemonic)?;
-    // let mnemonic = generate_mnemonic()?;
-    let keypair = Arc::new(mnemonic.get_keypair()?);
-
-    let app = PortalApp::new(
-        keypair.clone(),
-        vec![
-            "wss://relay.nostr.net".to_string(),
-            "wss://relay.damus.io".to_string(),
-        ],
-    )
-    .await?;
-
-    let _app = Arc::clone(&app);
-    tokio::spawn(async move {
-        _app.listen().await.unwrap();
-    });
-
-    /*
-    app.set_profile(Profile {
-        name: Some("John Doe".to_string()),
-        display_name: Some("John Doe".to_string()),
-        picture: Some("https://tr.rbxcdn.com/180DAY-4d8c678185e70957c8f9b5ca267cd335/420/420/Image/Png/noFilter".to_string()),
-        nip05: Some("john.doe@example.com".to_string()),
-    }).await?;
-
-    */
-    log::info!("{}: Created app instance", name);
-
-    Ok((keypair.public_key(), app))
 }

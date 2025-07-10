@@ -1,5 +1,7 @@
 use nostr::{
-    event::{Kind, Tag}, key::PublicKey, Filter
+    Filter,
+    event::{Kind, Tag},
+    key::PublicKey,
 };
 use serde::{Deserialize, Serialize};
 

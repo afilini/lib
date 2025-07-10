@@ -257,7 +257,10 @@ where
 
     /// Shuts down the router and disconnects from all relays.
     pub async fn shutdown(&self) -> Result<(), ConversationError> {
-        self.channel.shutdown().await.map_err(|e| ConversationError::Inner(Box::new(e)))?;
+        self.channel
+            .shutdown()
+            .await
+            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
         self.purge().await;
         Ok(())

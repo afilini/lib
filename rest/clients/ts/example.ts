@@ -85,6 +85,23 @@ async function main() {
     await client.authenticate(authToken);
     console.log('Authentication successful');
 
+    // Example: JWT Operations
+    console.log('\n=== JWT Operations ===');
+    const target_key = '02eec5685e141a8fc6ee91e3aad0556bdb4f7b8f3c8c8c8c8c8c8c8c8c8c8c8c8';
+    const expiresAt = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+    
+    try {
+      const token = await client.issueJwt(target_key, expiresAt);
+      console.log('Issued JWT token:', token);
+      
+      // Example: Verify the JWT token
+      const claims = await client.verifyJwt(target_key, token);
+      console.log('JWT claims:', claims);
+      console.log('Target key:', claims.target_key);
+    } catch (error) {
+      console.error('JWT operation failed:', error);
+    }
+
     // Example 1: Authentication Flow
     console.log('\n=== Authentication Flow ===');
     const url = await client.newKeyHandshakeUrl((mainKey) => {
@@ -113,6 +130,8 @@ async function main() {
     rl.close();
   }
 }
+
+
 
 // Run the example
 main().catch(console.error); 

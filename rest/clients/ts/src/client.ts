@@ -430,13 +430,31 @@ export class PortalSDK {
   public async requestInvoice(
     recipientKey: string,
     content: InvoicePaymentRequestContent) : Promise<InvoiceResponseContent> {
-    
-    const response = await this.sendCommand('RequestInvoice', { recipient_key: recipientKey, content });
+    return this.sendCommand<InvoiceResponseContent>('RequestInvoice', {
+      recipient_key: recipientKey,
+      content
+    });
+  }
 
-    if (response.type === 'invoice_payment') {
-      return response as InvoiceResponseContent ;
-    }
+  /**
+   * Issue a JWT token for a given target key
+   */
+  public async issueJwt(target_key: string, duration_hours: number): Promise<string> {
+    return this.sendCommand<{ type: 'issue_jwt', token: string }>('IssueJwt', {
+      target_key,
+      duration_hours
+    }).then(response => response.token);
+  }
 
-    throw new Error('Unexpected response type');
+  /**
+   * Verify a JWT token and return the claims
+   */
+  public async verifyJwt(public_key: string, token: string): Promise<{ target_key: string}> {
+    return this.sendCommand<{ type: 'verify_jwt', target_key: string }>('VerifyJwt', {
+      pubkey: public_key,
+      token
+    }).then(response => ({
+      target_key: response.target_key,
+    }));
   }
 }

@@ -54,6 +54,12 @@ pub enum ResponseData {
         invoice: String,
         payment_hash: String,
     },
+
+    #[serde(rename = "issue_jwt")]
+    IssueJwt { token: String },
+
+    #[serde(rename = "verify_jwt")]
+    VerifyJwt { target_key: String },
 }
 
 #[derive(Debug, Serialize)]

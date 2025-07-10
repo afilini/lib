@@ -5,9 +5,11 @@ use crate::command::{Command, CommandWithId};
 use crate::response::*;
 use crate::{AppState, PublicKey};
 use axum::extract::ws::{Message, WebSocket};
+use chrono::Duration;
 use dashmap::DashMap;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
+use portal::protocol::jwt::CustomClaims;
 use portal::protocol::model::payment::{InvoiceRequestContentWithKey, SinglePaymentRequestContent};
 use portal::protocol::model::Timestamp;
 use sdk::PortalSDK;
@@ -848,6 +850,68 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                             &command.id,
                             &format!("Failed to send invoice payment: {}", e),
                         )
+                        .await;
+                }
+            }
+        }
+        Command::IssueJwt {
+            target_key,
+            duration_hours,
+        } => {
+            let target_key = match hex_to_pubkey(&target_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid target_key: {}", e))
+                        .await;
+                    return;
+                }
+            };
+
+            match ctx.sdk.issue_jwt(
+                CustomClaims::new(target_key.into()),
+                Duration::hours(duration_hours),
+            ) {
+                Ok(token) => {
+                    let response = Response::Success {
+                        id: command.id,
+                        data: ResponseData::IssueJwt { token },
+                    };
+
+                    let _ = ctx.send_message(response).await;
+                }
+                Err(err) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Failed to issue JWT: {}", err))
+                        .await;
+                }
+            }
+        }
+        Command::VerifyJwt { pubkey, token } => {
+            let public_key = match hex_to_pubkey(&pubkey) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid pubkey: {}", e))
+                        .await;
+                    return;
+                }
+            };
+
+            match ctx.sdk.verify_jwt(public_key, &token) {
+                Ok(claims) => {
+                    let response = Response::Success {
+                        id: command.id,
+                        data: ResponseData::VerifyJwt {
+                            target_key: claims.target_key.to_string(),
+                        },
+                    };
+
+                    let _ = ctx.send_message(response).await;
+                }
+                Err(err) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Failed to verify JWT: {}", err))
                         .await;
                 }
             }

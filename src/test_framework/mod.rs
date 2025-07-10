@@ -177,6 +177,17 @@ impl Channel for SimulatedChannel {
     async fn remove_relay(&self, url: String) -> Result<(), Self::Error> {
         todo!()
     }
+
+    async fn num_relays(&self) -> Result<usize, Self::Error> {
+        // For simulated channel, return the number of senders
+        Ok(self.senders.lock().await.len())
+    }
+
+    async fn shutdown(&self) -> Result<(), Self::Error> {
+        // For simulated channel, just clear the senders
+        self.senders.lock().await.clear();
+        Ok(())
+    }
 }
 
 /// A simulated network of Nostr nodes

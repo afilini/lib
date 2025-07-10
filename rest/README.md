@@ -160,6 +160,61 @@ Close a recurring payment for a recipient.
 }
 ```
 
+#### `IssueJwt`
+
+Issue a JWT token for a given public key.
+
+**Request:**
+```json
+{
+  "id": "unique-id",
+  "cmd": "IssueJwt",
+  "params": {
+    "pubkey": "hex_encoded_pub_key",
+    "expires_at": 1234567890
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "type": "success",
+  "id": "unique-id",
+  "data": {
+    "type": "issue_jwt",
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }
+}
+```
+
+#### `VerifyJwt`
+
+Verify a JWT token and return the claims.
+
+**Request:**
+```json
+{
+  "id": "unique-id",
+  "cmd": "VerifyJwt",
+  "params": {
+    "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "type": "success",
+  "id": "unique-id",
+  "data": {
+    "type": "verify_jwt",
+    "pubkey": "02eec5685e141a8fc6ee91e3aad0556bdb4f7b8f3c8c8c8c8c8c8c8c8c8c8c8c8",
+  }
+}
+```
+
 ## Example Integration (JavaScript)
 
 ```javascript

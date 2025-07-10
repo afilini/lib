@@ -138,6 +138,12 @@ export interface ExchangeRate {
   time: Timestamp; 
 }
 
+// JWT related types
+export interface JwtClaims {
+  target_key: string;
+  exp: number;
+}
+
 // Command/Request types
 export type Command = 
   | { cmd: 'Auth', params: { token: string } }
@@ -149,6 +155,8 @@ export type Command =
   | { cmd: 'CloseRecurringPayment', params: { main_key: string, subkeys: string[], subscription_id: string } }
   | { cmd: 'ListenClosedRecurringPayment', params: {} }
   | { cmd: 'RequestInvoice', params: { recipient_key: string, content: InvoiceRequestContent } }
+  | { cmd: 'IssueJwt', params: { target_key: string, duration_hours: number } }
+  | { cmd: 'VerifyJwt', params: { pubkey: string, token: string } }
   ;
 
 // Response types
@@ -162,6 +170,8 @@ export type ResponseData =
   | { type: 'close_recurring_payment_success', message: string }
   | { type: 'listen_closed_recurring_payment', stream_id: string }
   | { type: 'invoice_payment', invoice: string, payment_hash: string }
+  | { type: 'issue_jwt', token: string }
+  | { type: 'verify_jwt', target_key: string}
   ;
 
 export type Response = 

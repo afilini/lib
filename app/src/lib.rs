@@ -6,6 +6,7 @@ pub mod runtime;
 use std::{collections::HashMap, sync::Arc};
 
 use bitcoin::bip32;
+use chrono::Duration;
 use nostr::event::EventBuilder;
 use portal::{
     app::{
@@ -26,6 +27,7 @@ use portal::{
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
+        jwt::CustomClaims,
         key_handshake::KeyHandshakeUrl,
         model::{
             Timestamp,
@@ -137,7 +139,7 @@ impl From<bip39::Error> for MnemonicError {
 
 #[derive(uniffi::Object)]
 pub struct Keypair {
-    inner: portal::protocol::LocalKeypair,
+    pub inner: portal::protocol::LocalKeypair,
 }
 
 #[uniffi::export]
@@ -162,12 +164,39 @@ impl Keypair {
         let nsec = keys.to_bech32().map_err(|_| KeypairError::InvalidNsec)?;
         Ok(nsec)
     }
+
+    pub fn issue_jwt(
+        &self,
+        target_key: PublicKey,
+        expires_in_hours: i64,
+    ) -> Result<String, KeypairError> {
+        let token = portal::protocol::jwt::encode(
+            &self.inner.secret_key(),
+            CustomClaims::new(target_key.into()),
+            Duration::hours(expires_in_hours),
+        )
+        .map_err(|e| KeypairError::JwtError(e.to_string()))?;
+        Ok(token)
+    }
+
+    pub fn verify_jwt(
+        &self,
+        pubkey: PublicKey,
+        token: &str,
+    ) -> Result<portal::protocol::jwt::CustomClaims, KeypairError> {
+        let claims = portal::protocol::jwt::decode(&pubkey.into(), token)
+            .map_err(|e| KeypairError::JwtError(e.to_string()))?;
+        Ok(claims)
+    }
 }
 
 #[derive(Debug, PartialEq, thiserror::Error, uniffi::Error)]
 pub enum KeypairError {
     #[error("Invalid nsec")]
     InvalidNsec,
+
+    #[error("JWT error: {0}")]
+    JwtError(String),
 }
 
 #[derive(uniffi::Object)]

@@ -61,6 +61,14 @@ pub enum Command {
         subkeys: Vec<String>,
         content: InvoiceRequestContent,
     },
+    IssueJwt {
+        target_key: String,
+        duration_hours: i64,
+    },
+    VerifyJwt {
+        pubkey: String,
+        token: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
