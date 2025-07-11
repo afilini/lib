@@ -21,6 +21,10 @@
           extensions = [ "rust-src" "rust-analyzer" ];
           targets = [ "aarch64-linux-android" "x86_64-linux-android" ];
         };
+        rustToolchainApple = pkgs.rust-bin.stable.latest.default.override {
+          extensions = [ "rust-src" "rust-analyzer" ];
+          targets = [ "aarch64-apple-ios" "aarch64-apple-ios-sim" ];
+        };
         android = {
           buildToolsVersion = "35.0.0";
           cmakeVersion = "3.22.1";
@@ -32,8 +36,28 @@
           ndkVersion = "27.1.12297006";
           cmakeVersions = [ android.cmakeVersion ];
         };
+
+        xcodeenv = import "${nixpkgs}/pkgs/development/mobile/xcodeenv" { inherit (pkgs) callPackage; };
+        xcodewrapper = (xcodeenv.composeXcodeWrapper {
+          versions = [ ];
+          xcodeBaseDir = "/Applications/Xcode.app";
+        });
       in
       {
+        devShells.ios = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            rustToolchainApple
+            nodejs
+            yarn
+          ];
+
+          shellHook = ''
+            # This is set somewhere by nix
+            unset DEVELOPER_DIR
+            # We want to use stuff from the xcode wrapper over nixpkgs
+            export PATH=${xcodewrapper}/bin:$PATH
+          '';
+        };
         devShells.default = pkgs.mkShell rec {
           buildInputs = with pkgs; [
             rustToolchain

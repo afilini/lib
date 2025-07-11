@@ -20,6 +20,7 @@
     "cpp",
     "*.podspec",
     "react-native.config.js",
+    "PortalAppLibFramework.xcframework",
     "!ios/build",
     "!android/build",
     "!android/gradle",
