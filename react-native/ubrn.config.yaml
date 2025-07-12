@@ -7,3 +7,8 @@ android:
   targets:
     - arm64-v8a
     - x86_64
+
+ios:
+  targets:
+    - aarch64-apple-ios
+    - aarch64-apple-ios-sim
