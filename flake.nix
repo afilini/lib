@@ -51,7 +51,7 @@
           name = "portal-backend";
           version = (builtins.fromJSON (builtins.readFile ./backend/package.json)).version;
           src = ./backend;
-          npmDepsHash = "sha256-Lwph3F+BZygRs9lZQorB0pWTfijr/Fu2QpTHL4jKiDQ=";
+          npmDepsHash = "sha256-xIZk9Ty377OsHxwusllRzsx90uoWXIGzDRH2sUDWREc=";
           buildInputs = [ pkgs.sqlite ];
           preBuild = ''
             # Remove symlink to non-existent "../rest/clients/ts"
