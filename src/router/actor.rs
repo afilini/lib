@@ -1,110 +1,357 @@
 use std::{
     collections::{HashMap, HashSet},
-    ops::{Deref, DerefMut},
+    sync::Arc,
 };
 
-use adapters::ConversationWithNotification;
-use channel::Channel;
-use futures::{Stream, StreamExt};
-use nostr_relay_pool::RelayPoolNotification;
-use serde::{Serialize, de::DeserializeOwned};
-use tokio::sync::{Mutex, RwLock, RwLockReadGuard, mpsc};
-
 use nostr::{
-    event::{Event, EventBuilder, EventId, Kind, Tags},
+    event::{Event, EventBuilder, Kind},
     filter::Filter,
-    key::PublicKey,
     message::{RelayMessage, SubscriptionId},
     nips::nip44,
 };
+use nostr_relay_pool::RelayPoolNotification;
+use serde::{Serialize, de::DeserializeOwned};
+use tokio::sync::{mpsc, oneshot};
+use tokio_stream::StreamExt;
 
 use crate::{
     protocol::{LocalKeypair, model::event_kinds::SUBKEY_PROOF},
-    utils::random_string,
+    router::{
+        CleartextEvent, Conversation, ConversationError, ConversationMessage, NotificationStream,
+        PortalId, RelayNode, Response, adapters::ConversationWithNotification, channel::Channel,
+    },
 };
 
-pub mod actor;
-pub mod adapters;
-pub mod channel;
-pub mod ids;
+type ConversationBox = Box<dyn Conversation + Send + Sync>;
 
-pub use adapters::multi_key_listener::{MultiKeyListener, MultiKeyListenerAdapter};
-pub use adapters::multi_key_sender::{MultiKeySender, MultiKeySenderAdapter};
-pub use ids::PortalId;
-
-pub struct RelayNode {
-    conversations: HashSet<PortalId>,
+#[derive(thiserror::Error, Debug)]
+pub enum MessageRouterActorError {
+    #[error("Channel error: {0}")]
+    Channel(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("Conversation error: {0}")]
+    Conversation(#[from] ConversationError),
+    #[error("Receiver error: {0}")]
+    Receiver(#[from] oneshot::error::RecvError),
 }
 
-impl RelayNode {
-    fn new() -> Self {
-        RelayNode {
-            conversations: HashSet::new(),
+pub enum MessageRouterActorMessage {
+    AddRelay(String, oneshot::Sender<Result<(), ConversationError>>),
+    RemoveRelay(String, oneshot::Sender<Result<(), ConversationError>>),
+    Shutdown(oneshot::Sender<Result<(), ConversationError>>),
+    Listen(oneshot::Sender<Result<(), ConversationError>>),
+    AddConversation(
+        ConversationBox,
+        oneshot::Sender<Result<PortalId, ConversationError>>,
+    ),
+    AddConversationWithRelays(
+        ConversationBox,
+        Vec<String>,
+        oneshot::Sender<Result<PortalId, ConversationError>>,
+    ),
+    SubscribeToServiceRequest(
+        PortalId,
+        oneshot::Sender<Result<NotificationStream<serde_json::Value>, ConversationError>>,
+    ),
+    AddAndSubscribe(
+        ConversationBox,
+        oneshot::Sender<Result<NotificationStream<serde_json::Value>, ConversationError>>,
+    ),
+}
+
+pub struct MessageRouterActor {
+    keypair: LocalKeypair,
+    sender: mpsc::Sender<MessageRouterActorMessage>,
+}
+
+impl MessageRouterActor {
+    pub fn new<C>(channel: C, keypair: LocalKeypair) -> Self
+    where
+        C: Channel + Send + Sync + 'static,
+        C::Error: From<nostr::types::url::Error>,
+    {
+        let (tx, mut rx) = mpsc::channel(100);
+        let keypair_clone = keypair.clone();
+        tokio::spawn(async move {
+            let mut state = MessageRouterActorState::new(channel, keypair_clone);
+            while let Some(message) = rx.recv().await {
+                match message {
+                    MessageRouterActorMessage::AddRelay(url, response_tx) => {
+                        let result = state.add_relay(url.clone()).await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!("Failed to send AddRelay({}) response: {:?}", url, e);
+                        }
+                    }
+                    MessageRouterActorMessage::RemoveRelay(url, response_tx) => {
+                        let result = state.remove_relay(url.clone()).await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!("Failed to send RemoveRelay({}) response: {:?}", url, e);
+                        }
+                    }
+                    MessageRouterActorMessage::Shutdown(response_tx) => {
+                        let result = state.shutdown().await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!("Failed to send Shutdown response: {:?}", e);
+                        }
+                        break;
+                    }
+                    MessageRouterActorMessage::Listen(response_tx) => {
+                        let result = state.listen().await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!("Failed to send Listen response: {:?}", e);
+                        }
+                    }
+                    MessageRouterActorMessage::AddConversation(conversation, response_tx) => {
+                        let result = state.add_conversation(conversation).await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!("Failed to send AddConversation response: {:?}", e);
+                        }
+                    }
+                    MessageRouterActorMessage::AddConversationWithRelays(
+                        conversation,
+                        relays,
+                        response_tx,
+                    ) => {
+                        let result = state
+                            .add_conversation_with_relays(conversation, relays)
+                            .await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!(
+                                "Failed to send AddConversationWithRelays response: {:?}",
+                                e
+                            );
+                        }
+                    }
+                    MessageRouterActorMessage::SubscribeToServiceRequest(id, response_tx) => {
+                        let result = state.subscribe_to_service_request(id);
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!(
+                                "Failed to send SubscribeToServiceRequest response: {:?}",
+                                e
+                            );
+                        }
+                    }
+                    MessageRouterActorMessage::AddAndSubscribe(conversation, response_tx) => {
+                        let result = state.add_and_subscribe(conversation).await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!("Failed to send AddAndSubscribe response: {:?}", e);
+                        }
+                    }
+                }
+            }
+        });
+        Self {
+            keypair,
+            sender: tx,
+        }
+    }
+
+    async fn send_message(
+        &self,
+        message: MessageRouterActorMessage,
+    ) -> Result<(), MessageRouterActorError> {
+        self.sender
+            .send(message)
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        Ok(())
+    }
+
+    pub fn keypair(&self) -> &LocalKeypair {
+        &self.keypair
+    }
+
+    pub async fn add_relay(&self, url: String) -> Result<(), MessageRouterActorError> {
+        let (tx, _rx) = oneshot::channel();
+        self.sender
+            .send(MessageRouterActorMessage::AddRelay(url, tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        Ok(())
+    }
+
+    pub async fn remove_relay(&self, url: String) -> Result<(), MessageRouterActorError> {
+        let (tx, _rx) = oneshot::channel();
+        self.sender
+            .send(MessageRouterActorMessage::RemoveRelay(url, tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        Ok(())
+    }
+
+    pub async fn shutdown(&self) -> Result<(), MessageRouterActorError> {
+        let (tx, _rx) = oneshot::channel();
+        self.sender
+            .send(MessageRouterActorMessage::Shutdown(tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        Ok(())
+    }
+
+    pub async fn listen(&self) -> Result<(), MessageRouterActorError> {
+        let (tx, _rx) = oneshot::channel();
+        self.sender
+            .send(MessageRouterActorMessage::Listen(tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        Ok(())
+    }
+
+    pub async fn add_conversation(
+        &self,
+        conversation: ConversationBox,
+    ) -> Result<PortalId, MessageRouterActorError> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(MessageRouterActorMessage::AddConversation(conversation, tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        match rx.await {
+            Ok(result) => result.map_err(MessageRouterActorError::Conversation),
+            Err(e) => Err(MessageRouterActorError::Receiver(e)),
+        }
+    }
+
+    pub async fn add_conversation_with_relays(
+        &self,
+        conversation: ConversationBox,
+        relays: Vec<String>,
+    ) -> Result<PortalId, MessageRouterActorError> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(MessageRouterActorMessage::AddConversationWithRelays(
+                conversation,
+                relays,
+                tx,
+            ))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        match rx.await {
+            Ok(result) => result.map_err(MessageRouterActorError::Conversation),
+            Err(e) => Err(MessageRouterActorError::Receiver(e)),
+        }
+    }
+
+    /// Subscribes to notifications from a conversation with a specific type.
+    ///
+    /// # Type Parameters
+    /// * `T` - The type of notifications to receive, must implement `DeserializeOwned` and `Serialize`
+    ///
+    /// # Arguments
+    /// * `id` - The ID of the conversation to subscribe to
+    ///
+    /// # Returns
+    /// * `Ok(NotificationStream<T>)` - A stream of notifications from the conversation
+    /// * `Err(MessageRouterActorError)` if an error occurs during subscription
+    pub async fn subscribe_to_service_request<T: DeserializeOwned + Serialize>(
+        &self,
+        id: PortalId,
+    ) -> Result<NotificationStream<T>, MessageRouterActorError> {
+        // For the actor pattern, we need to use the raw stream and convert it
+        let raw_stream = self.subscribe_to_service_request_raw(id).await?;
+
+        // Convert the stream from serde_json::Value to T
+        let NotificationStream { stream } = raw_stream;
+        let typed_stream =
+            stream.map(|result| result.and_then(|value| serde_json::from_value(value)));
+
+        Ok(NotificationStream::new(typed_stream))
+    }
+
+    /// Subscribes to notifications from a conversation with raw JSON values.
+    ///
+    /// This is the internal method used by the actor pattern.
+    ///
+    /// # Arguments
+    /// * `id` - The ID of the conversation to subscribe to
+    ///
+    /// # Returns
+    /// * `Ok(NotificationStream<serde_json::Value>)` - A stream of raw JSON notifications
+    /// * `Err(MessageRouterActorError)` if an error occurs during subscription
+    async fn subscribe_to_service_request_raw(
+        &self,
+        id: PortalId,
+    ) -> Result<NotificationStream<serde_json::Value>, MessageRouterActorError> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(MessageRouterActorMessage::SubscribeToServiceRequest(id, tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        match rx.await {
+            Ok(result) => result.map_err(MessageRouterActorError::Conversation),
+            Err(e) => Err(MessageRouterActorError::Receiver(e)),
+        }
+    }
+
+    /// Adds a conversation and subscribes to its notifications in a single operation (typed).
+    pub async fn add_and_subscribe<T: DeserializeOwned + Serialize>(
+        &self,
+        conversation: ConversationBox,
+    ) -> Result<NotificationStream<T>, MessageRouterActorError> {
+        let raw_stream = self.add_and_subscribe_raw(conversation).await?;
+        let NotificationStream { stream } = raw_stream;
+        let typed_stream =
+            stream.map(|result| result.and_then(|value| serde_json::from_value(value)));
+        Ok(NotificationStream::new(typed_stream))
+    }
+
+    /// Adds a conversation and subscribes to its notifications in a single operation (raw Value).
+    async fn add_and_subscribe_raw(
+        &self,
+        conversation: ConversationBox,
+    ) -> Result<NotificationStream<serde_json::Value>, MessageRouterActorError> {
+        let (tx, rx) = oneshot::channel();
+        self.sender
+            .send(MessageRouterActorMessage::AddAndSubscribe(conversation, tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        match rx.await {
+            Ok(result) => result.map_err(MessageRouterActorError::Conversation),
+            Err(e) => Err(MessageRouterActorError::Receiver(e)),
         }
     }
 }
 
-// TODO: update expiry at every message
-
-/// A router that manages conversations over a Nostr channel.
-///
-/// The `MessageRouter` is responsible for:
-/// - Managing conversations and their lifecycle
-/// - Routing incoming messages to the appropriate conversations
-/// - Broadcasting outgoing messages to the network
-/// - Managing subscriptions to conversation notifications
-pub struct MessageRouter<C: Channel> {
+pub struct MessageRouterActorState<C: Channel> {
     channel: C,
     keypair: LocalKeypair,
-    conversations: Mutex<HashMap<PortalId, Box<dyn Conversation + Send>>>,
-    aliases: Mutex<HashMap<PortalId, Vec<u64>>>,
-    filters: RwLock<HashMap<PortalId, Filter>>,
-    subscribers: Mutex<HashMap<PortalId, Vec<mpsc::Sender<serde_json::Value>>>>,
-    end_of_stored_events: Mutex<HashMap<PortalId, usize>>,
+    conversations: HashMap<PortalId, ConversationBox>,
+    aliases: HashMap<PortalId, Vec<u64>>,
+    filters: HashMap<PortalId, Filter>,
+    subscribers: HashMap<PortalId, Vec<mpsc::Sender<serde_json::Value>>>,
+    end_of_stored_events: HashMap<PortalId, usize>,
 
-    relay_nodes: RwLock<HashMap<String, RelayNode>>,
-    global_relay_node: RwLock<RelayNode>,
+    relay_nodes: HashMap<String, RelayNode>,
+    global_relay_node: RelayNode,
 }
 
-impl<C: Channel> MessageRouter<C>
+impl<C: Channel + Send + Sync + 'static> MessageRouterActorState<C>
 where
-    <C as Channel>::Error: From<nostr::types::url::Error>,
+    C::Error: From<nostr::types::url::Error>,
 {
-    /// Creates a new `MessageRouter` with the given channel and keypair.
-    ///
-    /// The router will use the provided channel for all network communication and the keypair
-    /// for message encryption/decryption.
-    ///
-    /// # Arguments
-    /// * `channel` - The channel to use for network communication
-    /// * `keypair` - The keypair to use for encryption/decryption
     pub fn new(channel: C, keypair: LocalKeypair) -> Self {
         Self {
             channel,
             keypair,
-            conversations: Mutex::new(HashMap::new()),
-            aliases: Mutex::new(HashMap::new()),
-            subscribers: Mutex::new(HashMap::new()),
-            end_of_stored_events: Mutex::new(HashMap::new()),
-            filters: RwLock::new(HashMap::new()),
-            relay_nodes: RwLock::new(HashMap::new()),
-            global_relay_node: RwLock::new(RelayNode::new()),
+            conversations: HashMap::new(),
+            aliases: HashMap::new(),
+            filters: HashMap::new(),
+            subscribers: HashMap::new(),
+            end_of_stored_events: HashMap::new(),
+            relay_nodes: HashMap::new(),
+            global_relay_node: RelayNode::new(),
         }
     }
 
-    pub async fn add_relay(&self, url: String) -> Result<(), ConversationError> {
-        self.channel()
+    pub async fn add_relay(&mut self, url: String) -> Result<(), ConversationError> {
+        self.channel
             .add_relay(url.clone())
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
         // Subscribe existing conversations to new relays
         {
-            let global_relay_node = self.global_relay_node.read().await;
-            let filters = self.filters.read().await;
-            let aliases = self.aliases.lock().await;
-            for conversation_id in global_relay_node.conversations.iter() {
-                if let Some(filter) = filters.get(conversation_id) {
+            for conversation_id in self.global_relay_node.conversations.iter() {
+                if let Some(filter) = self.filters.get(conversation_id) {
                     log::trace!("Subscribing {} to new relay = {:?}", conversation_id, &url);
                     self.channel
                         .subscribe_to(vec![url.clone()], conversation_id.clone(), filter.clone())
@@ -112,17 +359,15 @@ where
                         .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
                     self.end_of_stored_events
-                        .lock()
-                        .await
                         .get_mut(conversation_id)
                         .and_then(|v| Some(*v += 1));
                 }
 
-                if let Some(aliases) = aliases.get(conversation_id) {
+                if let Some(aliases) = self.aliases.get(conversation_id) {
                     for alias in aliases {
                         let alias_id =
                             PortalId::new_conversation_alias(conversation_id.id(), *alias);
-                        if let Some(filter) = filters.get(&alias_id) {
+                        if let Some(filter) = self.filters.get(&alias_id) {
                             self.channel
                                 .subscribe_to(vec![url.clone()], alias_id, filter.clone())
                                 .await
@@ -134,9 +379,7 @@ where
         }
 
         {
-            let mut relay_nodes = self.relay_nodes.write().await;
-
-            relay_nodes
+            self.relay_nodes
                 .entry(url.clone())
                 .or_insert_with(|| RelayNode::new());
         }
@@ -144,22 +387,15 @@ where
         Ok(())
     }
 
-    pub async fn remove_relay(&self, url: String) -> Result<(), ConversationError> {
-        self.channel()
+    pub async fn remove_relay(&mut self, url: String) -> Result<(), ConversationError> {
+        self.channel
             .remove_relay(url.clone())
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-        let global_relay_guard = self.global_relay_node.read().await;
-        let mut relay_nodes_guard = self.relay_nodes.write().await;
-
-        if let Some(node) = relay_nodes_guard.remove(&url) {
-            let relay_nodes_guard = relay_nodes_guard.downgrade();
-
+        if let Some(node) = self.relay_nodes.remove(&url) {
             for conv in node.conversations.iter() {
-                let relays_of_conversation = self
-                    .get_relays_by_conversation(conv, &global_relay_guard, &relay_nodes_guard)
-                    .await?;
+                let relays_of_conversation = self.get_relays_by_conversation(conv)?;
                 match relays_of_conversation {
                     Some(urls) => {
                         // If conversation it not present in other relays, clean it
@@ -173,28 +409,27 @@ where
                 }
 
                 self.end_of_stored_events
-                    .lock()
-                    .await
                     .get_mut(conv)
                     .and_then(|v| Some(*v = v.saturating_sub(1)));
             }
         }
-
         Ok(())
     }
 
-    async fn get_relays_by_conversation<'g>(
+    fn get_relays_by_conversation(
         &self,
         conversation_id: &PortalId,
-        global_relay_guard: &RwLockReadGuard<'g, RelayNode>,
-        relay_nodes_guard: &RwLockReadGuard<'g, HashMap<String, RelayNode>>,
     ) -> Result<Option<HashSet<String>>, ConversationError> {
-        if global_relay_guard.conversations.contains(conversation_id) {
+        if self
+            .global_relay_node
+            .conversations
+            .contains(conversation_id)
+        {
             return Ok(None);
         }
 
         let mut relays = HashSet::new();
-        for (url, node) in relay_nodes_guard.iter() {
+        for (url, node) in self.relay_nodes.iter() {
             if node.conversations.contains(conversation_id) {
                 relays.insert(url.clone());
             }
@@ -203,27 +438,25 @@ where
         Ok(Some(relays))
     }
 
-    pub async fn cleanup_conversation(
-        &self,
+    async fn cleanup_conversation(
+        &mut self,
         conversation: &PortalId,
     ) -> Result<(), ConversationError> {
         // Remove conversation state
-        self.conversations.lock().await.remove(conversation);
-        self.subscribers.lock().await.remove(conversation);
-        self.filters.write().await.remove(conversation);
-        self.end_of_stored_events.lock().await.remove(conversation);
-        let aliases = self.aliases.lock().await.remove(conversation);
+        self.conversations.remove(conversation);
+        self.subscribers.remove(conversation);
+        self.filters.remove(conversation);
+        self.end_of_stored_events.remove(conversation);
+        let aliases = self.aliases.remove(conversation);
 
         // Remove from global relay node
         {
-            let mut global_relay_node = self.global_relay_node.write().await;
-            global_relay_node.conversations.remove(conversation);
+            self.global_relay_node.conversations.remove(conversation);
         }
 
         // Remove from specific relay node
         {
-            let mut relay_nodes = self.relay_nodes.write().await;
-            for (_, relay_node) in relay_nodes.iter_mut() {
+            for (_, relay_node) in self.relay_nodes.iter_mut() {
                 relay_node.conversations.remove(conversation);
             }
         }
@@ -246,23 +479,19 @@ where
         Ok(())
     }
 
-    async fn purge(&self) {
-        self.conversations.lock().await.clear();
-        self.subscribers.lock().await.clear();
-        self.aliases.lock().await.clear();
-        self.filters.write().await.clear();
-        self.end_of_stored_events.lock().await.clear();
-        self.global_relay_node.write().await.conversations.clear();
-    }
-
     /// Shuts down the router and disconnects from all relays.
-    pub async fn shutdown(&self) -> Result<(), ConversationError> {
+    pub async fn shutdown(&mut self) -> Result<(), ConversationError> {
         self.channel
             .shutdown()
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-        self.purge().await;
+        self.conversations.clear();
+        self.subscribers.clear();
+        self.aliases.clear();
+        self.filters.clear();
+        self.end_of_stored_events.clear();
+        self.global_relay_node.conversations.clear();
         Ok(())
     }
 
@@ -273,7 +502,7 @@ where
     /// # Returns
     /// * `Ok(())` if the listener exits normally
     /// * `Err(ConversationError)` if an error occurs while processing messages
-    pub async fn listen(&self) -> Result<(), ConversationError> {
+    pub async fn listen(&mut self) -> Result<(), ConversationError> {
         enum LocalEvent {
             Message(Event),
             EndOfStoredEvents,
@@ -303,8 +532,6 @@ where
                     message: RelayMessage::EndOfStoredEvents(subscription_id),
                     ..
                 } => {
-                    let mut eose = self.end_of_stored_events.lock().await;
-
                     // Parse the subscription ID to get the PortalId
                     let portal_id = match PortalId::parse(subscription_id.as_str()) {
                         Some(id) => id,
@@ -317,7 +544,7 @@ where
                         }
                     };
 
-                    let remaining = eose.get_mut(&portal_id).and_then(|v| {
+                    let remaining = self.end_of_stored_events.get_mut(&portal_id).and_then(|v| {
                         *v -= 1;
                         Some(*v)
                     });
@@ -325,7 +552,7 @@ where
                     log::trace!("{:?} EOSE left for {}", remaining, portal_id);
 
                     if remaining == Some(0) {
-                        eose.remove(&portal_id);
+                        self.end_of_stored_events.remove(&portal_id);
                         (subscription_id.into_owned(), LocalEvent::EndOfStoredEvents)
                     } else {
                         continue;
@@ -382,12 +609,12 @@ where
             let mut other_conversations = vec![];
 
             // Check if there are other potential conversations to dispatch to
-            for (id, filter) in self.filters.read().await.iter() {
+            for (id, filter) in self.filters.iter() {
                 if id.to_string() == subscription_id.as_str() {
                     continue;
                 }
 
-                match self.conversations.lock().await.get(id) {
+                match self.conversations.get(id) {
                     Some(conv) if conv.is_expired() => {
                         to_cleanup.push(id.clone());
                         continue;
@@ -416,7 +643,7 @@ where
     }
 
     async fn dispatch_event(
-        &self,
+        &mut self,
         subscription_id: SubscriptionId,
         message: ConversationMessage,
     ) -> Result<(), ConversationError> {
@@ -431,7 +658,7 @@ where
             }
         };
 
-        let response = match self.conversations.lock().await.get_mut(&conversation_id) {
+        let response = match self.conversations.get_mut(&conversation_id) {
             Some(conv) => match conv.on_message(message) {
                 Ok(response) => response,
                 Err(e) => {
@@ -456,25 +683,16 @@ where
     }
 
     async fn process_response(
-        &self,
+        &mut self,
         id: &PortalId,
         response: Response,
     ) -> Result<(), ConversationError> {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
-        let selected_relays_optional = {
-            let global_relay_guard = self.global_relay_node.read().await;
-            let relay_nodes_guard = self.relay_nodes.read().await;
-
-            self.get_relays_by_conversation(id, &global_relay_guard, &relay_nodes_guard)
-                .await?
-        };
+        let selected_relays_optional = self.get_relays_by_conversation(id)?;
 
         if !response.filter.is_empty() {
-            self.filters
-                .write()
-                .await
-                .insert(id.clone(), response.filter.clone());
+            self.filters.insert(id.clone(), response.filter.clone());
 
             let num_relays = if let Some(selected_relays) = selected_relays_optional.clone() {
                 let num_relays = selected_relays.len();
@@ -499,10 +717,7 @@ where
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?
             };
 
-            self.end_of_stored_events
-                .lock()
-                .await
-                .insert(id.clone(), num_relays);
+            self.end_of_stored_events.insert(id.clone(), num_relays);
         }
 
         let mut events_to_broadcast = vec![];
@@ -546,8 +761,7 @@ where
         }
 
         for notification in response.notifications.iter() {
-            let mut lock = self.subscribers.lock().await;
-            if let Some(senders) = lock.get_mut(id) {
+            if let Some(senders) = self.subscribers.get_mut(id) {
                 for sender in senders.iter_mut() {
                     let _ = sender.send(notification.clone()).await;
                 }
@@ -557,22 +771,14 @@ where
         if response.subscribe_to_subkey_proofs {
             let alias_num = rand::random::<u64>();
 
-            self.aliases
-                .lock()
-                .await
-                .entry(id.clone())
-                .or_default()
-                .push(alias_num);
+            self.aliases.entry(id.clone()).or_default().push(alias_num);
 
             let filter = Filter::new()
                 .kinds(vec![Kind::Custom(SUBKEY_PROOF)])
                 .events(events_to_broadcast.iter().map(|e| e.id));
 
             let alias = PortalId::new_conversation_alias(id.id(), alias_num);
-            self.filters
-                .write()
-                .await
-                .insert(alias.clone(), filter.clone());
+            self.filters.insert(alias.clone(), filter.clone());
 
             if let Some(selected_relays) = selected_relays_optional.clone() {
                 log::trace!(
@@ -622,22 +828,21 @@ where
         Ok(())
     }
 
-    async fn internal_add_with_id(
-        &self,
+    fn internal_add_with_id(
+        &mut self,
         id: &PortalId,
-        mut conversation: Box<dyn Conversation + Send>,
+        mut conversation: ConversationBox,
         relays: Option<Vec<String>>,
     ) -> Result<Response, ConversationError> {
         let response = conversation.init()?;
 
         if let Some(relays) = relays {
             // Update relays node
-            let mut relay_nodes = self.relay_nodes.write().await;
             // for each relay parameter
             for relay in relays {
                 // get relay node associated
 
-                match relay_nodes.get_mut(&relay) {
+                match self.relay_nodes.get_mut(&relay) {
                     Some(found_node) => {
                         found_node.conversations.insert(id.clone());
                     }
@@ -648,17 +853,10 @@ where
             }
         } else {
             // Update Global Relay Node
-            self.global_relay_node
-                .write()
-                .await
-                .conversations
-                .insert(id.clone());
+            self.global_relay_node.conversations.insert(id.clone());
         }
 
-        self.conversations
-            .lock()
-            .await
-            .insert(id.clone(), conversation);
+        self.conversations.insert(id.clone(), conversation);
 
         Ok(response)
     }
@@ -674,29 +872,25 @@ where
     /// * `Ok(PortalId)` - The ID of the added conversation
     /// * `Err(ConversationError)` if an error occurs during initialization
     pub async fn add_conversation(
-        &self,
-        conversation: Box<dyn Conversation + Send>,
+        &mut self,
+        conversation: ConversationBox,
     ) -> Result<PortalId, ConversationError> {
         let conversation_id = PortalId::new_conversation();
 
-        let response = self
-            .internal_add_with_id(&conversation_id, conversation, None)
-            .await?;
+        let response = self.internal_add_with_id(&conversation_id, conversation, None)?;
         self.process_response(&conversation_id, response).await?;
 
         Ok(conversation_id)
     }
 
     pub async fn add_conversation_with_relays(
-        &self,
-        conversation: Box<dyn Conversation + Send>,
+        &mut self,
+        conversation: ConversationBox,
         relays: Vec<String>,
     ) -> Result<PortalId, ConversationError> {
         let conversation_id = PortalId::new_conversation();
 
-        let response = self
-            .internal_add_with_id(&conversation_id, conversation, Some(relays))
-            .await?;
+        let response = self.internal_add_with_id(&conversation_id, conversation, Some(relays))?;
         self.process_response(&conversation_id, response).await?;
 
         Ok(conversation_id)
@@ -713,17 +907,12 @@ where
     /// # Returns
     /// * `Ok(NotificationStream<T>)` - A stream of notifications from the conversation
     /// * `Err(ConversationError)` if an error occurs during subscription
-    pub async fn subscribe_to_service_request<T: DeserializeOwned + Serialize>(
-        &self,
+    pub fn subscribe_to_service_request<T: DeserializeOwned + Serialize>(
+        &mut self,
         id: PortalId,
     ) -> Result<NotificationStream<T>, ConversationError> {
         let (tx, rx) = mpsc::channel(8);
-        self.subscribers
-            .lock()
-            .await
-            .entry(id)
-            .or_insert(Vec::new())
-            .push(tx);
+        self.subscribers.entry(id).or_insert(Vec::new()).push(tx);
 
         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
         let rx = rx.map(|content| serde_json::from_value(content));
@@ -749,308 +938,24 @@ where
     /// # Returns
     /// * `Ok(NotificationStream<Conv::Notification>)` - A stream of notifications from the conversation
     /// * `Err(ConversationError)` if an error occurs during initialization or subscription
-    pub async fn add_and_subscribe<Conv: ConversationWithNotification + Send + 'static>(
-        &self,
-        conversation: Conv,
-    ) -> Result<NotificationStream<Conv::Notification>, ConversationError> {
+    pub async fn add_and_subscribe<T: DeserializeOwned + Serialize>(
+        &mut self,
+        conversation: ConversationBox,
+    ) -> Result<NotificationStream<T>, ConversationError> {
         let conversation_id = PortalId::new_conversation();
 
         // Update Global Relay Node
 
         {
-            let mut global_relay_node = self.global_relay_node.write().await;
-            global_relay_node
+            self.global_relay_node
                 .conversations
                 .insert(conversation_id.clone());
         }
 
-        let delayed_reply = self
-            .subscribe_to_service_request::<Conv::Notification>(conversation_id.clone())
-            .await?;
-        let response = self
-            .internal_add_with_id(&conversation_id, Box::new(conversation), None)
-            .await?;
+        let delayed_reply = self.subscribe_to_service_request::<T>(conversation_id.clone())?;
+        let response = self.internal_add_with_id(&conversation_id, conversation, None)?;
         self.process_response(&conversation_id, response).await?;
 
         Ok(delayed_reply)
-    }
-
-    /// Gets a reference to the underlying channel.
-    pub fn channel(&self) -> &C {
-        &self.channel
-    }
-
-    /// Gets a reference to the router's keypair.
-    pub fn keypair(&self) -> &LocalKeypair {
-        &self.keypair
-    }
-}
-
-#[derive(Debug)]
-struct ResponseEntry {
-    pub recepient_keys: Vec<PublicKey>,
-    pub kind: Kind,
-    pub tags: Tags,
-    pub content: serde_json::Value,
-    pub encrypted: bool,
-}
-
-/// A response from a conversation.
-///
-/// Responses can include:
-/// - Filters for subscribing to specific message types
-/// - Replies to send to specific recipients or broadcast to all participants in the conversation
-/// - Notifications to send to subscribers
-/// - A flag indicating if the conversation is finished. If set, the conversation will be removed from the router.
-///
-/// # Example
-/// ```rust,no_run
-/// use portal::router::Response;
-/// use nostr::{Filter, Kind, Tags};
-///
-/// let response = Response::new()
-///     .filter(Filter::new().kinds(vec![Kind::from(27000)]))
-///     .reply_to(pubkey, Kind::from(27001), Tags::new(), content)
-///     .notify(notification)
-///     .finish();
-/// ```
-#[derive(Debug, Default)]
-pub struct Response {
-    filter: Filter,
-    responses: Vec<ResponseEntry>,
-    notifications: Vec<serde_json::Value>,
-    finished: bool,
-    subscribe_to_subkey_proofs: bool,
-}
-
-impl Response {
-    /// Creates a new empty response.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Sets the filter for this response.
-    ///
-    /// The filter will be used to subscribe to specific message types with the relays.
-    ///
-    /// # Arguments
-    /// * `filter` - The filter to set
-    pub fn filter(mut self, filter: Filter) -> Self {
-        self.filter = filter;
-        self
-    }
-
-    /// Adds a reply to be sent to all recipients.
-    ///
-    /// # Arguments
-    /// * `kind` - The kind of message to send
-    /// * `tags` - The tags to include in the message
-    /// * `content` - The content to send, must be serializable
-    pub fn reply_all<S: serde::Serialize>(mut self, kind: Kind, tags: Tags, content: S) -> Self {
-        let content = serde_json::to_value(&content).unwrap();
-        self.responses.push(ResponseEntry {
-            recepient_keys: vec![],
-            kind,
-            tags,
-            content,
-            encrypted: true,
-        });
-        self
-    }
-
-    /// Adds a reply to be sent to a specific recipient.
-    ///
-    /// # Arguments
-    /// * `pubkey` - The public key of the recipient
-    /// * `kind` - The kind of message to send
-    /// * `tags` - The tags to include in the message
-    /// * `content` - The content to send, must be serializable
-    pub fn reply_to<S: serde::Serialize>(
-        mut self,
-        pubkey: PublicKey,
-        kind: Kind,
-        tags: Tags,
-        content: S,
-    ) -> Self {
-        let content = serde_json::to_value(&content).unwrap();
-        self.responses.push(ResponseEntry {
-            recepient_keys: vec![pubkey],
-            kind,
-            tags,
-            content,
-            encrypted: true,
-        });
-        self
-    }
-
-    /// Adds a notification to be sent to subscribers.
-    ///
-    /// # Arguments
-    /// * `data` - The notification data to send, must be serializable
-    pub fn notify<S: serde::Serialize>(mut self, data: S) -> Self {
-        let content = serde_json::to_value(&data).unwrap();
-        self.notifications.push(content);
-        self
-    }
-
-    /// Marks the conversation as finished.
-    ///
-    /// When a conversation is finished, it will be removed from the router.
-    pub fn finish(mut self) -> Self {
-        self.finished = true;
-        self
-    }
-
-    /// Subscribe to events that tag our replies via the event_id
-    pub fn subscribe_to_subkey_proofs(mut self) -> Self {
-        self.subscribe_to_subkey_proofs = true;
-        self
-    }
-
-    // Broadcast an unencrypted event
-    pub fn broadcast_unencrypted<S: serde::Serialize>(
-        mut self,
-        kind: Kind,
-        tags: Tags,
-        content: S,
-    ) -> Self {
-        let content = serde_json::to_value(&content).unwrap();
-        self.responses.push(ResponseEntry {
-            recepient_keys: vec![],
-            kind,
-            tags,
-            content,
-            encrypted: false,
-        });
-        self
-    }
-
-    fn set_recepient_keys(&mut self, user: PublicKey, subkeys: &HashSet<PublicKey>) {
-        for response in &mut self.responses {
-            if response.recepient_keys.is_empty() {
-                response.recepient_keys.push(user);
-                response.recepient_keys.extend(subkeys.iter().cloned());
-            }
-        }
-    }
-
-    fn extend(&mut self, response: Response) {
-        self.responses.extend(response.responses);
-        self.subscribe_to_subkey_proofs |= response.subscribe_to_subkey_proofs;
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum ConversationMessage {
-    Cleartext(CleartextEvent),
-    Encrypted(Event),
-    EndOfStoredEvents,
-}
-
-#[derive(thiserror::Error, Debug)]
-pub enum ConversationError {
-    #[error("Encrypted messages not supported")]
-    Encrypted,
-
-    #[error("User not set")]
-    UserNotSet,
-
-    #[error("Inner error: {0}")]
-    Inner(Box<dyn std::error::Error + Send + Sync>),
-
-    #[error("Relay '{0}' is not connected")]
-    RelayNotConnected(String),
-}
-
-pub trait Conversation {
-    fn on_message(&mut self, message: ConversationMessage) -> Result<Response, ConversationError>;
-    fn is_expired(&self) -> bool;
-    fn init(&mut self) -> Result<Response, ConversationError> {
-        Ok(Response::default())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct CleartextEvent {
-    pub id: EventId,
-    pub pubkey: PublicKey,
-    pub created_at: nostr::types::Timestamp,
-    pub kind: Kind,
-    pub tags: Tags,
-    pub content: serde_json::Value,
-}
-
-impl CleartextEvent {
-    pub fn new(event: &Event, decrypted: &str) -> Result<Self, serde_json::Error> {
-        Ok(Self {
-            id: event.id,
-            pubkey: event.pubkey,
-            created_at: event.created_at,
-            kind: event.kind,
-            tags: event.tags.clone(),
-            content: serde_json::from_str(decrypted)?,
-        })
-    }
-
-    pub fn new_json(event: &Event, content: serde_json::Value) -> Self {
-        Self {
-            id: event.id,
-            pubkey: event.pubkey,
-            created_at: event.created_at,
-            kind: event.kind,
-            tags: event.tags.clone(),
-            content,
-        }
-    }
-}
-
-/// Convenience wrapper around a stream of notifications.
-///
-/// It's automatically implemented for any stream that implements `Stream<Item = Result<T, serde_json::Error>> + Send + Unpin + 'static`.
-pub trait InnerNotificationStream<T: Serialize>:
-    Stream<Item = Result<T, serde_json::Error>> + Send + Unpin + 'static
-{
-}
-impl<S, T: Serialize> InnerNotificationStream<T> for S where
-    S: Stream<Item = Result<T, serde_json::Error>> + Send + Unpin + 'static
-{
-}
-
-pub struct NotificationStream<T: Serialize> {
-    stream: Box<dyn InnerNotificationStream<T>>,
-}
-
-impl<T: Serialize> NotificationStream<T> {
-    pub(crate) fn new(stream: impl InnerNotificationStream<T>) -> Self {
-        Self {
-            stream: Box::new(stream),
-        }
-    }
-
-    /// Returns the next notification from the stream.
-    pub async fn next(&mut self) -> Option<Result<T, serde_json::Error>> {
-        use futures::StreamExt;
-
-        self.stream.next().await
-    }
-}
-
-impl<T: Serialize> Deref for NotificationStream<T> {
-    type Target = Box<dyn InnerNotificationStream<T>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.stream
-    }
-}
-
-impl<T: Serialize> DerefMut for NotificationStream<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.stream
-    }
-}
-
-impl<T: Serialize> std::fmt::Debug for NotificationStream<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NotificationStream").finish()
     }
 }

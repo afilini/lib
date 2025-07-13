@@ -6,14 +6,14 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 
 use crate::{
     protocol::LocalKeypair,
-    router::{Conversation, ConversationError, MessageRouter, channel::Channel},
+    router::{Conversation, ConversationError, MessageRouter, PortalId, channel::Channel},
 };
 
 pub mod logger;
 
 /// A simulated channel that broadcasts messages to all connected nodes
 pub struct SimulatedChannel {
-    subscribers: Arc<RwLock<HashMap<String, (Filter, mpsc::Sender<RelayPoolNotification>)>>>,
+    subscribers: Arc<RwLock<HashMap<PortalId, (Filter, mpsc::Sender<RelayPoolNotification>)>>>,
     messages: Arc<Mutex<Vec<Event>>>,
     senders: Arc<Mutex<Vec<mpsc::Sender<RelayPoolNotification>>>>,
     receiver: Mutex<mpsc::Receiver<RelayPoolNotification>>,
@@ -63,7 +63,7 @@ pub enum SimulatedChannelError {
 impl Channel for SimulatedChannel {
     type Error = SimulatedChannelError;
 
-    async fn subscribe(&self, id: String, filter: Filter) -> Result<(), Self::Error> {
+    async fn subscribe(&self, id: PortalId, filter: Filter) -> Result<(), Self::Error> {
         // Use the first sender for subscribers
         self.subscribers
             .write()
@@ -77,7 +77,7 @@ impl Channel for SimulatedChannel {
         //         let relay_url = RelayUrl::parse("wss://simulated").unwrap();
         //         let notification = RelayPoolNotification::Event {
         //             event: Box::new(event.clone()),
-        //             subscription_id: SubscriptionId::new(id.clone()),
+        //             subscription_id: SubscriptionId::new(id.to_string()),
         //             relay_url,
         //         };
         //         let _ = self.broadcast_notification(notification).await;
@@ -90,7 +90,7 @@ impl Channel for SimulatedChannel {
     async fn subscribe_to<I, U>(
         &self,
         urls: I,
-        id: String,
+        id: PortalId,
         filter: nostr::Filter,
     ) -> Result<(), Self::Error>
     where
@@ -107,7 +107,7 @@ impl Channel for SimulatedChannel {
         Ok(())
     }
 
-    async fn unsubscribe(&self, id: String) -> Result<(), Self::Error> {
+    async fn unsubscribe(&self, id: PortalId) -> Result<(), Self::Error> {
         self.subscribers.write().await.remove(&id);
         Ok(())
     }
@@ -123,7 +123,7 @@ impl Channel for SimulatedChannel {
                 let relay_url = RelayUrl::parse("wss://simulated").unwrap();
                 let notification = RelayPoolNotification::Event {
                     event: Box::new(event.clone()),
-                    subscription_id: SubscriptionId::new(subscription_id.clone()),
+                    subscription_id: SubscriptionId::new(subscription_id.to_string()),
                     relay_url,
                 };
                 let _ = sender.send(notification).await;
@@ -150,7 +150,7 @@ impl Channel for SimulatedChannel {
                 let relay_url = RelayUrl::parse("wss://simulated").unwrap();
                 let notification = RelayPoolNotification::Event {
                     event: Box::new(event.clone()),
-                    subscription_id: SubscriptionId::new(subscription_id.clone()),
+                    subscription_id: SubscriptionId::new(subscription_id.to_string()),
                     relay_url,
                 };
                 let _ = sender.send(notification).await;

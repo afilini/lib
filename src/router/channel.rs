@@ -3,6 +3,8 @@ use std::error::Error;
 use nostr::{message::SubscriptionId, types::TryIntoUrl};
 use nostr_relay_pool::{RelayOptions, RelayPool, RelayPoolNotification, SubscribeOptions};
 
+use crate::router::ids::PortalId;
+
 /// A trait for an abstract channel
 ///
 /// This is modeled around Nostr relays, in which we can subscribe to events matching a filter.
@@ -11,14 +13,14 @@ pub trait Channel: Send + 'static {
 
     fn subscribe(
         &self,
-        id: String,
+        id: PortalId,
         filter: nostr::Filter,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
 
     fn subscribe_to<I, U>(
         &self,
         urls: I,
-        id: String,
+        id: PortalId,
         filter: nostr::Filter,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send
     where
@@ -29,7 +31,7 @@ pub trait Channel: Send + 'static {
 
     fn unsubscribe(
         &self,
-        id: String,
+        id: PortalId,
     ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
 
     fn broadcast(
@@ -69,16 +71,20 @@ pub trait Channel: Send + 'static {
 impl Channel for RelayPool {
     type Error = nostr_relay_pool::pool::Error;
 
-    async fn subscribe(&self, id: String, filter: nostr::Filter) -> Result<(), Self::Error> {
-        self.subscribe_with_id(SubscriptionId::new(id), filter, SubscribeOptions::default())
-            .await?;
+    async fn subscribe(&self, id: PortalId, filter: nostr::Filter) -> Result<(), Self::Error> {
+        self.subscribe_with_id(
+            SubscriptionId::new(id.to_string()),
+            filter,
+            SubscribeOptions::default(),
+        )
+        .await?;
         Ok(())
     }
 
     async fn subscribe_to<I, U>(
         &self,
         urls: I,
-        id: String,
+        id: PortalId,
         filter: nostr::Filter,
     ) -> Result<(), Self::Error>
     where
@@ -89,7 +95,7 @@ impl Channel for RelayPool {
     {
         self.subscribe_with_id_to(
             urls,
-            SubscriptionId::new(id),
+            SubscriptionId::new(id.to_string()),
             filter,
             SubscribeOptions::default(),
         )
@@ -97,8 +103,8 @@ impl Channel for RelayPool {
         Ok(())
     }
 
-    async fn unsubscribe(&self, id: String) -> Result<(), Self::Error> {
-        self.unsubscribe(&SubscriptionId::new(id)).await;
+    async fn unsubscribe(&self, id: PortalId) -> Result<(), Self::Error> {
+        self.unsubscribe(&SubscriptionId::new(id.to_string())).await;
         Ok(())
     }
 
