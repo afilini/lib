@@ -6,7 +6,10 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 
 use crate::{
     protocol::LocalKeypair,
-    router::{Conversation, ConversationError, MessageRouter, PortalId, channel::Channel, MessageRouterActorError},
+    router::{
+        Conversation, ConversationError, MessageRouter, MessageRouterActorError, PortalId,
+        channel::Channel,
+    },
 };
 
 pub mod logger;
@@ -188,12 +191,17 @@ impl Channel for SimulatedChannel {
         self.senders.lock().await.clear();
         Ok(())
     }
+
+    async fn get_relays(&self) -> Result<Vec<String>, Self::Error> {
+        // For simulated channel, return a list of simulated relay URLs
+        Ok(vec!["wss://simulated".to_string()])
+    }
 }
 
 /// A simulated network of Nostr nodes
 pub struct SimulatedNetwork {
     channel: SimulatedChannel,
-    nodes: HashMap<String, Arc<MessageRouter>>,
+    nodes: HashMap<String, Arc<MessageRouter<SimulatedChannel>>>,
 }
 
 impl SimulatedNetwork {
@@ -209,14 +217,14 @@ impl SimulatedNetwork {
         &mut self,
         id: String,
         keypair: LocalKeypair,
-    ) -> Arc<MessageRouter> {
+    ) -> Arc<MessageRouter<SimulatedChannel>> {
         let router = Arc::new(MessageRouter::new(self.channel.clone().await, keypair));
         self.nodes.insert(id, Arc::clone(&router));
         router
     }
 
     /// Get a node by its ID
-    pub fn get_node(&self, id: &str) -> Option<&Arc<MessageRouter>> {
+    pub fn get_node(&self, id: &str) -> Option<&Arc<MessageRouter<SimulatedChannel>>> {
         self.nodes.get(id)
     }
 
@@ -254,21 +262,18 @@ impl ScenarioBuilder {
         conversation: C,
     ) -> Result<Self, ConversationError> {
         if let Some(router) = self.network.get_node(node_id) {
-            router.add_conversation(Box::new(conversation)).await.map_err(|e| match e {
-                MessageRouterActorError::Conversation(ce) => ce,
-                MessageRouterActorError::Channel(_) => {
-                    ConversationError::Inner(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Channel error",
-                    )))
-                }
-                MessageRouterActorError::Receiver(_) => {
-                    ConversationError::Inner(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        "Receiver error",
-                    )))
-                }
-            })?;
+            router
+                .add_conversation(Box::new(conversation))
+                .await
+                .map_err(|e| match e {
+                    MessageRouterActorError::Conversation(ce) => ce,
+                    MessageRouterActorError::Channel(_) => ConversationError::Inner(Box::new(
+                        std::io::Error::new(std::io::ErrorKind::Other, "Channel error"),
+                    )),
+                    MessageRouterActorError::Receiver(_) => ConversationError::Inner(Box::new(
+                        std::io::Error::new(std::io::ErrorKind::Other, "Receiver error"),
+                    )),
+                })?;
         }
         Ok(self)
     }

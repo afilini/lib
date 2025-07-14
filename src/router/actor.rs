@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use nostr::{
     event::{Event, EventBuilder, Kind},
@@ -63,24 +66,28 @@ pub enum MessageRouterActorMessage {
     Ping(oneshot::Sender<()>),
 
     /// This is used to handle relay pool notifications.
-    HandleRelayPoolNotification(RelayPoolNotification, oneshot::Sender<Result<(), ConversationError>>),
+    HandleRelayPoolNotification(RelayPoolNotification),
 
     /// This is used from SDK to get the relays.
     GetRelays(oneshot::Sender<Result<Vec<String>, ConversationError>>),
 }
 
-pub struct MessageRouterActor {
+pub struct MessageRouterActor<C>
+where
+    C: Channel + Send + Sync + 'static,
+    C::Error: From<nostr::types::url::Error>,
+{
+    channel: Arc<C>,
     keypair: LocalKeypair,
     sender: mpsc::Sender<MessageRouterActorMessage>,
 }
 
-impl MessageRouterActor {
-    pub fn new<C : Channel>(channel: C, keypair: LocalKeypair) -> Self
-    where
-        C: Channel + Send + Sync + 'static,
-        C::Error: From<nostr::types::url::Error>,
-    {
-
+impl<C> MessageRouterActor<C>
+where
+    C: Channel + Send + Sync + 'static,
+    C::Error: From<nostr::types::url::Error>,
+{
+    pub fn new(channel: C, keypair: LocalKeypair) -> Self {
         let keypair_clone = keypair.clone();
         let channel = Arc::new(channel);
 
@@ -88,43 +95,47 @@ impl MessageRouterActor {
 
         let channel_clone = Arc::clone(&channel);
         let tx_clone = tx.clone();
-        
         tokio::spawn(async move {
-            let mut state = MessageRouterActorState::new(channel_clone, keypair_clone);
+            let mut state = MessageRouterActorState::new(keypair_clone);
             while let Some(message) = rx.recv().await {
                 match message {
                     MessageRouterActorMessage::AddRelay(url, response_tx) => {
-                        let result = state.add_relay(url.clone()).await;
+                        let result = state.add_relay(&channel_clone, url.clone()).await;
                         if let Err(e) = response_tx.send(result) {
                             log::error!("Failed to send AddRelay({}) response: {:?}", url, e);
                         }
                     }
                     MessageRouterActorMessage::RemoveRelay(url, response_tx) => {
-                        let result = state.remove_relay(url.clone()).await;
+                        let result = state.remove_relay(&channel_clone, url.clone()).await;
                         if let Err(e) = response_tx.send(result) {
                             log::error!("Failed to send RemoveRelay({}) response: {:?}", url, e);
                         }
                     }
                     MessageRouterActorMessage::Shutdown(response_tx) => {
-                        let result = state.shutdown().await;
+                        let result = state.shutdown(&channel_clone).await;
                         if let Err(e) = response_tx.send(result) {
                             log::error!("Failed to send Shutdown response: {:?}", e);
                         }
                         break;
                     }
                     MessageRouterActorMessage::Listen(response_tx) => {
-                        let channel_clone = Arc::clone(&channel);
+                        let channel_clone = Arc::clone(&channel_clone);
                         let tx_clone = tx_clone.clone();
 
                         tokio::spawn(async move {
                             while let Ok(notification) = channel_clone.receive().await {
-                                let (tx, rx) = oneshot::channel();
-                                if let Err(e) = tx_clone.send(MessageRouterActorMessage::HandleRelayPoolNotification(notification, tx)).await {
-                                    log::error!("Failed to send HandleRelayPoolNotification: {:?}", e);
-                                    continue;
-                                }
-                                if let Err(e) = rx.await {
-                                    log::error!("Failed to receive HandleRelayPoolNotification response: {:?}", e);
+                                // Send notification directly without oneshot channel
+                                if let Err(e) = tx_clone
+                                    .send(MessageRouterActorMessage::HandleRelayPoolNotification(
+                                        notification,
+                                    ))
+                                    .await
+                                {
+                                    log::error!(
+                                        "Failed to send HandleRelayPoolNotification: {:?}",
+                                        e
+                                    );
+                                    break;
                                 }
                             }
                         });
@@ -133,7 +144,7 @@ impl MessageRouterActor {
                         }
                     }
                     MessageRouterActorMessage::AddConversation(conversation, response_tx) => {
-                        let result = state.add_conversation(conversation).await;
+                        let result = state.add_conversation(&channel_clone, conversation).await;
                         if let Err(e) = response_tx.send(result) {
                             log::error!("Failed to send AddConversation response: {:?}", e);
                         }
@@ -144,7 +155,7 @@ impl MessageRouterActor {
                         response_tx,
                     ) => {
                         let result = state
-                            .add_conversation_with_relays(conversation, relays)
+                            .add_conversation_with_relays(&channel_clone, conversation, relays)
                             .await;
                         if let Err(e) = response_tx.send(result) {
                             log::error!(
@@ -163,7 +174,9 @@ impl MessageRouterActor {
                         }
                     }
                     MessageRouterActorMessage::AddAndSubscribe(conversation, response_tx) => {
-                        let result = state.add_and_subscribe(conversation).await;
+                        let result = state
+                            .add_and_subscribe::<_, serde_json::Value>(&channel_clone, conversation)
+                            .await;
                         if let Err(e) = response_tx.send(result) {
                             log::error!("Failed to send AddAndSubscribe response: {:?}", e);
                         }
@@ -172,14 +185,17 @@ impl MessageRouterActor {
                         let _ = response_tx.send(());
                     }
 
-                    MessageRouterActorMessage::HandleRelayPoolNotification(notification, response_tx) => {
-                        let result = state.handle_relay_pool_notification(notification).await;
-                        if let Err(e) = response_tx.send(result) {
-                            log::error!("Failed to send HandleRelayPoolNotification response: {:?}", e);
+                    MessageRouterActorMessage::HandleRelayPoolNotification(notification) => {
+                        // Handle notification directly without response channel
+                        if let Err(e) = state
+                            .handle_relay_pool_notification(&channel_clone, notification)
+                            .await
+                        {
+                            log::error!("Failed to handle relay pool notification: {:?}", e);
                         }
                     }
                     MessageRouterActorMessage::GetRelays(response_tx) => {
-                        let result = state.get_relays().await;
+                        let result = state.get_relays(&channel_clone).await;
                         if let Err(e) = response_tx.send(result) {
                             log::error!("Failed to send GetRelays response: {:?}", e);
                         }
@@ -189,62 +205,72 @@ impl MessageRouterActor {
         });
 
         Self {
+            channel: Arc::clone(&channel),
             keypair,
             sender: tx,
         }
+    }
+
+    pub fn channel(&self) -> Arc<C> {
+        Arc::clone(&self.channel)
     }
 
     pub fn keypair(&self) -> &LocalKeypair {
         &self.keypair
     }
 
+    // Helper method to reduce channel cloning
+    async fn send_message(
+        &self,
+        message: MessageRouterActorMessage,
+    ) -> Result<(), MessageRouterActorError> {
+        self.sender
+            .send(message)
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))
+    }
+
     pub async fn add_relay(&self, url: String) -> Result<(), MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::AddRelay(url, tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result: Result<(), ConversationError> = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::AddRelay(url, tx))
+            .await?;
+        let result: Result<(), ConversationError> =
+            rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn remove_relay(&self, url: String) -> Result<(), MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::RemoveRelay(url, tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result: Result<(), ConversationError> = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::RemoveRelay(url, tx))
+            .await?;
+        let result: Result<(), ConversationError> =
+            rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn shutdown(&self) -> Result<(), MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::Shutdown(tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result: Result<(), ConversationError> = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::Shutdown(tx))
+            .await?;
+        let result: Result<(), ConversationError> =
+            rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn listen(&self) -> Result<(), MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::Listen(tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result: Result<(), ConversationError> = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::Listen(tx))
+            .await?;
+        let result: Result<(), ConversationError> =
+            rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn ping(&self) -> Result<(), MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::Ping(tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::Ping(tx))
+            .await?;
+        let result = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         Ok(result)
     }
 
@@ -255,13 +281,10 @@ impl MessageRouterActor {
         self.ping().await?;
         self.ping().await?;
 
-        
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::AddConversation(conversation, tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::AddConversation(conversation, tx))
+            .await?;
+        let result = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 
@@ -271,15 +294,13 @@ impl MessageRouterActor {
         relays: Vec<String>,
     ) -> Result<PortalId, MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::AddConversationWithRelays(
-                conversation,
-                relays,
-                tx,
-            ))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::AddConversationWithRelays(
+            conversation,
+            relays,
+            tx,
+        ))
+        .await?;
+        let result = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 
@@ -324,11 +345,9 @@ impl MessageRouterActor {
         id: PortalId,
     ) -> Result<NotificationStream<serde_json::Value>, MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::SubscribeToServiceRequest(id, tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::SubscribeToServiceRequest(id, tx))
+            .await?;
+        let result = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 
@@ -350,27 +369,22 @@ impl MessageRouterActor {
         conversation: ConversationBox,
     ) -> Result<NotificationStream<serde_json::Value>, MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::AddAndSubscribe(conversation, tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::AddAndSubscribe(conversation, tx))
+            .await?;
+        let result = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn get_relays(&self) -> Result<Vec<String>, MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender.clone()
-            .send(MessageRouterActorMessage::GetRelays(tx))
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        self.send_message(MessageRouterActorMessage::GetRelays(tx))
+            .await?;
+        let result = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
 }
 
-pub struct MessageRouterActorState<C: Channel> {
-    channel: Arc<C>,
+pub struct MessageRouterActorState {
     keypair: LocalKeypair,
     conversations: HashMap<PortalId, ConversationBox>,
     aliases: HashMap<PortalId, Vec<u64>>,
@@ -382,13 +396,9 @@ pub struct MessageRouterActorState<C: Channel> {
     global_relay_node: RelayNode,
 }
 
-impl<C: Channel + Send + Sync + 'static> MessageRouterActorState<C>
-where
-    C::Error: From<nostr::types::url::Error>,
-{
-    pub fn new(channel: Arc<C>, keypair: LocalKeypair) -> Self {
+impl MessageRouterActorState {
+    pub fn new(keypair: LocalKeypair) -> Self {
         Self {
-            channel,
             keypair,
             conversations: HashMap::new(),
             aliases: HashMap::new(),
@@ -400,8 +410,15 @@ where
         }
     }
 
-    pub async fn add_relay(&mut self, url: String) -> Result<(), ConversationError> {
-        self.channel
+    pub async fn add_relay<C: Channel>(
+        &mut self,
+        channel: &Arc<C>,
+        url: String,
+    ) -> Result<(), ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
+        channel
             .add_relay(url.clone())
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -411,7 +428,7 @@ where
             for conversation_id in self.global_relay_node.conversations.iter() {
                 if let Some(filter) = self.filters.get(conversation_id) {
                     log::trace!("Subscribing {} to new relay = {:?}", conversation_id, &url);
-                    self.channel
+                    channel
                         .subscribe_to(vec![url.clone()], conversation_id.clone(), filter.clone())
                         .await
                         .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -426,7 +443,7 @@ where
                         let alias_id =
                             PortalId::new_conversation_alias(conversation_id.id(), *alias);
                         if let Some(filter) = self.filters.get(&alias_id) {
-                            self.channel
+                            channel
                                 .subscribe_to(vec![url.clone()], alias_id, filter.clone())
                                 .await
                                 .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -445,8 +462,15 @@ where
         Ok(())
     }
 
-    pub async fn remove_relay(&mut self, url: String) -> Result<(), ConversationError> {
-        self.channel
+    pub async fn remove_relay<C: Channel>(
+        &mut self,
+        channel: &Arc<C>,
+        url: String,
+    ) -> Result<(), ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
+        channel
             .remove_relay(url.clone())
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -458,7 +482,7 @@ where
                     Some(urls) => {
                         // If conversation it not present in other relays, clean it
                         if urls.is_empty() {
-                            self.cleanup_conversation(conv).await?;
+                            self.cleanup_conversation(channel, conv).await?;
                         }
                     }
                     None => {
@@ -496,10 +520,14 @@ where
         Ok(Some(relays))
     }
 
-    async fn cleanup_conversation(
+    async fn cleanup_conversation<C: Channel>(
         &mut self,
+        channel: &Arc<C>,
         conversation: &PortalId,
-    ) -> Result<(), ConversationError> {
+    ) -> Result<(), ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
         // Remove conversation state
         self.conversations.remove(conversation);
         self.subscribers.remove(conversation);
@@ -520,7 +548,7 @@ where
         }
 
         // Remove filters from relays
-        self.channel
+        channel
             .unsubscribe(conversation.clone())
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -528,7 +556,7 @@ where
         if let Some(aliases) = aliases {
             for alias in aliases {
                 let alias_id = PortalId::new_conversation_alias(conversation.id(), alias);
-                self.channel
+                channel
                     .unsubscribe(alias_id)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -538,8 +566,11 @@ where
     }
 
     /// Shuts down the router and disconnects from all relays.
-    pub async fn shutdown(&mut self) -> Result<(), ConversationError> {
-        self.channel
+    pub async fn shutdown<C: Channel>(&mut self, channel: &Arc<C>) -> Result<(), ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
+        channel
             .shutdown()
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -553,16 +584,20 @@ where
         Ok(())
     }
 
-    async fn handle_relay_pool_notification(
+    async fn handle_relay_pool_notification<C: Channel>(
         &mut self,
+        channel: &Arc<C>,
         notification: RelayPoolNotification,
-    ) -> Result<(), ConversationError> {
+    ) -> Result<(), ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
         enum LocalEvent {
             Message(Event),
             EndOfStoredEvents,
         }
         log::trace!("Notification = {:?}", notification);
-    
+
         let (subscription_id, event): (SubscriptionId, LocalEvent) = match notification {
             RelayPoolNotification::Message {
                 message:
@@ -577,7 +612,7 @@ where
                     subscription_id.into_owned(),
                     LocalEvent::Message(event.into_owned()),
                 )
-            },
+            }
             RelayPoolNotification::Event {
                 event,
                 subscription_id,
@@ -585,7 +620,7 @@ where
             } => {
                 log::debug!("Received event on subscription: {}", subscription_id);
                 (subscription_id, LocalEvent::Message(*event))
-            },
+            }
             RelayPoolNotification::Message {
                 message: RelayMessage::EndOfStoredEvents(subscription_id),
                 ..
@@ -655,8 +690,8 @@ where
             LocalEvent::EndOfStoredEvents => ConversationMessage::EndOfStoredEvents,
         };
 
-
-        self.dispatch_event(subscription_id.clone(), message.clone()).await?;
+        self.dispatch_event(channel, subscription_id.clone(), message.clone())
+            .await?;
 
         let mut to_cleanup = vec![];
         let mut other_conversations = vec![];
@@ -683,21 +718,25 @@ where
         }
 
         for id in to_cleanup {
-
-            self.cleanup_conversation(&id).await?;
+            self.cleanup_conversation(channel, &id).await?;
         }
 
         for id in other_conversations {
-            self.dispatch_event(SubscriptionId::new(id.clone()), message.clone()).await?;
+            self.dispatch_event(channel, SubscriptionId::new(id.clone()), message.clone())
+                .await?;
         }
         Ok(())
     }
 
-    async fn dispatch_event(
+    async fn dispatch_event<C: Channel>(
         &mut self,
+        channel: &Arc<C>,
         subscription_id: SubscriptionId,
         message: ConversationMessage,
-    ) -> Result<(), ConversationError> {
+    ) -> Result<(), ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
         let subscription_str = subscription_id.as_str();
         log::debug!("Dispatching event to subscription: {}", subscription_str);
 
@@ -721,10 +760,10 @@ where
                         Response::new().finish()
                     }
                 }
-            },
+            }
             None => {
                 log::warn!("No conversation found for id: {}", conversation_id);
-                self.channel
+                channel
                     .unsubscribe(conversation_id)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -734,28 +773,37 @@ where
         };
 
         log::debug!("Processing response for conversation: {}", conversation_id);
-        self.process_response(&conversation_id, response).await?;
+        self.process_response(channel, &conversation_id, response)
+            .await?;
 
         Ok(())
     }
 
-    async fn process_response(
+    async fn process_response<C: Channel>(
         &mut self,
+        channel: &Arc<C>,
         id: &PortalId,
         response: Response,
-    ) -> Result<(), ConversationError> {
+    ) -> Result<(), ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
         log::trace!("Processing response builder for {} = {:?}", id, response);
 
         let selected_relays_optional = self.get_relays_by_conversation(id)?;
 
         if !response.filter.is_empty() {
-            log::debug!("Adding filter for conversation {}: {:?}", id, response.filter);
+            log::debug!(
+                "Adding filter for conversation {}: {:?}",
+                id,
+                response.filter
+            );
             self.filters.insert(id.clone(), response.filter.clone());
 
             let num_relays = if let Some(selected_relays) = selected_relays_optional.clone() {
                 let num_relays = selected_relays.len();
                 log::trace!("Subscribing to relays = {:?}", selected_relays);
-                self.channel
+                channel
                     .subscribe_to(selected_relays, id.clone(), response.filter.clone())
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -763,12 +811,12 @@ where
                 num_relays
             } else {
                 log::trace!("Subscribing to all relays");
-                self.channel
+                channel
                     .subscribe(id.clone(), response.filter.clone())
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
-                self.channel
+                channel
                     .num_relays()
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?
@@ -831,14 +879,14 @@ where
             self.filters.insert(alias.clone(), filter.clone());
 
             if let Some(selected_relays) = selected_relays_optional.clone() {
-                self.channel
+                channel
                     .subscribe_to(selected_relays, alias, filter)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
             } else {
                 // Subscribe to subkey proofs to all
 
-                self.channel
+                channel
                     .subscribe(alias, filter)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -849,7 +897,7 @@ where
         if let Some(selected_relays) = selected_relays_optional {
             for event in events_to_broadcast {
                 // if selected relays, broadcast to selected relays
-                self.channel
+                channel
                     .broadcast_to(selected_relays.clone(), event)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -857,7 +905,7 @@ where
         } else {
             for event in events_to_broadcast {
                 // if not selected relays, broadcast to all relays
-                self.channel
+                channel
                     .broadcast(event)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
@@ -868,7 +916,7 @@ where
 
         if response.finished {
             log::info!("Conversation {} finished, cleaning up", id);
-            self.cleanup_conversation(id).await?;
+            self.cleanup_conversation(channel, id).await?;
         }
 
         Ok(())
@@ -917,27 +965,37 @@ where
     /// # Returns
     /// * `Ok(PortalId)` - The ID of the added conversation
     /// * `Err(ConversationError)` if an error occurs during initialization
-    pub async fn add_conversation(
+    pub async fn add_conversation<C: Channel>(
         &mut self,
+        channel: &Arc<C>,
         conversation: ConversationBox,
-    ) -> Result<PortalId, ConversationError> {
+    ) -> Result<PortalId, ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
         let conversation_id = PortalId::new_conversation();
 
         let response = self.internal_add_with_id(&conversation_id, conversation, None)?;
-        self.process_response(&conversation_id, response).await?;
+        self.process_response(channel, &conversation_id, response)
+            .await?;
 
         Ok(conversation_id)
     }
 
-    pub async fn add_conversation_with_relays(
+    pub async fn add_conversation_with_relays<C: Channel>(
         &mut self,
+        channel: &Arc<C>,
         conversation: ConversationBox,
         relays: Vec<String>,
-    ) -> Result<PortalId, ConversationError> {
+    ) -> Result<PortalId, ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
         let conversation_id = PortalId::new_conversation();
 
         let response = self.internal_add_with_id(&conversation_id, conversation, Some(relays))?;
-        self.process_response(&conversation_id, response).await?;
+        self.process_response(channel, &conversation_id, response)
+            .await?;
 
         Ok(conversation_id)
     }
@@ -984,15 +1042,22 @@ where
     /// # Returns
     /// * `Ok(NotificationStream<Conv::Notification>)` - A stream of notifications from the conversation
     /// * `Err(ConversationError)` if an error occurs during initialization or subscription
-    pub async fn add_and_subscribe<T: DeserializeOwned + Serialize>(
+    pub async fn add_and_subscribe<C: Channel, T: DeserializeOwned + Serialize>(
         &mut self,
+        channel: &Arc<C>,
         conversation: ConversationBox,
-    ) -> Result<NotificationStream<T>, ConversationError> {
+    ) -> Result<NotificationStream<T>, ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
         let conversation_id = PortalId::new_conversation();
 
         // Subscribe before adding the conversation to ensure we don't miss notifications
         let (tx, rx) = mpsc::channel(8);
-        self.subscribers.entry(conversation_id.clone()).or_insert(Vec::new()).push(tx);
+        self.subscribers
+            .entry(conversation_id.clone())
+            .or_insert(Vec::new())
+            .push(tx);
 
         let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
         let rx = rx.map(|content| serde_json::from_value(content));
@@ -1000,14 +1065,20 @@ where
 
         // Now add the conversation
         let response = self.internal_add_with_id(&conversation_id, conversation, None)?;
-        self.process_response(&conversation_id, response).await?;
+        self.process_response(channel, &conversation_id, response)
+            .await?;
 
         Ok(rx)
     }
 
-    pub async fn get_relays(&self) -> Result<Vec<String>, ConversationError> {
-        let relays = self
-            .channel
+    pub async fn get_relays<C: Channel>(
+        &self,
+        channel: &Arc<C>,
+    ) -> Result<Vec<String>, ConversationError>
+    where
+        C::Error: From<nostr::types::url::Error>,
+    {
+        let relays = channel
             .get_relays()
             .await
             .map_err(|e| ConversationError::Inner(Box::new(e)))?;

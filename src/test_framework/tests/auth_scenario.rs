@@ -1,3 +1,4 @@
+use crate::sdk::auth::{AuthResponseEvent, KeyHandshakeEvent};
 use crate::{
     app::auth::{
         AuthChallengeListenerConversation, AuthResponseConversation, KeyHandshakeConversation,
@@ -16,7 +17,6 @@ use crate::{
     utils::random_string,
 };
 use nostr::Keys;
-use crate::sdk::auth::{KeyHandshakeEvent, AuthResponseEvent};
 
 #[tokio::test]
 async fn test_auth_flow() {
@@ -88,7 +88,8 @@ async fn test_auth_flow() {
         .unwrap();
 
     // 4. Service receives auth init
-    let key_handshake_event: KeyHandshakeEvent = service_notifications.next().await.unwrap().unwrap();
+    let key_handshake_event: KeyHandshakeEvent =
+        service_notifications.next().await.unwrap().unwrap();
     assert_eq!(key_handshake_event.main_key, client_keys.public_key());
 
     // 5. Service sends auth challenge
@@ -102,7 +103,8 @@ async fn test_auth_flow() {
         .unwrap();
 
     // 6. Client receives auth challenge
-    let auth_challenge_event: crate::app::auth::AuthChallengeEvent = challenge_notifications.next().await.unwrap().unwrap();
+    let auth_challenge_event: crate::app::auth::AuthChallengeEvent =
+        challenge_notifications.next().await.unwrap().unwrap();
     assert_eq!(
         auth_challenge_event.service_key,
         service_keys.public_key().into()
@@ -203,7 +205,8 @@ async fn test_auth_with_subkey_client() {
         .unwrap();
 
     // 3. Client receives auth challenge
-    let auth_challenge_event: crate::app::auth::AuthChallengeEvent = challenge_notifications.next().await.unwrap().unwrap();
+    let auth_challenge_event: crate::app::auth::AuthChallengeEvent =
+        challenge_notifications.next().await.unwrap().unwrap();
     assert_eq!(
         auth_challenge_event.service_key,
         service_keys.public_key().into()
@@ -310,7 +313,8 @@ async fn test_auth_with_subkey_service() {
         .unwrap();
 
     // 3. Client receives auth challenge
-    let auth_challenge_event: crate::app::auth::AuthChallengeEvent = challenge_notifications.next().await.unwrap().unwrap();
+    let auth_challenge_event: crate::app::auth::AuthChallengeEvent =
+        challenge_notifications.next().await.unwrap().unwrap();
     assert_eq!(
         auth_challenge_event.service_key,
         service_keys_master.public_key().into()

@@ -20,8 +20,9 @@ use portal::{
         },
     },
     router::{
-        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
-        NotificationStream, adapters::one_shot::OneShotSenderAdapter, MessageRouterActorError,
+        ConversationError, MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter,
+        MultiKeySenderAdapter, NotificationStream, adapters::one_shot::OneShotSenderAdapter,
+        channel::Channel,
     },
     sdk::{
         auth::{
@@ -37,7 +38,7 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 pub struct PortalSDK {
-    router: Arc<MessageRouter>,
+    router: Arc<MessageRouter<RelayPool>>,
     _listener: JoinHandle<Result<(), MessageRouterActorError>>,
 }
 
@@ -61,7 +62,15 @@ impl PortalSDK {
         &self,
         static_token: Option<String>,
     ) -> Result<(KeyHandshakeUrl, NotificationStream<KeyHandshakeEvent>), PortalSDKError> {
-        let token = static_token.unwrap_or_else(|| format!("token_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let token = static_token.unwrap_or_else(|| {
+            format!(
+                "token_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )
+        });
 
         let inner = KeyHandshakeReceiverConversation::new(
             self.router.keypair().public_key(),
@@ -75,7 +84,7 @@ impl PortalSDK {
             )))
             .await?;
 
-        let relays = self.router.get_relays().await?;
+        let relays = self.router.channel().get_relays().await?;
 
         let (main_key, subkey) = if let Some(subkey_proof) = self.router.keypair().subkey_proof() {
             (

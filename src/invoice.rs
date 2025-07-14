@@ -55,7 +55,7 @@ impl MultiKeySender for InvoiceRequestConversation {
     fn build_initial_message(
         state: &mut crate::router::MultiKeySenderAdapter<Self>,
         new_key: Option<PublicKey>,
-    ) -> Result<Response, Self::Error> {        
+    ) -> Result<Response, Self::Error> {
         let tags = state
             .subkeys
             .iter()
@@ -124,7 +124,6 @@ impl MultiKeyListener for InvoiceReceiverConversation {
         event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-
         let sender_key = if let Some(subkey_proof) = state.subkey_proof.clone() {
             if let Err(e) = subkey_proof.verify(&event.pubkey) {
                 return Ok(Response::default());

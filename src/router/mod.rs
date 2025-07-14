@@ -220,8 +220,6 @@ pub trait Conversation {
     }
 }
 
-
-
 #[derive(Debug, Clone)]
 pub struct CleartextEvent {
     pub id: EventId,

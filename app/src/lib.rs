@@ -43,8 +43,8 @@ use portal::{
         },
     },
     router::{
-        MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
-        adapters::one_shot::OneShotSenderAdapter, MessageRouterActorError,
+        MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter, MultiKeySenderAdapter,
+        adapters::one_shot::OneShotSenderAdapter, channel::Channel,
     },
 };
 
@@ -201,7 +201,7 @@ pub enum KeypairError {
 
 #[derive(uniffi::Object)]
 pub struct PortalApp {
-    router: Arc<MessageRouter>,
+    router: Arc<MessageRouter<RelayPool>>,
     runtime: Arc<BindingsRuntime>,
 }
 
@@ -326,12 +326,12 @@ impl PortalApp {
         // Create router with keypair
         let keypair = &keypair.inner;
         let router = Arc::new(MessageRouter::new(relay_pool, keypair.clone()));
-        
+
         // Ensure the actor is ready
         log::debug!("Pinging router actor to ensure it's ready...");
         router.ping().await?;
         log::debug!("Router actor is ready");
-        
+
         Ok(Arc::new(Self { router, runtime }))
     }
 
@@ -349,14 +349,14 @@ impl PortalApp {
     }
 
     pub async fn send_key_handshake(&self, url: KeyHandshakeUrl) -> Result<(), AppError> {
-        // Note: In the actor pattern, we can't access the channel directly
-        // The relays will be handled by the conversation itself
+        let relays = self.router.channel().get_relays().await?;
+
         let _id = self
             .router
             .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
                 url.send_to(),
                 url.subkey.map(|s| vec![s.into()]).unwrap_or_default(),
-                KeyHandshakeConversation::new(url, vec![]),
+                KeyHandshakeConversation::new(url, relays),
             )))
             .await?;
         // let rx = self.router.subscribe_to_service_request(id).await?;
@@ -370,13 +370,13 @@ impl PortalApp {
         evt: Arc<dyn AuthChallengeListener>,
     ) -> Result<(), AppError> {
         let inner = AuthChallengeListenerConversation::new(self.router.keypair().public_key());
-        let mut rx: portal::router::NotificationStream<portal::app::auth::AuthChallengeEvent> = self
-            .router
-            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
-                inner,
-                self.router.keypair().subkey_proof().cloned(),
-            )))
-            .await?;
+        let mut rx: portal::router::NotificationStream<portal::app::auth::AuthChallengeEvent> =
+            self.router
+                .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                    inner,
+                    self.router.keypair().subkey_proof().cloned(),
+                )))
+                .await?;
 
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let evt = Arc::clone(&evt);
@@ -413,13 +413,13 @@ impl PortalApp {
         evt: Arc<dyn PaymentRequestListener>,
     ) -> Result<(), AppError> {
         let inner = PaymentRequestListenerConversation::new(self.router.keypair().public_key());
-        let mut rx: portal::router::NotificationStream<portal::app::payments::PaymentRequestEvent> = self
-            .router
-            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
-                inner,
-                self.router.keypair().subkey_proof().cloned(),
-            )))
-            .await?;
+        let mut rx: portal::router::NotificationStream<portal::app::payments::PaymentRequestEvent> =
+            self.router
+                .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                    inner,
+                    self.router.keypair().subkey_proof().cloned(),
+                )))
+                .await?;
 
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let evt = Arc::clone(&evt);
@@ -482,7 +482,8 @@ impl PortalApp {
 
     pub async fn fetch_profile(&self, pubkey: PublicKey) -> Result<Option<Profile>, AppError> {
         let conv = FetchProfileInfoConversation::new(pubkey.into());
-        let mut notification: portal::router::NotificationStream<Option<portal::profile::Profile>> = self.router.add_and_subscribe(Box::new(conv)).await?;
+        let mut notification: portal::router::NotificationStream<Option<portal::profile::Profile>> =
+            self.router.add_and_subscribe(Box::new(conv)).await?;
         let metadata = notification
             .next()
             .await
@@ -531,9 +532,11 @@ impl PortalApp {
     }
 
     pub async fn connection_status(&self) -> HashMap<RelayUrl, RelayStatus> {
-        // Note: In the actor pattern, we can't access the channel directly
-        // This method is not available in the actor pattern
-        HashMap::new()
+        let relays = self.router.channel().relays().await;
+        relays
+            .into_iter()
+            .map(|(u, r)| (RelayUrl(u), RelayStatus::from(r.status())))
+            .collect()
     }
 
     pub async fn close_recurring_payment(
@@ -564,7 +567,9 @@ impl PortalApp {
     ) -> Result<(), AppError> {
         let inner =
             CloseRecurringPaymentReceiverConversation::new(self.router.keypair().public_key());
-        let mut rx: portal::router::NotificationStream<portal::protocol::model::payment::CloseRecurringPaymentResponse> = self
+        let mut rx: portal::router::NotificationStream<
+            portal::protocol::model::payment::CloseRecurringPaymentResponse,
+        > = self
             .router
             .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
                 inner,
@@ -610,23 +615,13 @@ impl PortalApp {
         evt: Arc<dyn InvoiceRequestListener>,
     ) -> Result<(), AppError> {
         let inner = InvoiceReceiverConversation::new(self.router.keypair().public_key());
-        let add_and_subscribe_future = self
-            .router
-            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
-                inner,
-                self.router.keypair().subkey_proof().cloned(),
-            )));
-        
-        let mut rx: portal::router::NotificationStream<portal::protocol::model::payment::InvoiceRequestContentWithKey> = match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            add_and_subscribe_future
-        ).await {
-            Ok(result) => result?,
-            Err(_) => {
-                log::error!("Timeout waiting for add_and_subscribe in listen_invoice_requests");
-                return Err(AppError::ConversationError("Timeout adding listener conversation".to_string()));
-            }
-        };
+        let mut rx: portal::router::NotificationStream<portal::protocol::model::payment::InvoiceRequestContentWithKey> =
+            self.router
+                .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                    inner,
+                    self.router.keypair().subkey_proof().cloned(),
+                )))
+                .await?;
 
         while let Ok(request) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             log::debug!("Received invoice request payment: {:?}", request);
@@ -682,24 +677,13 @@ impl PortalApp {
             self.router.keypair().subkey_proof().cloned(),
             content,
         );
-        let add_and_subscribe_future = self
-            .router
-            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
-                recipient.into(),
-                vec![],
-                conv,
-            )));
-        
-        let mut rx: portal::router::NotificationStream<portal::protocol::model::payment::InvoiceResponse> = match tokio::time::timeout(
-            std::time::Duration::from_secs(10),
-            add_and_subscribe_future
-        ).await {
-            Ok(result) => result?,
-            Err(_) => {
-                log::error!("Timeout waiting for add_and_subscribe");
-                return Err(AppError::ConversationError("Timeout adding conversation".to_string()));
-            }
-        };
+        let mut rx : portal::router::NotificationStream<portal::protocol::model::payment::InvoiceResponse> =
+            self.router
+                .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
+                    recipient.into(),
+                    vec![],
+                    conv,
+                ))).await?;
 
         if let Ok(invoice_response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let _ = evt.on_invoice_response(invoice_response.clone()).await?;
