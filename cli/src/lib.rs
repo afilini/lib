@@ -37,6 +37,7 @@ pub type CliError = Box<dyn std::error::Error>;
 pub async fn create_app_instance(
     name: &str,
     mnemonic: &str,
+    relays: Vec<String>,
 ) -> Result<(Arc<Keypair>, Arc<PortalApp>), CliError> {
     log::info!("{}: Creating app instance", name);
 

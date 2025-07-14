@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::{collections::{HashMap, HashSet}, sync::Arc};
 
 use nostr::{
     event::{Event, EventBuilder, Kind},
@@ -21,6 +21,12 @@ use crate::{
 
 type ConversationBox = Box<dyn Conversation + Send + Sync>;
 
+impl std::fmt::Debug for ConversationBox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Conversation").finish()
+    }
+}
+
 #[derive(thiserror::Error, Debug)]
 pub enum MessageRouterActorError {
     #[error("Channel error: {0}")]
@@ -31,6 +37,7 @@ pub enum MessageRouterActorError {
     Receiver(#[from] oneshot::error::RecvError),
 }
 
+#[derive(Debug)]
 pub enum MessageRouterActorMessage {
     AddRelay(String, oneshot::Sender<Result<(), ConversationError>>),
     RemoveRelay(String, oneshot::Sender<Result<(), ConversationError>>),
@@ -53,6 +60,13 @@ pub enum MessageRouterActorMessage {
         ConversationBox,
         oneshot::Sender<Result<NotificationStream<serde_json::Value>, ConversationError>>,
     ),
+    Ping(oneshot::Sender<()>),
+
+    /// This is used to handle relay pool notifications.
+    HandleRelayPoolNotification(RelayPoolNotification, oneshot::Sender<Result<(), ConversationError>>),
+
+    /// This is used from SDK to get the relays.
+    GetRelays(oneshot::Sender<Result<Vec<String>, ConversationError>>),
 }
 
 pub struct MessageRouterActor {
@@ -61,15 +75,22 @@ pub struct MessageRouterActor {
 }
 
 impl MessageRouterActor {
-    pub fn new<C>(channel: C, keypair: LocalKeypair) -> Self
+    pub fn new<C : Channel>(channel: C, keypair: LocalKeypair) -> Self
     where
         C: Channel + Send + Sync + 'static,
         C::Error: From<nostr::types::url::Error>,
     {
-        let (tx, mut rx) = mpsc::channel(100);
+
         let keypair_clone = keypair.clone();
+        let channel = Arc::new(channel);
+
+        let (tx, mut rx) = mpsc::channel(4096);
+
+        let channel_clone = Arc::clone(&channel);
+        let tx_clone = tx.clone();
+        
         tokio::spawn(async move {
-            let mut state = MessageRouterActorState::new(channel, keypair_clone);
+            let mut state = MessageRouterActorState::new(channel_clone, keypair_clone);
             while let Some(message) = rx.recv().await {
                 match message {
                     MessageRouterActorMessage::AddRelay(url, response_tx) => {
@@ -92,8 +113,22 @@ impl MessageRouterActor {
                         break;
                     }
                     MessageRouterActorMessage::Listen(response_tx) => {
-                        let result = state.listen().await;
-                        if let Err(e) = response_tx.send(result) {
+                        let channel_clone = Arc::clone(&channel);
+                        let tx_clone = tx_clone.clone();
+
+                        tokio::spawn(async move {
+                            while let Ok(notification) = channel_clone.receive().await {
+                                let (tx, rx) = oneshot::channel();
+                                if let Err(e) = tx_clone.send(MessageRouterActorMessage::HandleRelayPoolNotification(notification, tx)).await {
+                                    log::error!("Failed to send HandleRelayPoolNotification: {:?}", e);
+                                    continue;
+                                }
+                                if let Err(e) = rx.await {
+                                    log::error!("Failed to receive HandleRelayPoolNotification response: {:?}", e);
+                                }
+                            }
+                        });
+                        if let Err(e) = response_tx.send(Ok(())) {
                             log::error!("Failed to send Listen response: {:?}", e);
                         }
                     }
@@ -133,87 +168,101 @@ impl MessageRouterActor {
                             log::error!("Failed to send AddAndSubscribe response: {:?}", e);
                         }
                     }
+                    MessageRouterActorMessage::Ping(response_tx) => {
+                        let _ = response_tx.send(());
+                    }
+
+                    MessageRouterActorMessage::HandleRelayPoolNotification(notification, response_tx) => {
+                        let result = state.handle_relay_pool_notification(notification).await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!("Failed to send HandleRelayPoolNotification response: {:?}", e);
+                        }
+                    }
+                    MessageRouterActorMessage::GetRelays(response_tx) => {
+                        let result = state.get_relays().await;
+                        if let Err(e) = response_tx.send(result) {
+                            log::error!("Failed to send GetRelays response: {:?}", e);
+                        }
+                    }
                 }
             }
         });
+
         Self {
             keypair,
             sender: tx,
         }
     }
 
-    async fn send_message(
-        &self,
-        message: MessageRouterActorMessage,
-    ) -> Result<(), MessageRouterActorError> {
-        self.sender
-            .send(message)
-            .await
-            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        Ok(())
-    }
-
     pub fn keypair(&self) -> &LocalKeypair {
         &self.keypair
     }
 
-    /// Gets a reference to the underlying channel.
-    /// 
-    /// Note: This method is not available in the actor pattern as the channel is owned by the actor state.
-    /// This method is provided for backward compatibility but will panic if called.
-    pub fn channel(&self) -> ! {
-        panic!("channel() method is not available in MessageRouterActor - the channel is owned by the actor state")
-    }
-
     pub async fn add_relay(&self, url: String) -> Result<(), MessageRouterActorError> {
-        let (tx, _rx) = oneshot::channel();
-        self.sender
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone()
             .send(MessageRouterActorMessage::AddRelay(url, tx))
             .await
             .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        Ok(())
+        let result: Result<(), ConversationError> = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn remove_relay(&self, url: String) -> Result<(), MessageRouterActorError> {
-        let (tx, _rx) = oneshot::channel();
-        self.sender
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone()
             .send(MessageRouterActorMessage::RemoveRelay(url, tx))
             .await
             .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        Ok(())
+        let result: Result<(), ConversationError> = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn shutdown(&self) -> Result<(), MessageRouterActorError> {
-        let (tx, _rx) = oneshot::channel();
-        self.sender
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone()
             .send(MessageRouterActorMessage::Shutdown(tx))
             .await
             .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        Ok(())
+        let result: Result<(), ConversationError> = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn listen(&self) -> Result<(), MessageRouterActorError> {
-        let (tx, _rx) = oneshot::channel();
-        self.sender
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone()
             .send(MessageRouterActorMessage::Listen(tx))
             .await
             .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        Ok(())
+        let result: Result<(), ConversationError> = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
+    }
+
+    pub async fn ping(&self) -> Result<(), MessageRouterActorError> {
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone()
+            .send(MessageRouterActorMessage::Ping(tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        Ok(result)
     }
 
     pub async fn add_conversation(
         &self,
         conversation: ConversationBox,
     ) -> Result<PortalId, MessageRouterActorError> {
+        self.ping().await?;
+        self.ping().await?;
+
+        
         let (tx, rx) = oneshot::channel();
-        self.sender
+        self.sender.clone()
             .send(MessageRouterActorMessage::AddConversation(conversation, tx))
             .await
             .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        match rx.await {
-            Ok(result) => result.map_err(MessageRouterActorError::Conversation),
-            Err(e) => Err(MessageRouterActorError::Receiver(e)),
-        }
+        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
     }
 
     pub async fn add_conversation_with_relays(
@@ -222,7 +271,7 @@ impl MessageRouterActor {
         relays: Vec<String>,
     ) -> Result<PortalId, MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender
+        self.sender.clone()
             .send(MessageRouterActorMessage::AddConversationWithRelays(
                 conversation,
                 relays,
@@ -230,10 +279,8 @@ impl MessageRouterActor {
             ))
             .await
             .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        match rx.await {
-            Ok(result) => result.map_err(MessageRouterActorError::Conversation),
-            Err(e) => Err(MessageRouterActorError::Receiver(e)),
-        }
+        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
     }
 
     /// Subscribes to notifications from a conversation with a specific type.
@@ -277,14 +324,12 @@ impl MessageRouterActor {
         id: PortalId,
     ) -> Result<NotificationStream<serde_json::Value>, MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender
+        self.sender.clone()
             .send(MessageRouterActorMessage::SubscribeToServiceRequest(id, tx))
             .await
             .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        match rx.await {
-            Ok(result) => result.map_err(MessageRouterActorError::Conversation),
-            Err(e) => Err(MessageRouterActorError::Receiver(e)),
-        }
+        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
     }
 
     /// Adds a conversation and subscribes to its notifications in a single operation (typed).
@@ -305,19 +350,27 @@ impl MessageRouterActor {
         conversation: ConversationBox,
     ) -> Result<NotificationStream<serde_json::Value>, MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
-        self.sender
+        self.sender.clone()
             .send(MessageRouterActorMessage::AddAndSubscribe(conversation, tx))
             .await
             .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
-        match rx.await {
-            Ok(result) => result.map_err(MessageRouterActorError::Conversation),
-            Err(e) => Err(MessageRouterActorError::Receiver(e)),
-        }
+        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
+    }
+
+    pub async fn get_relays(&self) -> Result<Vec<String>, MessageRouterActorError> {
+        let (tx, rx) = oneshot::channel();
+        self.sender.clone()
+            .send(MessageRouterActorMessage::GetRelays(tx))
+            .await
+            .map_err(|e| MessageRouterActorError::Channel(Box::new(e)))?;
+        let result= rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
+        result.map_err(MessageRouterActorError::Conversation)
     }
 }
 
 pub struct MessageRouterActorState<C: Channel> {
-    channel: C,
+    channel: Arc<C>,
     keypair: LocalKeypair,
     conversations: HashMap<PortalId, ConversationBox>,
     aliases: HashMap<PortalId, Vec<u64>>,
@@ -333,7 +386,7 @@ impl<C: Channel + Send + Sync + 'static> MessageRouterActorState<C>
 where
     C::Error: From<nostr::types::url::Error>,
 {
-    pub fn new(channel: C, keypair: LocalKeypair) -> Self {
+    pub fn new(channel: Arc<C>, keypair: LocalKeypair) -> Self {
         Self {
             channel,
             keypair,
@@ -500,150 +553,143 @@ where
         Ok(())
     }
 
-    /// Starts listening for incoming messages and routes them to the appropriate conversations.
-    ///
-    /// This method should be spawned in a separate task as it runs indefinitely.
-    ///
-    /// # Returns
-    /// * `Ok(())` if the listener exits normally
-    /// * `Err(ConversationError)` if an error occurs while processing messages
-    pub async fn listen(&mut self) -> Result<(), ConversationError> {
+    async fn handle_relay_pool_notification(
+        &mut self,
+        notification: RelayPoolNotification,
+    ) -> Result<(), ConversationError> {
         enum LocalEvent {
             Message(Event),
             EndOfStoredEvents,
         }
-
-        while let Ok(notification) = self.channel.receive().await {
-            log::trace!("Notification = {:?}", notification);
-
-            let (subscription_id, event): (SubscriptionId, LocalEvent) = match notification {
-                RelayPoolNotification::Message {
-                    message:
-                        RelayMessage::Event {
-                            subscription_id,
-                            event,
-                        },
-                    ..
-                } => (
+        log::trace!("Notification = {:?}", notification);
+    
+        let (subscription_id, event): (SubscriptionId, LocalEvent) = match notification {
+            RelayPoolNotification::Message {
+                message:
+                    RelayMessage::Event {
+                        subscription_id,
+                        event,
+                    },
+                ..
+            } => {
+                log::debug!("Received event on subscription: {}", subscription_id);
+                (
                     subscription_id.into_owned(),
                     LocalEvent::Message(event.into_owned()),
-                ),
-                RelayPoolNotification::Event {
-                    event,
-                    subscription_id,
-                    ..
-                } => (subscription_id, LocalEvent::Message(*event)),
-                RelayPoolNotification::Message {
-                    message: RelayMessage::EndOfStoredEvents(subscription_id),
-                    ..
-                } => {
-                    // Parse the subscription ID to get the PortalId
-                    let portal_id = match PortalId::parse(subscription_id.as_str()) {
-                        Some(id) => id,
-                        None => {
-                            log::warn!(
-                                "Invalid subscription ID format for EOSE: {:?}",
-                                subscription_id
-                            );
-                            continue;
+                )
+            },
+            RelayPoolNotification::Event {
+                event,
+                subscription_id,
+                ..
+            } => {
+                log::debug!("Received event on subscription: {}", subscription_id);
+                (subscription_id, LocalEvent::Message(*event))
+            },
+            RelayPoolNotification::Message {
+                message: RelayMessage::EndOfStoredEvents(subscription_id),
+                ..
+            } => {
+                // Parse the subscription ID to get the PortalId
+                let portal_id = match PortalId::parse(subscription_id.as_str()) {
+                    Some(id) => id,
+                    None => {
+                        log::warn!(
+                            "Invalid subscription ID format for EOSE: {:?}",
+                            subscription_id
+                        );
+                        return Ok(());
+                    }
+                };
+
+                let remaining = self.end_of_stored_events.get_mut(&portal_id).and_then(|v| {
+                    *v -= 1;
+                    Some(*v)
+                });
+
+                log::trace!("{:?} EOSE left for {}", remaining, portal_id);
+
+                if remaining == Some(0) {
+                    self.end_of_stored_events.remove(&portal_id);
+                    (subscription_id.into_owned(), LocalEvent::EndOfStoredEvents)
+                } else {
+                    return Ok(());
+                }
+            }
+            _ => return Ok(()),
+        };
+
+        let message = match &event {
+            LocalEvent::Message(event) => {
+                log::debug!("Processing event: {:?}", event.id);
+                if event.pubkey == self.keypair.public_key() && event.kind != Kind::Metadata {
+                    log::trace!("Ignoring event from self");
+                    return Ok(());
+                }
+
+                if !event.verify_signature() {
+                    log::warn!("Invalid signature for event id: {:?}", event.id);
+                    return Ok(());
+                }
+
+                if let Ok(content) =
+                    nip44::decrypt(&self.keypair.secret_key(), &event.pubkey, &event.content)
+                {
+                    let cleartext = match CleartextEvent::new(&event, &content) {
+                        Ok(cleartext) => cleartext,
+                        Err(e) => {
+                            log::warn!("Invalid JSON in event: {:?}", e);
+                            return Ok(());
                         }
                     };
 
-                    let remaining = self.end_of_stored_events.get_mut(&portal_id).and_then(|v| {
-                        *v -= 1;
-                        Some(*v)
-                    });
-
-                    log::trace!("{:?} EOSE left for {}", remaining, portal_id);
-
-                    if remaining == Some(0) {
-                        self.end_of_stored_events.remove(&portal_id);
-                        (subscription_id.into_owned(), LocalEvent::EndOfStoredEvents)
-                    } else {
-                        continue;
-                    }
+                    ConversationMessage::Cleartext(cleartext)
+                } else if let Ok(cleartext) =
+                    serde_json::from_str::<serde_json::Value>(&event.content)
+                {
+                    ConversationMessage::Cleartext(CleartextEvent::new_json(&event, cleartext))
+                } else {
+                    ConversationMessage::Encrypted(event.clone())
                 }
-                _ => continue,
-            };
+            }
+            LocalEvent::EndOfStoredEvents => ConversationMessage::EndOfStoredEvents,
+        };
 
-            let message = match &event {
-                LocalEvent::Message(event) => {
-                    if event.pubkey == self.keypair.public_key() && event.kind != Kind::Metadata {
-                        log::trace!("Ignoring event from self");
-                        continue;
-                    }
 
-                    if !event.verify_signature() {
-                        log::warn!("Invalid signature for event id: {:?}", event.id);
-                        continue;
-                    }
+        self.dispatch_event(subscription_id.clone(), message.clone()).await?;
 
-                    log::trace!("Decrypting with key = {:?}", self.keypair.public_key());
+        let mut to_cleanup = vec![];
+        let mut other_conversations = vec![];
 
-                    if let Ok(content) =
-                        nip44::decrypt(&self.keypair.secret_key(), &event.pubkey, &event.content)
-                    {
-                        let cleartext = match CleartextEvent::new(&event, &content) {
-                            Ok(cleartext) => cleartext,
-                            Err(e) => {
-                                log::warn!("Invalid JSON in event: {:?}", e);
-                                continue;
-                            }
-                        };
+        // Check if there are other potential conversations to dispatch to
+        for (id, filter) in self.filters.iter() {
+            if id.to_string() == subscription_id.as_str() {
+                continue;
+            }
 
-                        log::trace!("Decrypted event: {:?}", cleartext);
-
-                        ConversationMessage::Cleartext(cleartext)
-                    } else if let Ok(cleartext) =
-                        serde_json::from_str::<serde_json::Value>(&event.content)
-                    {
-                        log::trace!("Unencrypted event: {:?}", cleartext);
-                        ConversationMessage::Cleartext(CleartextEvent::new_json(&event, cleartext))
-                    } else {
-                        log::warn!("Failed to decrypt event: {:?}", event);
-                        ConversationMessage::Encrypted(event.clone())
-                    }
-                }
-                LocalEvent::EndOfStoredEvents => ConversationMessage::EndOfStoredEvents,
-            };
-
-            self.dispatch_event(subscription_id.clone(), message.clone())
-                .await?;
-
-            let mut to_cleanup = vec![];
-            let mut other_conversations = vec![];
-
-            // Check if there are other potential conversations to dispatch to
-            for (id, filter) in self.filters.iter() {
-                if id.to_string() == subscription_id.as_str() {
+            match self.conversations.get(id) {
+                Some(conv) if conv.is_expired() => {
+                    to_cleanup.push(id.clone());
                     continue;
                 }
-
-                match self.conversations.get(id) {
-                    Some(conv) if conv.is_expired() => {
-                        to_cleanup.push(id.clone());
-                        continue;
-                    }
-                    _ => {}
-                }
-
-                if let LocalEvent::Message(event) = &event {
-                    if filter.match_event(&event) {
-                        other_conversations.push(id.clone());
-                    }
-                }
+                _ => {}
             }
 
-            for id in to_cleanup {
-                self.cleanup_conversation(&id).await?;
-            }
-
-            for id in other_conversations {
-                self.dispatch_event(SubscriptionId::new(id.clone()), message.clone())
-                    .await?;
+            if let LocalEvent::Message(event) = &event {
+                if filter.match_event(&event) {
+                    other_conversations.push(id.clone());
+                }
             }
         }
 
+        for id in to_cleanup {
+
+            self.cleanup_conversation(&id).await?;
+        }
+
+        for id in other_conversations {
+            self.dispatch_event(SubscriptionId::new(id.clone()), message.clone()).await?;
+        }
         Ok(())
     }
 
@@ -653,6 +699,7 @@ where
         message: ConversationMessage,
     ) -> Result<(), ConversationError> {
         let subscription_str = subscription_id.as_str();
+        log::debug!("Dispatching event to subscription: {}", subscription_str);
 
         // Parse the subscription ID to get the PortalId
         let conversation_id = match PortalId::parse(subscription_str) {
@@ -663,12 +710,16 @@ where
             }
         };
 
+        log::debug!("Looking for conversation: {}", conversation_id);
         let response = match self.conversations.get_mut(&conversation_id) {
-            Some(conv) => match conv.on_message(message) {
-                Ok(response) => response,
-                Err(e) => {
-                    log::warn!("Error in conversation id {}: {:?}", conversation_id, e);
-                    Response::new().finish()
+            Some(conv) => {
+                log::debug!("Found conversation, processing message");
+                match conv.on_message(message) {
+                    Ok(response) => response,
+                    Err(e) => {
+                        log::warn!("Error in conversation id {}: {:?}", conversation_id, e);
+                        Response::new().finish()
+                    }
                 }
             },
             None => {
@@ -682,6 +733,7 @@ where
             }
         };
 
+        log::debug!("Processing response for conversation: {}", conversation_id);
         self.process_response(&conversation_id, response).await?;
 
         Ok(())
@@ -697,11 +749,11 @@ where
         let selected_relays_optional = self.get_relays_by_conversation(id)?;
 
         if !response.filter.is_empty() {
+            log::debug!("Adding filter for conversation {}: {:?}", id, response.filter);
             self.filters.insert(id.clone(), response.filter.clone());
 
             let num_relays = if let Some(selected_relays) = selected_relays_optional.clone() {
                 let num_relays = selected_relays.len();
-
                 log::trace!("Subscribing to relays = {:?}", selected_relays);
                 self.channel
                     .subscribe_to(selected_relays, id.clone(), response.filter.clone())
@@ -727,12 +779,6 @@ where
 
         let mut events_to_broadcast = vec![];
         for response_entry in response.responses.iter() {
-            log::trace!(
-                "Sending event of kind {:?} to {:?}",
-                response_entry.kind,
-                response_entry.recepient_keys
-            );
-
             let build_event = |content: &str| {
                 EventBuilder::new(response_entry.kind, content)
                     .tags(response_entry.tags.clone())
@@ -745,7 +791,6 @@ where
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
                 let event = build_event(&content)?;
-                log::trace!("Unencrypted event: {:?}", event);
                 events_to_broadcast.push(event);
             } else {
                 for pubkey in response_entry.recepient_keys.iter() {
@@ -759,13 +804,13 @@ where
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
 
                     let event = build_event(&content)?;
-                    log::trace!("Encrypted event: {:?}", event);
                     events_to_broadcast.push(event);
                 }
             }
         }
 
         for notification in response.notifications.iter() {
+            log::debug!("Sending notification: {:?}", notification);
             if let Some(senders) = self.subscribers.get_mut(id) {
                 for sender in senders.iter_mut() {
                     let _ = sender.send(notification.clone()).await;
@@ -786,16 +831,11 @@ where
             self.filters.insert(alias.clone(), filter.clone());
 
             if let Some(selected_relays) = selected_relays_optional.clone() {
-                log::trace!(
-                    "Subscribing 'subkey proof' to relays = {:?}",
-                    selected_relays
-                );
                 self.channel
                     .subscribe_to(selected_relays, alias, filter)
                     .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?;
             } else {
-                log::trace!("Subscribing 'subkey proof' to all relays");
                 // Subscribe to subkey proofs to all
 
                 self.channel
@@ -827,6 +867,7 @@ where
         }
 
         if response.finished {
+            log::info!("Conversation {} finished, cleaning up", id);
             self.cleanup_conversation(id).await?;
         }
 
@@ -949,18 +990,28 @@ where
     ) -> Result<NotificationStream<T>, ConversationError> {
         let conversation_id = PortalId::new_conversation();
 
-        // Update Global Relay Node
+        // Subscribe before adding the conversation to ensure we don't miss notifications
+        let (tx, rx) = mpsc::channel(8);
+        self.subscribers.entry(conversation_id.clone()).or_insert(Vec::new()).push(tx);
 
-        {
-            self.global_relay_node
-                .conversations
-                .insert(conversation_id.clone());
-        }
+        let rx = tokio_stream::wrappers::ReceiverStream::new(rx);
+        let rx = rx.map(|content| serde_json::from_value(content));
+        let rx = NotificationStream::new(rx);
 
-        let delayed_reply = self.subscribe_to_service_request::<T>(conversation_id.clone())?;
+        // Now add the conversation
         let response = self.internal_add_with_id(&conversation_id, conversation, None)?;
         self.process_response(&conversation_id, response).await?;
 
-        Ok(delayed_reply)
+        Ok(rx)
+    }
+
+    pub async fn get_relays(&self) -> Result<Vec<String>, ConversationError> {
+        let relays = self
+            .channel
+            .get_relays()
+            .await
+            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
+
+        Ok(relays)
     }
 }

@@ -93,8 +93,6 @@ impl MultiKeySender for RecurringPaymentRequestSenderConversation {
         _event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-        log::info!("Notifying payment response event");
-
         if message.request_id == state.payment_request.request_id {
             Ok(Response::new().notify(message.clone()).finish())
         } else {
@@ -186,8 +184,6 @@ impl MultiKeySender for SinglePaymentRequestSenderConversation {
         _event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-        log::info!("Notifying payment response event");
-
         if message.request_id == state.payment_request.request_id {
             Ok(Response::new().notify(message.clone()).finish())
         } else {

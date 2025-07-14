@@ -66,6 +66,8 @@ pub trait Channel: Send + 'static {
     fn num_relays(&self) -> impl std::future::Future<Output = Result<usize, Self::Error>> + Send;
 
     fn shutdown(&self) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+
+    fn get_relays(&self) -> impl std::future::Future<Output = Result<Vec<String>, Self::Error>> + Send;
 }
 
 impl Channel for RelayPool {
@@ -148,5 +150,9 @@ impl Channel for RelayPool {
     async fn shutdown(&self) -> Result<(), Self::Error> {
         self.shutdown().await;
         Ok(())
+    }
+
+    async fn get_relays(&self) -> Result<Vec<String>, Self::Error> {
+        Ok(self.relays().await.keys().map(|r| r.to_string()).collect::<Vec<_>>())
     }
 }

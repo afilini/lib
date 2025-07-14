@@ -75,9 +75,7 @@ impl PortalSDK {
             )))
             .await?;
 
-        // Note: In the actor pattern, we can't access the channel directly
-        // The relays are managed internally by the actor
-        let relays = vec![]; // TODO: Implement relay access through actor messages
+        let relays = self.router.get_relays().await?;
 
         let (main_key, subkey) = if let Some(subkey_proof) = self.router.keypair().subkey_proof() {
             (
