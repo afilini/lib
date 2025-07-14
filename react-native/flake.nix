@@ -84,6 +84,7 @@
 
           nativeBuildInputs = with pkgs; [
             cargo-ndk
+            protobuf
           ];
         };
         mkIosCommonArgs = target: {
@@ -93,6 +94,10 @@
             unset DEVELOPER_DIR
             export PATH=${xcodewrapper}/bin:$PATH
           '';
+
+          nativeBuildInputs = with pkgs; [
+            protobuf
+          ];
         };
 
         mkAndroidArtifacts = target: (craneLibAndroid.buildDepsOnly ((mkAndroidCommonArgs target) // commonArgs // {
@@ -258,6 +263,7 @@
             cargo-ndk
             jdk
             yarn
+            protobuf
           ];
 
           ANDROID_SDK_ROOT = "${androidComposition.androidsdk}/libexec/android-sdk";

@@ -2,10 +2,12 @@ pub mod db;
 pub mod logger;
 pub mod nwc;
 pub mod runtime;
+pub mod wallet;
 
 use std::{collections::HashMap, sync::Arc};
 
-use bitcoin::bip32;
+use bitcoin::{Network, bip32};
+use cdk_common::SECP256K1;
 use chrono::Duration;
 use nostr::event::EventBuilder;
 use nostr_relay_pool::monitor::{Monitor, MonitorNotification};
@@ -124,6 +126,22 @@ impl Mnemonic {
         Ok(Keypair {
             inner: portal::protocol::LocalKeypair::new(keys, None),
         })
+    }
+
+    pub fn derive_cashu(&self) -> Vec<u8> {
+        let seed = self.inner.to_seed("");
+        let xpriv = bip32::Xpriv::new_master(Network::Bitcoin, &seed).expect("Valid seed");
+        let xpriv = xpriv
+            .derive_priv(
+                &SECP256K1,
+                &[
+                    bip32::ChildNumber::from_hardened_idx(129372).unwrap(),
+                    bip32::ChildNumber::from_hardened_idx(0).unwrap(),
+                ],
+            )
+            .expect("Valid path");
+
+        xpriv.private_key.secret_bytes().to_vec()
     }
 
     pub fn to_string(&self) -> String {

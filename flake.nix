@@ -33,10 +33,20 @@
           src = pkgs.lib.sources.sourceFilesBySuffices ./. [ ".rs" "Cargo.toml" "Cargo.lock" ];
 
           cargoHash = "";
-          cargoLock.lockFile = ./Cargo.lock;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            outputHashes = {
+              "cashu-0.11.0" = "sha256-nF77EP9jWnjgJTzd+O+fO13xfGYWA2r2uz/qLfgZ2s0=";
+            };
+          };
           buildAndTestSubdir = "rest";
 
           doCheck = false;
+
+          nativeBuildInputs = with pkgs; [
+            # Needed to build cashu
+            protobuf
+          ];
 
           meta.mainProgram = "rest";
         };
@@ -109,6 +119,7 @@
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             rustToolchain
+            protobuf
           ];
         };
         devShells.nodejs = pkgs.mkShell rec {
