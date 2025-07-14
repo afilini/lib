@@ -68,6 +68,7 @@
             cargo-ndk
             jdk
             yarn
+            protobuf
           ];
 
           ANDROID_SDK_ROOT = "${androidComposition.androidsdk}/libexec/android-sdk";

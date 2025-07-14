@@ -78,6 +78,7 @@
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             rustToolchain
+            protobuf
           ];
         };
         devShells.nodejs = pkgs.mkShell rec {

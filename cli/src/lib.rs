@@ -1,25 +1,6 @@
 use std::sync::Arc;
 
-use app::{
-    AuthChallengeListener, CallbackError, ClosedRecurringPaymentListener, InvoiceRequestListener,
-    InvoiceResponseListener, Keypair, Mnemonic, PaymentRequestListener, PortalApp,
-    RecurringPaymentRequest, SinglePaymentRequest, auth::AuthChallengeEvent, db::PortalDB,
-    nwc::MakeInvoiceResponse,
-};
-use portal::{
-    nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
-    profile::Profile,
-    protocol::model::{
-        Timestamp,
-        auth::AuthResponseStatus,
-        bindings::PublicKey,
-        payment::{
-            CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
-            InvoiceResponse, PaymentResponseContent, PaymentStatus,
-            RecurringPaymentResponseContent, RecurringPaymentStatus,
-        },
-    },
-};
+use app::{Keypair, Mnemonic, PortalApp};
 
 pub type CliError = Box<dyn std::error::Error>;
 
