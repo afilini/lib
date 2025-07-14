@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{HashMap, HashSet};
 
 use nostr::{
     event::{Event, EventBuilder, Kind},
@@ -18,7 +15,7 @@ use crate::{
     protocol::{LocalKeypair, model::event_kinds::SUBKEY_PROOF},
     router::{
         CleartextEvent, Conversation, ConversationError, ConversationMessage, NotificationStream,
-        PortalId, RelayNode, Response, adapters::ConversationWithNotification, channel::Channel,
+        PortalId, RelayNode, Response, channel::Channel,
     },
 };
 
@@ -158,6 +155,14 @@ impl MessageRouterActor {
 
     pub fn keypair(&self) -> &LocalKeypair {
         &self.keypair
+    }
+
+    /// Gets a reference to the underlying channel.
+    /// 
+    /// Note: This method is not available in the actor pattern as the channel is owned by the actor state.
+    /// This method is provided for backward compatibility but will panic if called.
+    pub fn channel(&self) -> ! {
+        panic!("channel() method is not available in MessageRouterActor - the channel is owned by the actor state")
     }
 
     pub async fn add_relay(&self, url: String) -> Result<(), MessageRouterActorError> {

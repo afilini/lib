@@ -16,6 +16,7 @@ use crate::{
     utils::random_string,
 };
 use nostr::Keys;
+use crate::sdk::auth::{KeyHandshakeEvent, AuthResponseEvent};
 
 #[tokio::test]
 async fn test_auth_flow() {
@@ -55,19 +56,19 @@ async fn test_auth_flow() {
 
     // 1. Service sets up to receive auth init
     let mut service_notifications = service_router
-        .add_and_subscribe(MultiKeyListenerAdapter::new(
+        .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
             KeyHandshakeReceiverConversation::new(service_keys.public_key(), token.clone()),
             None,
-        ))
+        )))
         .await
         .unwrap();
 
     // 2. Client sets up to listen for auth challenge
     let mut challenge_notifications = client_router
-        .add_and_subscribe(MultiKeyListenerAdapter::new(
+        .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
             AuthChallengeListenerConversation::new(client_keys.public_key()),
             None,
-        ))
+        )))
         .await
         .unwrap();
 
@@ -87,21 +88,21 @@ async fn test_auth_flow() {
         .unwrap();
 
     // 4. Service receives auth init
-    let key_handshake_event = service_notifications.next().await.unwrap().unwrap();
+    let key_handshake_event: KeyHandshakeEvent = service_notifications.next().await.unwrap().unwrap();
     assert_eq!(key_handshake_event.main_key, client_keys.public_key());
 
     // 5. Service sends auth challenge
     let mut auth_response_event = service_router
-        .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
+        .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
             key_handshake_event.main_key,
             vec![],
             AuthChallengeSenderConversation::new(service_keys.public_key(), None),
-        ))
+        )))
         .await
         .unwrap();
 
     // 6. Client receives auth challenge
-    let auth_challenge_event = challenge_notifications.next().await.unwrap().unwrap();
+    let auth_challenge_event: crate::app::auth::AuthChallengeEvent = challenge_notifications.next().await.unwrap().unwrap();
     assert_eq!(
         auth_challenge_event.service_key,
         service_keys.public_key().into()
@@ -130,7 +131,7 @@ async fn test_auth_flow() {
         .unwrap();
 
     // 8. Wait for auth response notification
-    let auth_response_event = auth_response_event.next().await.unwrap().unwrap();
+    let auth_response_event: AuthResponseEvent = auth_response_event.next().await.unwrap().unwrap();
     assert_eq!(auth_response_event.user_key, client_keys.public_key());
     assert_eq!(
         auth_response_event.recipient,
@@ -184,25 +185,25 @@ async fn test_auth_with_subkey_client() {
 
     // 1. Client sets up to listen for auth challenge
     let mut challenge_notifications = client_router
-        .add_and_subscribe(MultiKeyListenerAdapter::new(
+        .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
             AuthChallengeListenerConversation::new(client_keys.public_key()),
             Some(client_subkey_proof.clone()),
-        ))
+        )))
         .await
         .unwrap();
 
     // 2. Service sends auth challenge (we explicitly don't set the subkey here so that the client has to negotiate it)
     let mut auth_response_event = service_router
-        .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
+        .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
             client_keys_master.public_key(),
             vec![],
             AuthChallengeSenderConversation::new(service_keys.public_key(), None),
-        ))
+        )))
         .await
         .unwrap();
 
     // 3. Client receives auth challenge
-    let auth_challenge_event = challenge_notifications.next().await.unwrap().unwrap();
+    let auth_challenge_event: crate::app::auth::AuthChallengeEvent = challenge_notifications.next().await.unwrap().unwrap();
     assert_eq!(
         auth_challenge_event.service_key,
         service_keys.public_key().into()
@@ -231,7 +232,7 @@ async fn test_auth_with_subkey_client() {
         .unwrap();
 
     // 5. Wait for auth response notification
-    let auth_response_event = auth_response_event.next().await.unwrap().unwrap();
+    let auth_response_event: AuthResponseEvent = auth_response_event.next().await.unwrap().unwrap();
     assert_eq!(
         auth_response_event.user_key,
         client_keys_master.public_key()
@@ -288,28 +289,28 @@ async fn test_auth_with_subkey_service() {
 
     // 1. Client sets up to listen for auth challenge
     let mut challenge_notifications = client_router
-        .add_and_subscribe(MultiKeyListenerAdapter::new(
+        .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
             AuthChallengeListenerConversation::new(client_keys.public_key()),
             None,
-        ))
+        )))
         .await
         .unwrap();
 
     // 2. Service sends auth challenge (we explicitly don't set the subkey here so that the client has to negotiate it)
     let mut auth_response_event = service_router
-        .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
+        .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
             client_keys.public_key(),
             vec![],
             AuthChallengeSenderConversation::new(
                 service_keys.public_key(),
                 Some(service_subkey_proof.clone()),
             ),
-        ))
+        )))
         .await
         .unwrap();
 
     // 3. Client receives auth challenge
-    let auth_challenge_event = challenge_notifications.next().await.unwrap().unwrap();
+    let auth_challenge_event: crate::app::auth::AuthChallengeEvent = challenge_notifications.next().await.unwrap().unwrap();
     assert_eq!(
         auth_challenge_event.service_key,
         service_keys_master.public_key().into()
@@ -338,7 +339,7 @@ async fn test_auth_with_subkey_service() {
         .unwrap();
 
     // 5. Wait for auth response notification
-    let auth_response_event = auth_response_event.next().await.unwrap().unwrap();
+    let auth_response_event: AuthResponseEvent = auth_response_event.next().await.unwrap().unwrap();
     assert_eq!(auth_response_event.user_key, client_keys.public_key());
     assert_eq!(
         auth_response_event.recipient,
