@@ -45,7 +45,6 @@ pub enum MessageRouterActorMessage {
     AddRelay(String, oneshot::Sender<Result<(), ConversationError>>),
     RemoveRelay(String, oneshot::Sender<Result<(), ConversationError>>),
     Shutdown(oneshot::Sender<Result<(), ConversationError>>),
-    Listen(oneshot::Sender<Result<(), ConversationError>>),
     AddConversation(
         ConversationBox,
         oneshot::Sender<Result<PortalId, ConversationError>>,
@@ -94,7 +93,6 @@ where
         let (tx, mut rx) = mpsc::channel(4096);
 
         let channel_clone = Arc::clone(&channel);
-        let tx_clone = tx.clone();
         tokio::spawn(async move {
             let mut state = MessageRouterActorState::new(keypair_clone);
             while let Some(message) = rx.recv().await {
@@ -117,31 +115,6 @@ where
                             log::error!("Failed to send Shutdown response: {:?}", e);
                         }
                         break;
-                    }
-                    MessageRouterActorMessage::Listen(response_tx) => {
-                        let channel_clone = Arc::clone(&channel_clone);
-                        let tx_clone = tx_clone.clone();
-
-                        tokio::spawn(async move {
-                            while let Ok(notification) = channel_clone.receive().await {
-                                // Send notification directly without oneshot channel
-                                if let Err(e) = tx_clone
-                                    .send(MessageRouterActorMessage::HandleRelayPoolNotification(
-                                        notification,
-                                    ))
-                                    .await
-                                {
-                                    log::error!(
-                                        "Failed to send HandleRelayPoolNotification: {:?}",
-                                        e
-                                    );
-                                    break;
-                                }
-                            }
-                        });
-                        if let Err(e) = response_tx.send(Ok(())) {
-                            log::error!("Failed to send Listen response: {:?}", e);
-                        }
                     }
                     MessageRouterActorMessage::AddConversation(conversation, response_tx) => {
                         let result = state.add_conversation(&channel_clone, conversation).await;
@@ -219,6 +192,23 @@ where
         &self.keypair
     }
 
+    pub async fn listen(&self) -> Result<(), MessageRouterActorError> {
+        while let Ok(notification) = self.channel.receive().await {
+            // Send notification directly without oneshot channel
+            if let Err(e) = self
+                .sender
+                .send(MessageRouterActorMessage::HandleRelayPoolNotification(
+                    notification,
+                ))
+                .await
+            {
+                log::error!("Failed to send HandleRelayPoolNotification: {:?}", e);
+                break;
+            }
+        }
+        Ok(())
+    }
+
     // Helper method to reduce channel cloning
     async fn send_message(
         &self,
@@ -251,15 +241,6 @@ where
     pub async fn shutdown(&self) -> Result<(), MessageRouterActorError> {
         let (tx, rx) = oneshot::channel();
         self.send_message(MessageRouterActorMessage::Shutdown(tx))
-            .await?;
-        let result: Result<(), ConversationError> =
-            rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
-        result.map_err(MessageRouterActorError::Conversation)
-    }
-
-    pub async fn listen(&self) -> Result<(), MessageRouterActorError> {
-        let (tx, rx) = oneshot::channel();
-        self.send_message(MessageRouterActorMessage::Listen(tx))
             .await?;
         let result: Result<(), ConversationError> =
             rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;

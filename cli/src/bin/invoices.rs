@@ -23,7 +23,6 @@ use portal::{
     },
 };
 
-
 struct LogInvoiceRequestListener;
 
 #[async_trait::async_trait]

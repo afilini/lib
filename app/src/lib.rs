@@ -324,8 +324,14 @@ impl PortalApp {
         );
 
         // Create router with keypair
-        let keypair = &keypair.inner;
-        let router = Arc::new(MessageRouter::new(relay_pool, keypair.clone()));
+        let keypair = keypair.inner.clone();
+        let router = async_utility::task::spawn(async move {
+            let router = MessageRouter::new(relay_pool, keypair);
+            Arc::new(router)
+        })
+        .join()
+        .await
+        .map_err(|_| AppError::ConversationError("Failed to start router actor".to_string()))?;
 
         // Ensure the actor is ready
         log::debug!("Pinging router actor to ensure it's ready...");
@@ -615,13 +621,15 @@ impl PortalApp {
         evt: Arc<dyn InvoiceRequestListener>,
     ) -> Result<(), AppError> {
         let inner = InvoiceReceiverConversation::new(self.router.keypair().public_key());
-        let mut rx: portal::router::NotificationStream<portal::protocol::model::payment::InvoiceRequestContentWithKey> =
-            self.router
-                .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
-                    inner,
-                    self.router.keypair().subkey_proof().cloned(),
-                )))
-                .await?;
+        let mut rx: portal::router::NotificationStream<
+            portal::protocol::model::payment::InvoiceRequestContentWithKey,
+        > = self
+            .router
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                inner,
+                self.router.keypair().subkey_proof().cloned(),
+            )))
+            .await?;
 
         while let Ok(request) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             log::debug!("Received invoice request payment: {:?}", request);
@@ -677,13 +685,16 @@ impl PortalApp {
             self.router.keypair().subkey_proof().cloned(),
             content,
         );
-        let mut rx : portal::router::NotificationStream<portal::protocol::model::payment::InvoiceResponse> =
-            self.router
-                .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
-                    recipient.into(),
-                    vec![],
-                    conv,
-                ))).await?;
+        let mut rx: portal::router::NotificationStream<
+            portal::protocol::model::payment::InvoiceResponse,
+        > = self
+            .router
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
+                recipient.into(),
+                vec![],
+                conv,
+            )))
+            .await?;
 
         if let Ok(invoice_response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let _ = evt.on_invoice_response(invoice_response.clone()).await?;
@@ -707,10 +718,12 @@ impl PortalApp {
 
                         let relay_url = RelayUrl(relay_url);
                         let status = RelayStatus::from(status);
-                        if let Err(e) = relay_status_listener.on_relay_status_change(relay_url, status).await {
+                        if let Err(e) = relay_status_listener
+                            .on_relay_status_change(relay_url, status)
+                            .await
+                        {
                             log::error!("Relay status listener error: {:?}", e);
                         }
-                        
                     }
                 }
             }
