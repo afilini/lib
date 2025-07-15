@@ -268,11 +268,11 @@ pub mod payment {
         Failed { reason: Option<String> },
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    #[serde(untagged)]
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
     pub enum Currency {
         Millisats,
+        #[serde(untagged)]
         Fiat(String),
     }
 
@@ -423,4 +423,20 @@ pub mod bindings {
         try_lift: |val| Ok(Timestamp(val)),
         lower: |obj| obj.0,
     });
+}
+
+#[cfg(test)]
+#[test]
+fn test_serialization() {
+    let c = payment::Currency::Millisats;
+    let s = serde_json::to_string(&c).unwrap();
+    println!("{}", s);
+    let c2: payment::Currency = serde_json::from_str(&s).unwrap();
+    assert_eq!(c, c2);
+
+    let c = payment::Currency::Fiat("USD".to_string());
+    let s = serde_json::to_string(&c).unwrap();
+    println!("{}", s);
+    let c2: payment::Currency = serde_json::from_str(&s).unwrap();
+    assert_eq!(c, c2);
 }
