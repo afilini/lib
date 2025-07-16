@@ -1,7 +1,10 @@
 use std::sync::Arc;
 
 use app::{
-    auth::AuthChallengeEvent, db::PortalDB, nwc::MakeInvoiceResponse, AuthChallengeListener, CallbackError, ClosedRecurringPaymentListener, InvoiceRequestListener, InvoiceResponseListener, Keypair, Mnemonic, PaymentRequestListener, PortalApp, RecurringPaymentRequest, RelayStatus, RelayStatusListener, RelayUrl, SinglePaymentRequest
+    AuthChallengeListener, CallbackError, ClosedRecurringPaymentListener, InvoiceRequestListener,
+    InvoiceResponseListener, Keypair, Mnemonic, PaymentRequestListener, PortalApp,
+    RecurringPaymentRequest, RelayStatus, RelayStatusListener, RelayUrl, SinglePaymentRequest,
+    auth::AuthChallengeEvent, db::PortalDB, nwc::MakeInvoiceResponse,
 };
 use portal::{
     nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
@@ -37,6 +40,7 @@ pub type CliError = Box<dyn std::error::Error>;
 pub async fn create_app_instance(
     name: &str,
     mnemonic: &str,
+    relays: Vec<String>,
 ) -> Result<(Arc<Keypair>, Arc<PortalApp>), CliError> {
     log::info!("{}: Creating app instance", name);
 

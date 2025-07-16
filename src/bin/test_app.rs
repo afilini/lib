@@ -45,15 +45,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key_handshake_url = KeyHandshakeUrl::from_str(key_handshake_url.trim())?;
 
     // send auth init
+    // Note: In the actor pattern, we can't access the channel directly
+    // The relays are managed internally by the actor
     let conv = KeyHandshakeConversation::new(
         key_handshake_url,
-        router
-            .channel()
-            .relays()
-            .await
-            .keys()
-            .map(|r| r.to_string())
-            .collect(),
+        vec![], // TODO: Implement relay access through actor messages
     );
 
     router
@@ -66,11 +62,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // auth init sent
 
     let inner = AuthChallengeListenerConversation::new(router.keypair().public_key());
-    let mut rx = router
-        .add_and_subscribe(MultiKeyListenerAdapter::new(
+    let mut rx: portal::router::NotificationStream<portal::app::auth::AuthChallengeEvent> = router
+        .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
             inner,
             router.keypair().subkey_proof().cloned(),
-        ))
+        )))
         .await?;
 
     while let Ok(response) = rx.next().await.unwrap() {

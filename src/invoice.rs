@@ -84,8 +84,6 @@ impl MultiKeySender for InvoiceRequestConversation {
         _event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-        log::info!("Notifying invoice response event");
-
         if message.request.inner.request_id == state.content.request_id {
             Ok(Response::new().notify(message.clone()).finish())
         } else {
@@ -126,15 +124,8 @@ impl MultiKeyListener for InvoiceReceiverConversation {
         event: &crate::router::CleartextEvent,
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
-        log::debug!(
-            "Received invoice request from {}: {:?}",
-            event.pubkey,
-            message
-        );
-
         let sender_key = if let Some(subkey_proof) = state.subkey_proof.clone() {
             if let Err(e) = subkey_proof.verify(&event.pubkey) {
-                log::warn!("Ignoring request with invalid subkey proof: {}", e);
                 return Ok(Response::default());
             }
 

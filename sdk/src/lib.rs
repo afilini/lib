@@ -20,8 +20,9 @@ use portal::{
         },
     },
     router::{
-        ConversationError, MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
-        NotificationStream, adapters::one_shot::OneShotSenderAdapter,
+        ConversationError, MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter,
+        MultiKeySenderAdapter, NotificationStream, adapters::one_shot::OneShotSenderAdapter,
+        channel::Channel,
     },
     sdk::{
         auth::{
@@ -38,7 +39,7 @@ use uuid::Uuid;
 
 pub struct PortalSDK {
     router: Arc<MessageRouter<RelayPool>>,
-    _listener: JoinHandle<Result<(), ConversationError>>,
+    _listener: JoinHandle<Result<(), MessageRouterActorError>>,
 }
 
 impl PortalSDK {
@@ -61,7 +62,15 @@ impl PortalSDK {
         &self,
         static_token: Option<String>,
     ) -> Result<(KeyHandshakeUrl, NotificationStream<KeyHandshakeEvent>), PortalSDKError> {
-        let token = static_token.unwrap_or_else(|| Uuid::new_v4().to_string());
+        let token = static_token.unwrap_or_else(|| {
+            format!(
+                "token_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            )
+        });
 
         let inner = KeyHandshakeReceiverConversation::new(
             self.router.keypair().public_key(),
@@ -69,20 +78,13 @@ impl PortalSDK {
         );
         let event = self
             .router
-            .add_and_subscribe(MultiKeyListenerAdapter::new(
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
                 inner,
                 self.router.keypair().subkey_proof().cloned(),
-            ))
+            )))
             .await?;
 
-        let relays = self
-            .router
-            .channel()
-            .relays()
-            .await
-            .keys()
-            .map(|r| r.to_string())
-            .collect::<Vec<_>>();
+        let relays = self.router.channel().get_relays().await?;
 
         let (main_key, subkey) = if let Some(subkey_proof) = self.router.keypair().subkey_proof() {
             (
@@ -115,9 +117,9 @@ impl PortalSDK {
 
         let mut event = self
             .router
-            .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
                 main_key, subkeys, conv,
-            ))
+            )))
             .await?;
         Ok(event.next().await.ok_or(PortalSDKError::Timeout)??)
     }
@@ -136,9 +138,9 @@ impl PortalSDK {
 
         let mut event = self
             .router
-            .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
                 main_key, subkeys, conv,
-            ))
+            )))
             .await?;
         Ok(event.next().await.ok_or(PortalSDKError::Timeout)??)
     }
@@ -157,9 +159,9 @@ impl PortalSDK {
 
         let mut event = self
             .router
-            .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
                 main_key, subkeys, conv,
-            ))
+            )))
             .await?;
         Ok(event.next().await.ok_or(PortalSDKError::Timeout)??)
     }
@@ -169,8 +171,8 @@ impl PortalSDK {
         main_key: PublicKey,
     ) -> Result<Option<Profile>, PortalSDKError> {
         let conv = FetchProfileInfoConversation::new(main_key);
-        let mut event = self.router.add_and_subscribe(conv).await?;
-        let profile = event.next().await.ok_or(PortalSDKError::Timeout)??;
+        let mut event = self.router.add_and_subscribe(Box::new(conv)).await?;
+        let profile: Option<Profile> = event.next().await.ok_or(PortalSDKError::Timeout)??;
 
         if let Some(mut profile) = profile {
             if let Some(nip05) = &profile.nip05 {
@@ -210,10 +212,10 @@ impl PortalSDK {
             CloseRecurringPaymentReceiverConversation::new(self.router.keypair().public_key());
         let event = self
             .router
-            .add_and_subscribe(MultiKeyListenerAdapter::new(
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
                 inner,
                 self.router.keypair().subkey_proof().cloned(),
-            ))
+            )))
             .await?;
         Ok(event)
     }
@@ -252,9 +254,9 @@ impl PortalSDK {
         );
         let mut rx = self
             .router
-            .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
                 recipient, subkeys, conv,
-            ))
+            )))
             .await?;
 
         if let Ok(invoice_response) = rx.next().await.ok_or(PortalSDKError::Timeout)? {
@@ -293,6 +295,9 @@ pub enum PortalSDKError {
 
     #[error("Conversation error: {0}")]
     Conversation(#[from] ConversationError),
+
+    #[error("Message router actor error: {0}")]
+    MessageRouterActor(#[from] MessageRouterActorError),
 
     #[error("Deserialization error: {0}")]
     Deserialization(#[from] serde_json::Error),

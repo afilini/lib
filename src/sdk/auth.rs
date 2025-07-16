@@ -180,8 +180,6 @@ impl MultiKeySender for AuthChallengeSenderConversation {
             event.pubkey
         };
 
-        log::info!("Notifying auth response event");
-
         Ok(Response::new()
             .notify(AuthResponseEvent {
                 user_key,

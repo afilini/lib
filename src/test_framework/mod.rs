@@ -6,14 +6,17 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 
 use crate::{
     protocol::LocalKeypair,
-    router::{Conversation, ConversationError, MessageRouter, channel::Channel},
+    router::{
+        Conversation, ConversationError, MessageRouter, MessageRouterActorError, PortalId,
+        channel::Channel,
+    },
 };
 
 pub mod logger;
 
 /// A simulated channel that broadcasts messages to all connected nodes
 pub struct SimulatedChannel {
-    subscribers: Arc<RwLock<HashMap<String, (Filter, mpsc::Sender<RelayPoolNotification>)>>>,
+    subscribers: Arc<RwLock<HashMap<PortalId, (Filter, mpsc::Sender<RelayPoolNotification>)>>>,
     messages: Arc<Mutex<Vec<Event>>>,
     senders: Arc<Mutex<Vec<mpsc::Sender<RelayPoolNotification>>>>,
     receiver: Mutex<mpsc::Receiver<RelayPoolNotification>>,
@@ -63,7 +66,7 @@ pub enum SimulatedChannelError {
 impl Channel for SimulatedChannel {
     type Error = SimulatedChannelError;
 
-    async fn subscribe(&self, id: String, filter: Filter) -> Result<(), Self::Error> {
+    async fn subscribe(&self, id: PortalId, filter: Filter) -> Result<(), Self::Error> {
         // Use the first sender for subscribers
         self.subscribers
             .write()
@@ -77,7 +80,7 @@ impl Channel for SimulatedChannel {
         //         let relay_url = RelayUrl::parse("wss://simulated").unwrap();
         //         let notification = RelayPoolNotification::Event {
         //             event: Box::new(event.clone()),
-        //             subscription_id: SubscriptionId::new(id.clone()),
+        //             subscription_id: SubscriptionId::new(id.to_string()),
         //             relay_url,
         //         };
         //         let _ = self.broadcast_notification(notification).await;
@@ -90,7 +93,7 @@ impl Channel for SimulatedChannel {
     async fn subscribe_to<I, U>(
         &self,
         urls: I,
-        id: String,
+        id: PortalId,
         filter: nostr::Filter,
     ) -> Result<(), Self::Error>
     where
@@ -107,7 +110,7 @@ impl Channel for SimulatedChannel {
         Ok(())
     }
 
-    async fn unsubscribe(&self, id: String) -> Result<(), Self::Error> {
+    async fn unsubscribe(&self, id: PortalId) -> Result<(), Self::Error> {
         self.subscribers.write().await.remove(&id);
         Ok(())
     }
@@ -123,7 +126,7 @@ impl Channel for SimulatedChannel {
                 let relay_url = RelayUrl::parse("wss://simulated").unwrap();
                 let notification = RelayPoolNotification::Event {
                     event: Box::new(event.clone()),
-                    subscription_id: SubscriptionId::new(subscription_id.clone()),
+                    subscription_id: SubscriptionId::new(subscription_id.to_string()),
                     relay_url,
                 };
                 let _ = sender.send(notification).await;
@@ -150,7 +153,7 @@ impl Channel for SimulatedChannel {
                 let relay_url = RelayUrl::parse("wss://simulated").unwrap();
                 let notification = RelayPoolNotification::Event {
                     event: Box::new(event.clone()),
-                    subscription_id: SubscriptionId::new(subscription_id.clone()),
+                    subscription_id: SubscriptionId::new(subscription_id.to_string()),
                     relay_url,
                 };
                 let _ = sender.send(notification).await;
@@ -187,6 +190,11 @@ impl Channel for SimulatedChannel {
         // For simulated channel, just clear the senders
         self.senders.lock().await.clear();
         Ok(())
+    }
+
+    async fn get_relays(&self) -> Result<Vec<String>, Self::Error> {
+        // For simulated channel, return a list of simulated relay URLs
+        Ok(vec!["wss://simulated".to_string()])
     }
 }
 
@@ -248,13 +256,24 @@ impl ScenarioBuilder {
         self
     }
 
-    pub async fn with_conversation<C: Conversation + Send + 'static>(
+    pub async fn with_conversation<C: Conversation + Send + Sync + 'static>(
         self,
         node_id: &str,
         conversation: C,
     ) -> Result<Self, ConversationError> {
         if let Some(router) = self.network.get_node(node_id) {
-            router.add_conversation(Box::new(conversation)).await?;
+            router
+                .add_conversation(Box::new(conversation))
+                .await
+                .map_err(|e| match e {
+                    MessageRouterActorError::Conversation(ce) => ce,
+                    MessageRouterActorError::Channel(_) => ConversationError::Inner(Box::new(
+                        std::io::Error::new(std::io::ErrorKind::Other, "Channel error"),
+                    )),
+                    MessageRouterActorError::Receiver(_) => ConversationError::Inner(Box::new(
+                        std::io::Error::new(std::io::ErrorKind::Other, "Receiver error"),
+                    )),
+                })?;
         }
         Ok(self)
     }

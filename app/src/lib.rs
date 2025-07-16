@@ -43,8 +43,8 @@ use portal::{
         },
     },
     router::{
-        MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter,
-        adapters::one_shot::OneShotSenderAdapter,
+        MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter, MultiKeySenderAdapter,
+        adapters::one_shot::OneShotSenderAdapter, channel::Channel,
     },
 };
 
@@ -324,8 +324,19 @@ impl PortalApp {
         );
 
         // Create router with keypair
-        let keypair = &keypair.inner;
-        let router = Arc::new(MessageRouter::new(relay_pool, keypair.clone()));
+        let keypair = keypair.inner.clone();
+        let router = async_utility::task::spawn(async move {
+            let router = MessageRouter::new(relay_pool, keypair);
+            Arc::new(router)
+        })
+        .join()
+        .await
+        .map_err(|_| AppError::ConversationError("Failed to start router actor".to_string()))?;
+
+        // Ensure the actor is ready
+        log::debug!("Pinging router actor to ensure it's ready...");
+        router.ping().await?;
+        log::debug!("Router actor is ready");
 
         Ok(Arc::new(Self { router, runtime }))
     }
@@ -344,14 +355,8 @@ impl PortalApp {
     }
 
     pub async fn send_key_handshake(&self, url: KeyHandshakeUrl) -> Result<(), AppError> {
-        let relays = self
-            .router
-            .channel()
-            .relays()
-            .await
-            .keys()
-            .map(|r| r.to_string())
-            .collect();
+        let relays = self.router.channel().get_relays().await?;
+
         let _id = self
             .router
             .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
@@ -371,13 +376,13 @@ impl PortalApp {
         evt: Arc<dyn AuthChallengeListener>,
     ) -> Result<(), AppError> {
         let inner = AuthChallengeListenerConversation::new(self.router.keypair().public_key());
-        let mut rx = self
-            .router
-            .add_and_subscribe(MultiKeyListenerAdapter::new(
-                inner,
-                self.router.keypair().subkey_proof().cloned(),
-            ))
-            .await?;
+        let mut rx: portal::router::NotificationStream<portal::app::auth::AuthChallengeEvent> =
+            self.router
+                .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                    inner,
+                    self.router.keypair().subkey_proof().cloned(),
+                )))
+                .await?;
 
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let evt = Arc::clone(&evt);
@@ -414,13 +419,13 @@ impl PortalApp {
         evt: Arc<dyn PaymentRequestListener>,
     ) -> Result<(), AppError> {
         let inner = PaymentRequestListenerConversation::new(self.router.keypair().public_key());
-        let mut rx = self
-            .router
-            .add_and_subscribe(MultiKeyListenerAdapter::new(
-                inner,
-                self.router.keypair().subkey_proof().cloned(),
-            ))
-            .await?;
+        let mut rx: portal::router::NotificationStream<portal::app::payments::PaymentRequestEvent> =
+            self.router
+                .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                    inner,
+                    self.router.keypair().subkey_proof().cloned(),
+                )))
+                .await?;
 
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let evt = Arc::clone(&evt);
@@ -483,7 +488,8 @@ impl PortalApp {
 
     pub async fn fetch_profile(&self, pubkey: PublicKey) -> Result<Option<Profile>, AppError> {
         let conv = FetchProfileInfoConversation::new(pubkey.into());
-        let mut notification = self.router.add_and_subscribe(conv).await?;
+        let mut notification: portal::router::NotificationStream<Option<portal::profile::Profile>> =
+            self.router.add_and_subscribe(Box::new(conv)).await?;
         let metadata = notification
             .next()
             .await
@@ -567,12 +573,14 @@ impl PortalApp {
     ) -> Result<(), AppError> {
         let inner =
             CloseRecurringPaymentReceiverConversation::new(self.router.keypair().public_key());
-        let mut rx = self
+        let mut rx: portal::router::NotificationStream<
+            portal::protocol::model::payment::CloseRecurringPaymentResponse,
+        > = self
             .router
-            .add_and_subscribe(MultiKeyListenerAdapter::new(
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
                 inner,
                 self.router.keypair().subkey_proof().cloned(),
-            ))
+            )))
             .await?;
 
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
@@ -613,12 +621,14 @@ impl PortalApp {
         evt: Arc<dyn InvoiceRequestListener>,
     ) -> Result<(), AppError> {
         let inner = InvoiceReceiverConversation::new(self.router.keypair().public_key());
-        let mut rx = self
+        let mut rx: portal::router::NotificationStream<
+            portal::protocol::model::payment::InvoiceRequestContentWithKey,
+        > = self
             .router
-            .add_and_subscribe(MultiKeyListenerAdapter::new(
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
                 inner,
                 self.router.keypair().subkey_proof().cloned(),
-            ))
+            )))
             .await?;
 
         while let Ok(request) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
@@ -675,14 +685,15 @@ impl PortalApp {
             self.router.keypair().subkey_proof().cloned(),
             content,
         );
-
-        let mut rx = self
+        let mut rx: portal::router::NotificationStream<
+            portal::protocol::model::payment::InvoiceResponse,
+        > = self
             .router
-            .add_and_subscribe(MultiKeySenderAdapter::new_with_user(
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
                 recipient.into(),
                 vec![],
                 conv,
-            ))
+            )))
             .await?;
 
         if let Ok(invoice_response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
@@ -707,10 +718,12 @@ impl PortalApp {
 
                         let relay_url = RelayUrl(relay_url);
                         let status = RelayStatus::from(status);
-                        if let Err(e) = relay_status_listener.on_relay_status_change(relay_url, status).await {
+                        if let Err(e) = relay_status_listener
+                            .on_relay_status_change(relay_url, status)
+                            .await
+                        {
                             log::error!("Relay status listener error: {:?}", e);
                         }
-                        
                     }
                 }
             }
@@ -856,6 +869,12 @@ pub enum AppError {
 
 impl From<portal::router::ConversationError> for AppError {
     fn from(error: portal::router::ConversationError) -> Self {
+        AppError::ConversationError(error.to_string())
+    }
+}
+
+impl From<portal::router::MessageRouterActorError> for AppError {
+    fn from(error: portal::router::MessageRouterActorError) -> Self {
         AppError::ConversationError(error.to_string())
     }
 }

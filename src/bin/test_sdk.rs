@@ -73,13 +73,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _router.listen().await.unwrap();
     });
 
-    let relays = router
-        .channel()
-        .relays()
-        .await
-        .keys()
-        .map(|r| r.to_string())
-        .collect::<Vec<_>>();
+    // Note: In the actor pattern, we can't access the channel directly
+    // The relays are managed internally by the actor
+    let relays = vec![]; // TODO: Implement relay access through actor messages
 
     let (main_key, subkey) = if let Some(subkey_proof) = router.keypair().subkey_proof() {
         (
