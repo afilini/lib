@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::command::{Command, CommandWithId};
 use crate::response::*;
@@ -10,10 +10,12 @@ use dashmap::DashMap;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use portal::protocol::jwt::CustomClaims;
-use portal::protocol::model::payment::{InvoiceRequestContentWithKey, SinglePaymentRequestContent};
+use portal::protocol::model::payment::{
+    InvoiceRequestContentWithKey, PaymentStatus, SinglePaymentRequestContent,
+};
 use portal::protocol::model::Timestamp;
 use sdk::PortalSDK;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -472,98 +474,12 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 description: Some(payment_request.description),
             };
 
-            match ctx
+            let mut notifications = match ctx
                 .sdk
                 .request_single_payment(main_key, subkeys, payment_request)
                 .await
             {
-                Ok(status) => {
-                    // Generate a unique stream ID
-                    let stream_id = Uuid::new_v4().to_string();
-
-                    // Setup notification forwarding
-                    let tx_clone = ctx.tx_notification.clone();
-                    let stream_id_clone = stream_id.clone();
-                    let nwc_clone = nwc.clone();
-
-                    // Create a task to handle the notification stream
-                    let task = tokio::spawn(async move {
-                        let mut count = 0;
-                        let notification = loop {
-                            if Timestamp::now() > expires_at {
-                                break NotificationData::PaymentStatusUpdate {
-                                    status: InvoiceStatus::Timeout,
-                                };
-                            }
-
-                            count += 1;
-                            if std::env::var("FAKE_PAYMENTS").is_ok() && count > 3 {
-                                break NotificationData::PaymentStatusUpdate {
-                                    status: InvoiceStatus::Paid { preimage: None },
-                                };
-                            }
-
-                            let invoice = nwc_clone
-                                .lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
-                                    invoice: Some(invoice.invoice.clone()),
-                                    payment_hash: None,
-                                })
-                                .await;
-
-                            match invoice {
-                                Ok(invoice) => {
-                                    if invoice.settled_at.is_some() {
-                                        break NotificationData::PaymentStatusUpdate {
-                                            status: InvoiceStatus::Paid {
-                                                preimage: invoice.preimage,
-                                            },
-                                        };
-                                    } else {
-                                        // TODO: incremental delay
-                                        tokio::time::sleep(tokio::time::Duration::from_millis(
-                                            1000,
-                                        ))
-                                        .await;
-
-                                        continue;
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Failed to lookup invoice: {}", e);
-                                    break NotificationData::PaymentStatusUpdate {
-                                        status: InvoiceStatus::Error {
-                                            reason: e.to_string(),
-                                        },
-                                    };
-                                }
-                            }
-                        };
-
-                        // Convert the event to a notification response
-                        let notification = Response::Notification {
-                            id: stream_id_clone.clone(),
-                            data: notification,
-                        };
-
-                        // Send the notification to the client
-                        if let Err(e) = tx_clone.send(notification).await {
-                            error!("Failed to forward payment event: {}", e);
-                        }
-                    });
-
-                    // Store the task
-                    ctx.active_streams.add_task(stream_id.clone(), task);
-
-                    let response = Response::Success {
-                        id: command.id,
-                        data: ResponseData::SinglePayment {
-                            status,
-                            stream_id: Some(stream_id),
-                        },
-                    };
-
-                    let _ = ctx.send_message(response).await;
-                }
+                Ok(notifications) => notifications,
                 Err(e) => {
                     let _ = ctx
                         .send_error_message(
@@ -571,8 +487,157 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                             &format!("Failed to request single payment: {}", e),
                         )
                         .await;
+                    return;
                 }
-            }
+            };
+
+            // Generate a unique stream ID
+            let stream_id = Uuid::new_v4().to_string();
+            let tx_clone = ctx.tx_notification.clone();
+            let nwc_clone = nwc.clone();
+
+            let stream_id_clone = stream_id.clone();
+            let monitor = Mutex::new(None);
+            let task = tokio::spawn(async move {
+                while let Some(notification) = notifications.next().await {
+                    match notification {
+                        Ok(status) => {
+                            let notification = match &status.status {
+                                PaymentStatus::Failed { reason } => {
+                                    NotificationData::PaymentStatusUpdate {
+                                        status: InvoiceStatus::UserFailed {
+                                            reason: reason.clone(),
+                                        },
+                                    }
+                                }
+                                PaymentStatus::Rejected { reason } => {
+                                    NotificationData::PaymentStatusUpdate {
+                                        status: InvoiceStatus::UserRejected {
+                                            reason: reason.clone(),
+                                        },
+                                    }
+                                }
+                                PaymentStatus::Success { preimage } => {
+                                    NotificationData::PaymentStatusUpdate {
+                                        status: InvoiceStatus::UserSuccess {
+                                            preimage: preimage.clone(),
+                                        },
+                                    }
+                                }
+                                PaymentStatus::Approved => NotificationData::PaymentStatusUpdate {
+                                    status: InvoiceStatus::UserApproved,
+                                },
+                            };
+
+                            // Convert the event to a notification response
+                            let notification = Response::Notification {
+                                id: stream_id_clone.clone(),
+                                data: notification,
+                            };
+
+                            // Send the notification to the client
+                            if let Err(e) = tx_clone.send(notification).await {
+                                error!("Failed to forward payment event: {}", e);
+                            }
+
+                            if status.status.is_final() {
+                                // If the status is final we can exit now
+                                return;
+                            }
+
+                            if monitor.lock().await.is_some() {
+                                // Monitor already started
+                                return;
+                            }
+
+                            // Let's start monitoring the invoice via NWC
+                            let stream_id_clone = stream_id_clone.clone();
+                            let tx_clone = tx_clone.clone();
+                            let nwc_clone = nwc_clone.clone();
+                            let invoice_clone = invoice.invoice.clone();
+
+                            *monitor.lock().await = Some(tokio::spawn(async move {
+                                let mut count = 0;
+                                let notification = loop {
+                                    if Timestamp::now() > expires_at {
+                                        break NotificationData::PaymentStatusUpdate {
+                                            status: InvoiceStatus::Timeout,
+                                        };
+                                    }
+
+                                    count += 1;
+                                    if std::env::var("FAKE_PAYMENTS").is_ok() && count > 3 {
+                                        break NotificationData::PaymentStatusUpdate {
+                                            status: InvoiceStatus::Paid { preimage: None },
+                                        };
+                                    }
+
+                                    let invoice = nwc_clone
+                                        .lookup_invoice(
+                                            portal::nostr::nips::nip47::LookupInvoiceRequest {
+                                                invoice: Some(invoice_clone.clone()),
+                                                payment_hash: None,
+                                            },
+                                        )
+                                        .await;
+
+                                    match invoice {
+                                        Ok(invoice) => {
+                                            if invoice.settled_at.is_some() {
+                                                break NotificationData::PaymentStatusUpdate {
+                                                    status: InvoiceStatus::Paid {
+                                                        preimage: invoice.preimage,
+                                                    },
+                                                };
+                                            } else {
+                                                // TODO: incremental delay
+                                                tokio::time::sleep(
+                                                    tokio::time::Duration::from_millis(1000),
+                                                )
+                                                .await;
+
+                                                continue;
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to lookup invoice: {}", e);
+                                            break NotificationData::PaymentStatusUpdate {
+                                                status: InvoiceStatus::Error {
+                                                    reason: e.to_string(),
+                                                },
+                                            };
+                                        }
+                                    }
+                                };
+
+                                // Convert the event to a notification response
+                                let notification = Response::Notification {
+                                    id: stream_id_clone.clone(),
+                                    data: notification,
+                                };
+
+                                // Send the notification to the client
+                                if let Err(e) = tx_clone.send(notification).await {
+                                    error!("Failed to forward payment event: {}", e);
+                                }
+                            }));
+                        }
+                        Err(e) => {
+                            error!("Failed to request single payment: {}", e);
+                        }
+                    }
+                }
+            });
+
+            // Store the task
+            ctx.active_streams.add_task(stream_id.clone(), task);
+
+            let response = Response::Success {
+                id: command.id,
+                data: ResponseData::SinglePayment { stream_id },
+            };
+
+            let _ = ctx.send_message(response).await;
         }
         Command::RequestPaymentRaw {
             main_key,
@@ -600,22 +665,12 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             };
 
-            match ctx
+            let mut notifications = match ctx
                 .sdk
                 .request_single_payment(main_key, subkeys, payment_request)
                 .await
             {
-                Ok(status) => {
-                    let response = Response::Success {
-                        id: command.id,
-                        data: ResponseData::SinglePayment {
-                            status,
-                            stream_id: None,
-                        },
-                    };
-
-                    let _ = ctx.send_message(response).await;
-                }
+                Ok(notifications) => notifications,
                 Err(e) => {
                     let _ = ctx
                         .send_error_message(
@@ -623,8 +678,68 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                             &format!("Failed to request single payment: {}", e),
                         )
                         .await;
+                    return;
                 }
-            }
+            };
+
+            // Generate a unique stream ID
+            let stream_id = Uuid::new_v4().to_string();
+            let tx_clone = ctx.tx_notification.clone();
+
+            // Setup notification forwarding
+            let stream_id_clone = stream_id.clone();
+            let task = tokio::spawn(async move {
+                while let Some(notification) = notifications.next().await {
+                    match notification {
+                        Ok(status) => {
+                            let notification = match status.status {
+                                PaymentStatus::Failed { reason } => {
+                                    NotificationData::PaymentStatusUpdate {
+                                        status: InvoiceStatus::UserFailed { reason },
+                                    }
+                                }
+                                PaymentStatus::Rejected { reason } => {
+                                    NotificationData::PaymentStatusUpdate {
+                                        status: InvoiceStatus::UserRejected { reason },
+                                    }
+                                }
+                                PaymentStatus::Success { preimage } => {
+                                    NotificationData::PaymentStatusUpdate {
+                                        status: InvoiceStatus::UserSuccess { preimage },
+                                    }
+                                }
+                                PaymentStatus::Approved => NotificationData::PaymentStatusUpdate {
+                                    status: InvoiceStatus::UserApproved,
+                                },
+                            };
+
+                            // Convert the event to a notification response
+                            let notification = Response::Notification {
+                                id: stream_id_clone.clone(),
+                                data: notification,
+                            };
+
+                            // Send the notification to the client
+                            if let Err(e) = tx_clone.send(notification).await {
+                                error!("Failed to forward payment event: {}", e);
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to request single payment: {}", e);
+                        }
+                    }
+                }
+            });
+
+            // Store the task
+            ctx.active_streams.add_task(stream_id.clone(), task);
+
+            let response = Response::Success {
+                id: command.id,
+                data: ResponseData::SinglePayment { stream_id },
+            };
+
+            let _ = ctx.send_message(response).await;
         }
         Command::FetchProfile { main_key } => {
             // Parse key

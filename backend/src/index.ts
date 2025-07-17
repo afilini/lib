@@ -2,7 +2,7 @@ import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { AuthResponseData, Currency, PaymentStatusContent, PortalSDK, Profile, RecurringPaymentStatusContent, Timestamp } from 'portal-sdk';
+import { AuthResponseData, Currency, PortalSDK, Profile, RecurringPaymentStatusContent, Timestamp } from 'portal-sdk';
 import { DatabaseManager, Payment } from './session';
 import { bech32 } from 'bech32';
 import { CloseRecurringPaymentNotification, InvoiceStatus } from 'portal-sdk/dist/src/types';
@@ -581,37 +581,25 @@ async function claimSinglePayment(
         (status) => {
             console.log('Payment status update:', status);
             // Update payment status in database
-            let dbStatus: 'pending' | 'completed' | 'failed';
+            let dbStatus: 'pending' | 'completed' | 'failed' | undefined;
             if (status.status === 'paid') {
                 if (successCallback) {
                     successCallback(status);
                 }
                 dbStatus = 'completed';
-            } else if (status.status === 'error' || status.status === 'timeout') {
+            } else if (status.status === 'error' || status.status === 'timeout' || status.status === 'user_failed' || status.status === 'user_rejected') {
                 dbStatus = 'failed';
             } else {
-                dbStatus = 'pending';
+                dbStatus = undefined;
             }
-            db.updatePaymentStatus(paymentId, dbStatus);
+            if (dbStatus) {
+                db.updatePaymentStatus(paymentId, dbStatus);
+            }
             for (const w of ws) {
                 sendHistory(w, publicKey);
             }
         }
     );
-
-    console.log('Single payment result:', paymentResult);
-    let finalStatus: 'pending' | 'failed';
-    if (paymentResult === 'pending') {
-      finalStatus = 'pending';
-    } else if ('rejected' in paymentResult || 'failed' in paymentResult) {
-      finalStatus = 'failed';
-    } else {
-      finalStatus = 'pending';
-    }
-    db.updatePaymentStatus(paymentId, finalStatus);
-    for (const w of ws) {
-        sendHistory(w, publicKey);
-    }
 }
 
 // Helper function to calculate next payment timestamp

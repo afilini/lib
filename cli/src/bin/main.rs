@@ -2,8 +2,8 @@ use std::{io::Write, str::FromStr, sync::Arc};
 
 use app::{
     AuthChallengeListener, CallbackError, ClosedRecurringPaymentListener, Mnemonic,
-    PaymentRequestListener, PortalApp, RecurringPaymentRequest, RelayStatus, RelayStatusListener,
-    RelayUrl, SinglePaymentRequest, auth::AuthChallengeEvent, db::PortalDB,
+    PaymentRequestListener, PaymentStatusNotifier, PortalApp, RecurringPaymentRequest, RelayStatus,
+    RelayStatusListener, RelayUrl, SinglePaymentRequest, auth::AuthChallengeEvent, db::PortalDB,
 };
 use nwc::nostr;
 use portal::{
@@ -36,7 +36,7 @@ impl RelayStatusListener for LogRelayStatusChange {
     }
 }
 
-struct ApproveLogin;
+struct ApproveLogin(Arc<PortalApp>);
 
 #[async_trait::async_trait]
 impl AuthChallengeListener for ApproveLogin {
@@ -45,6 +45,9 @@ impl AuthChallengeListener for ApproveLogin {
         event: AuthChallengeEvent,
     ) -> Result<AuthResponseStatus, CallbackError> {
         log::info!("Received auth challenge: {:?}", event);
+
+        dbg!(self.0.fetch_profile(event.service_key).await);
+
         Ok(AuthResponseStatus::Approved {
             granted_permissions: vec![],
             session_token: String::from("ABC"),
@@ -59,8 +62,16 @@ impl PaymentRequestListener for ApprovePayment {
     async fn on_single_payment_request(
         &self,
         event: SinglePaymentRequest,
-    ) -> Result<PaymentResponseContent, CallbackError> {
+        notifier: Arc<dyn PaymentStatusNotifier>,
+    ) -> Result<(), CallbackError> {
         log::info!("Received single payment request: {:?}", event);
+
+        notifier
+            .notify(PaymentResponseContent {
+                status: PaymentStatus::Approved,
+                request_id: event.content.request_id.clone(),
+            })
+            .await?;
 
         let nwc = self.0.clone();
         tokio::task::spawn(async move {
@@ -72,12 +83,35 @@ impl PaymentRequestListener for ApprovePayment {
                 })
                 .await;
             log::info!("Payment result: {:?}", payment_result);
+
+            match payment_result {
+                Ok(payment) => {
+                    notifier
+                        .notify(PaymentResponseContent {
+                            status: PaymentStatus::Success {
+                                preimage: Some(payment.preimage),
+                            },
+                            request_id: event.content.request_id,
+                        })
+                        .await
+                        .unwrap();
+                }
+                Err(e) => {
+                    log::error!("Payment failed: {:?}", e);
+                    notifier
+                        .notify(PaymentResponseContent {
+                            status: PaymentStatus::Failed {
+                                reason: Some(e.to_string()),
+                            },
+                            request_id: event.content.request_id,
+                        })
+                        .await
+                        .unwrap();
+                }
+            }
         });
 
-        Ok(PaymentResponseContent {
-            status: PaymentStatus::Pending,
-            request_id: event.content.request_id,
-        })
+        Ok(())
     }
 
     async fn on_recurring_payment_request(
@@ -139,22 +173,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
 
     // Testing database
-    let age_example = 1.to_string();
-    db.store("age".to_string(), &age_example).await?;
-    let age = db.read("age".to_string()).await?;
-    if age != age_example {
-        // error
-        log::error!("Failed to set or get value from database: {:?}", age);
-    }
+    // let age_example = 1.to_string();
+    // db.store("age".to_string(), &age_example).await?;
+    // let age = db.read("age".to_string()).await?;
+    // if age != age_example {
+    //     // error
+    //     log::error!("Failed to set or get value from database: {:?}", age);
+    // }
 
-    let history = db.read_history("age".to_string()).await?;
-    log::info!("History of age: {:?}", history);
+    // let history = db.read_history("age".to_string()).await?;
+    // log::info!("History of age: {:?}", history);
 
     let app = PortalApp::new(
         keypair,
         vec![
             "wss://relay.nostr.net".to_string(),
-            // "wss://relay.damus.io".to_string(),
+            "wss://relay.getportal.cc".to_string(),
         ],
         Arc::new(LogRelayStatusChange),
     )
@@ -166,22 +200,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _app.listen().await.unwrap();
     });
 
-    app.set_profile(Profile {
-        name: Some("John Doe".to_string()),
-        display_name: Some("John Doe".to_string()),
-        picture: Some("https://tr.rbxcdn.com/180DAY-4d8c678185e70957c8f9b5ca267cd335/420/420/Image/Png/noFilter".to_string()),
-        nip05: Some("john.doe@example.com".to_string()),
-    }).await?;
-    dbg!(
-        app.fetch_profile(PublicKey(nostr::PublicKey::parse(
-            "1e48492f5515d70e4fb40841894701cd97a35d7ea5bf93c84d2eac300ce4c25c"
-        )?))
-        .await?
-    );
+    // app.set_profile(Profile {
+    //     name: Some("John Doe".to_string()),
+    //     display_name: Some("John Doe".to_string()),
+    //     picture: Some("https://tr.rbxcdn.com/180DAY-4d8c678185e70957c8f9b5ca267cd335/420/420/Image/Png/noFilter".to_string()),
+    //     nip05: Some("john.doe@example.com".to_string()),
+    // }).await?;
+    // dbg!(
+    //     app.fetch_profile(PublicKey(nostr::PublicKey::parse(
+    //         "1e48492f5515d70e4fb40841894701cd97a35d7ea5bf93c84d2eac300ce4c25c"
+    //     )?))
+    //     .await?
+    // );
 
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
-        _app.listen_for_auth_challenge(Arc::new(ApproveLogin))
+        _app.listen_for_auth_challenge(Arc::new(ApproveLogin(Arc::clone(&_app))))
             .await
             .unwrap();
     });
@@ -200,10 +234,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap();
     });
 
-    let _app = Arc::clone(&app);
-    tokio::spawn(async move {
-        _app.register_nip05("phantomsto".to_owned()).await.unwrap();
-    });
+    // let _app = Arc::clone(&app);
+    // tokio::spawn(async move {
+    //     _app.register_nip05("phantomsto".to_owned()).await.unwrap();
+    // });
 
     // let _app = Arc::clone(&app);
     // tokio::spawn(async move {

@@ -150,20 +150,20 @@ impl PortalSDK {
         main_key: PublicKey,
         subkeys: Vec<PublicKey>,
         payment_request: SinglePaymentRequestContent,
-    ) -> Result<PaymentResponseContent, PortalSDKError> {
+    ) -> Result<NotificationStream<PaymentResponseContent>, PortalSDKError> {
         let conv = SinglePaymentRequestSenderConversation::new(
             self.router.keypair().public_key(),
             self.router.keypair().subkey_proof().cloned(),
             payment_request,
         );
 
-        let mut event = self
+        let event = self
             .router
             .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
                 main_key, subkeys, conv,
             )))
             .await?;
-        Ok(event.next().await.ok_or(PortalSDKError::Timeout)??)
+        Ok(event)
     }
 
     pub async fn fetch_profile(

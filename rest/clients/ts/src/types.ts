@@ -83,10 +83,8 @@ export interface RecurringPaymentResponseContent {
   status: RecurringPaymentStatusContent;
 }
 
-export type PaymentStatusContent = "pending" | { rejected: { reason: string | null } } | { failed: { reason: string | null } };
-
 export interface InvoiceStatus {
-  status: 'paid' | 'timeout' | 'error';
+  status: 'paid' | 'timeout' | 'error' | 'user_approved' | 'user_success' | 'user_failed' | 'user_rejected';
   preimage?: string;
   reason?: string;
 }
@@ -165,7 +163,7 @@ export type ResponseData =
   | { type: 'key_handshake_url', url: string, stream_id: string }
   | { type: 'auth_response', event: AuthResponseData }
   | { type: 'recurring_payment', status: RecurringPaymentStatusContent }
-  | { type: 'single_payment', status: PaymentStatusContent, stream_id: string | null }
+  | { type: 'single_payment', stream_id: string }
   | { type: 'profile', profile: Profile | null }
   | { type: 'close_recurring_payment_success', message: string }
   | { type: 'listen_closed_recurring_payment', stream_id: string }

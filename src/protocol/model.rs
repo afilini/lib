@@ -259,13 +259,23 @@ pub mod payment {
         pub status: PaymentStatus,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
     #[serde(rename_all = "snake_case")]
     pub enum PaymentStatus {
-        Pending,
+        Approved,
+        Success { preimage: Option<String> },
         Rejected { reason: Option<String> },
         Failed { reason: Option<String> },
+    }
+
+    impl PaymentStatus {
+        pub fn is_final(&self) -> bool {
+            matches!(
+                self,
+                Self::Success { .. } | Self::Rejected { .. } | Self::Failed { .. }
+            )
+        }
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
