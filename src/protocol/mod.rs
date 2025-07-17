@@ -9,6 +9,7 @@ pub mod identity;
 pub mod jwt;
 pub mod key_handshake;
 pub mod model;
+pub mod rates;
 pub mod subkey;
 
 #[cfg_attr(feature = "bindings", derive(uniffi::Object))]

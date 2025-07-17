@@ -137,7 +137,7 @@ checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
 
 [[package]]
 name = "app"
-version = "0.2.1"
+version = "0.2.8"
 dependencies = [
  "android_logger",
  "async",
@@ -2126,6 +2126,7 @@ dependencies = [
  "nostr",
  "nostr-relay-pool",
  "rand 0.8.5",
+ "reqwest",
  "secp256k1",
  "serde",
  "serde_json",
