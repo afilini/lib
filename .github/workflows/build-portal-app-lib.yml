@@ -8,42 +8,143 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-android:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-      
+
     - name: Install Nix
       uses: DeterminateSystems/nix-installer-action@main
-      
+
     - name: Setup Nix Magic Cache
       uses: DeterminateSystems/magic-nix-cache-action@main
-      
+
     - name: Change to react-native directory
       run: cd react-native
-      
+
     - name: Install dependencies with Nix
       run: |
         cd react-native
         nix develop --command yarn install
-        
+
     - name: Build Android release
       run: |
         cd react-native
         nix develop --command yarn ubrn:android --release
-        
+
+    - name: Upload Android build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-build
+        path: react-native/
+        exclude: react-native/node_modules/**
+        retention-days: 30
+
+    - name: Upload build logs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: android-build-logs
+        path: |
+          react-native/yarn-error.log
+          react-native/npm-debug.log
+        retention-days: 7
+
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@main
+
+    - name: Setup Nix Magic Cache
+      uses: DeterminateSystems/magic-nix-cache-action@main
+
+    - name: Change to react-native directory
+      run: cd react-native
+
+    - name: Install dependencies with Nix
+      run: |
+        cd react-native
+        nix develop .#ios --command yarn install
+
+    - name: Build iOS release
+      run: |
+        cd react-native
+        nix develop .#ios --command yarn ubrn:ios --release
+
+    - name: Upload iOS build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ios-build
+        path: react-native/
+        exclude: react-native/node_modules/**
+        retention-days: 30
+
+    - name: Upload build logs
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: ios-build-logs
+        path: |
+          react-native/yarn-error.log
+          react-native/npm-debug.log
+        retention-days: 7
+
+  merge-and-package:
+    runs-on: ubuntu-latest
+    needs: [build-android, build-ios]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download Android build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: android-build
+        path: android-artifacts/
+
+    - name: Download iOS build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: ios-build
+        path: ios-artifacts/
+
+    - name: Merge artifacts
+      run: |
+        # Ensure directory exists
+        mkdir -p react-native
+
+        # Copy Android artifacts (files are directly in android-artifacts/)
+        cp -r android-artifacts/* react-native/
+
+        # Copy iOS artifacts (will overwrite Android files where appropriate)
+        cp -r ios-artifacts/* react-native/
+
+    - name: Change to react-native directory
+      run: cd react-native
+
+    - name: Install dependencies
+      run: |
+        cd react-native
+        yarn install
+
     - name: Apply uniffi patches
       run: |
         cd react-native
-        nix develop --command node ./patch-uniffi-bindgen.js
-        
+        node ./patch-uniffi-bindgen.js
+
     - name: Create npm package
       run: |
         cd react-native
-        nix develop --command npm pack
-        
+        npm pack
+
     - name: Find package file
       id: find-package
       run: |
@@ -51,20 +152,10 @@ jobs:
         PACKAGE_FILE=$(ls *.tgz | head -1)
         echo "package-file=$PACKAGE_FILE" >> $GITHUB_OUTPUT
         echo "Found package: $PACKAGE_FILE"
-        
+
     - name: Upload package artifact
       uses: actions/upload-artifact@v4
       with:
         name: library-package
         path: react-native/${{ steps.find-package.outputs.package-file }}
         retention-days: 30
-        
-    - name: Upload build logs
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: build-logs
-        path: |
-          react-native/yarn-error.log
-          react-native/npm-debug.log
-        retention-days: 7
