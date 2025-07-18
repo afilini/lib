@@ -5,10 +5,14 @@
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::Value;
-use std::{collections::HashMap, time::Instant};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use thiserror::Error;
 
-#[derive(Debug, Error, uniffi::Error)]
+#[cfg(feature = "bindings")]
+uniffi::setup_scaffolding!();
+
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Error))]
 pub enum RatesError {
     #[error("Failed to parse JSON: {0}")]
     SerdeJsonError(String),
@@ -50,7 +54,8 @@ pub enum RatesError {
     PriceParseFailed(String),
 }
 
-#[derive(Debug, Deserialize, uniffi::Record)]
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Record))]
 struct FiatUnit {
     #[serde(rename = "endPointKey")]
     end_point_key: String,
@@ -60,7 +65,8 @@ struct FiatUnit {
     country: Option<String>,
 }
 
-#[derive(Debug, Deserialize, uniffi::Enum)]
+#[derive(Debug, Deserialize)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
 enum Source {
     Yadio,
     YadioConvert,
@@ -75,7 +81,8 @@ enum Source {
     CoinDesk,
 }
 
-#[derive(Debug, uniffi::Record)]
+#[derive(Debug)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Record))]
 pub struct MarketData {
     pub price: String,
     pub rate: f64,
@@ -95,7 +102,8 @@ impl MarketData {
     }
 }
 
-#[derive(Debug, uniffi::Object)]
+#[derive(Debug)]
+#[cfg_attr(feature = "bindings", derive(uniffi::Object))]
 pub struct MarketAPI {
     fiat_units: HashMap<String, FiatUnit>,
     client: Client,
@@ -212,7 +220,7 @@ impl MarketAPI {
         }
     }
 
-    async fn fetch_price(&self, currency: &str) -> Result<Option<String>, RatesError> {
+    async fn fetch_price(self: Arc<Self>, currency: &str) -> Result<Option<String>, RatesError> {
         let unit = match self.fiat_units.get(currency) {
             Some(unit) => unit,
             None => return Ok(None),
@@ -237,28 +245,16 @@ impl MarketAPI {
         let parsed = Self::parse_price_json(&text, &unit.source, &unit.end_point_key)?;
         Ok(Some(parsed))
     }
-}
 
-#[uniffi::export]
-impl MarketAPI {
-    #[uniffi::constructor]
-    pub fn new() -> Result<Self, RatesError> {
-        let json_str = include_str!("../../assets/fiatUnits.json");
-        let fiat_units: HashMap<String, FiatUnit> = serde_json::from_str(json_str)
-            .map_err(|e| RatesError::SerdeJsonError(e.to_string()))?;
-        Ok(Self {
-            fiat_units,
-            client: Client::new(),
-        })
-    }
-
-    pub async fn fetch_market_data(&self, currency: &str) -> Result<MarketData, RatesError> {
+    async fn fetch_market_data_internal(
+        self: Arc<Self>,
+        currency: &str,
+    ) -> Result<MarketData, RatesError> {
         let start = Instant::now();
+        let symbol = self.fiat_units[currency].symbol.clone();
 
         if let Some(price_str) = self.fetch_price(currency).await? {
             if let Ok(rate) = price_str.parse::<f64>() {
-                let symbol = &self.fiat_units[currency].symbol;
-
                 let data = MarketData {
                     price: format!("{} {:.0}", symbol, rate),
                     rate: rate,
@@ -271,6 +267,42 @@ impl MarketAPI {
         }
 
         Err(RatesError::MarketDataFetchFailed)
+    }
+}
+
+#[cfg_attr(feature = "bindings", uniffi::export)]
+impl MarketAPI {
+    #[cfg_attr(feature = "bindings", uniffi::constructor)]
+    pub fn new() -> Result<Arc<Self>, RatesError> {
+        let json_str = include_str!("../../assets/fiatUnits.json");
+        let fiat_units: HashMap<String, FiatUnit> = serde_json::from_str(json_str)
+            .map_err(|e| RatesError::SerdeJsonError(e.to_string()))?;
+        Ok(Arc::new(Self {
+            fiat_units,
+            client: Client::new(),
+        }))
+    }
+
+    pub async fn fetch_market_data(
+        self: Arc<Self>,
+        currency: &str,
+    ) -> Result<MarketData, RatesError> {
+        #[cfg(feature = "bindings")]
+        {
+            let _self = self.clone();
+            let currency = currency.to_string();
+            async_utility::task::spawn(
+                async move { _self.fetch_market_data_internal(&currency).await },
+            )
+            .join()
+            .await
+            .expect("No async task issues")
+        }
+
+        #[cfg(not(feature = "bindings"))]
+        {
+            self.fetch_market_data_internal(currency).await
+        }
     }
 }
 

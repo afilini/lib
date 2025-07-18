@@ -9,6 +9,7 @@ crate-type = ["staticlib", "lib"]
 [dependencies]
 uniffi = "0.29.1"
 portal = { path = "../", features = ["bindings"] }
+rates = { path = "../rates", features = ["bindings"]}
 thiserror = "2.0.12"
 tokio = { version = "1.41.1", features = ["rt-multi-thread"] }
 android_logger = "0.15.0"
