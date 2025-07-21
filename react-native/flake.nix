@@ -89,7 +89,10 @@
         mkIosCommonArgs = target: {
           cargoBuildCommand = "cargo build --profile release --target ${target}";
 
-          PATH="${xcodewrapper}/bin:$PATH";
+          preBuild = ''
+            unset DEVELOPER_DIR
+            export PATH=${xcodewrapper}/bin:$PATH
+          '';
         };
 
         mkAndroidArtifacts = target: (craneLibAndroid.buildDepsOnly ((mkAndroidCommonArgs target) // commonArgs // {
@@ -174,10 +177,14 @@
           ];
           cargoHash = "sha256-mwjxYDszdPL23jcrfSF/qmoTyShOovKSgHNXQqbAsLs=";
           doCheck = false;
+          meta.mainProgram = "uniffi-bindgen-react-native";
         };
 
         libAndroidAarch64 = mkAndroidPackage "arm64-v8a";
         libAndroidX86_64 = mkAndroidPackage "x86_64";
+
+        libIosAarch64 = mkIosPackage "aarch64-apple-ios";
+        libIosAarch64Sim = mkIosPackage "aarch64-apple-ios-sim";
 
         fakeCargoMetadata = pkgs.writeShellScriptBin "cargo" ''
           # We need to patch the manifest path otherwise uniffi-bindgen-react-native will fail to find the package
@@ -261,6 +268,14 @@
         };
 
         packages.react-native-lib-android = reactNativeAndroidOnly;
+
+        packages.android-lib-aarch64 = libAndroidAarch64;
+        packages.android-lib-x86_64 = libAndroidX86_64;
+
+        packages.ios-lib-aarch64 = libIosAarch64;
+        packages.ios-lib-aarch64-sim = libIosAarch64Sim;
+
+        packages.ubrn = ubrn;
       }
     );
 }

@@ -8,52 +8,29 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-android:
-    runs-on: ubuntu-latest
-
+  build-android-libs:
+    runs-on: [ self-hosted, nixos ]
+    strategy:
+      matrix:
+        lib: [ android-lib-aarch64, android-lib-x86_64 ]
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install Nix
-      uses: DeterminateSystems/nix-installer-action@main
+      - name: Build ${{ matrix.lib }}
+        run: nix build .#${{ matrix.lib }}
+        working-directory: react-native
 
-    - name: Setup Nix Magic Cache
-      uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Upload built library
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.lib }}
+          path: react-native/result/lib/libapp.a
 
-    - name: Change to react-native directory
-      run: cd react-native
-
-    - name: Install dependencies with Nix
-      run: |
-        cd react-native
-        nix develop --command yarn install
-
-    - name: Build Android release
-      run: |
-        cd react-native
-        nix develop --command yarn ubrn:android --release
-
-    - name: Upload Android build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: android-build
-        path: react-native/
-        exclude: react-native/node_modules/**
-        retention-days: 30
-
-    - name: Upload build logs
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: android-build-logs
-        path: |
-          react-native/yarn-error.log
-          react-native/npm-debug.log
-        retention-days: 7
-
-  build-ios:
+  build-ios-libs:
     runs-on: macos-latest
+    strategy:
+      matrix:
+        lib: [ ios-lib-aarch64, ios-lib-aarch64-sim ]
 
     steps:
     - name: Checkout repository
@@ -65,97 +42,144 @@ jobs:
     - name: Setup Nix Magic Cache
       uses: DeterminateSystems/magic-nix-cache-action@main
 
-    - name: Change to react-native directory
-      run: cd react-native
+    - name: Build ${{ matrix.lib }}
+      run: nix build .#${{ matrix.lib }}
+      working-directory: react-native
 
-    - name: Install dependencies with Nix
-      run: |
-        cd react-native
-        nix develop .#ios --command yarn install
-
-    - name: Build iOS release
-      run: |
-        cd react-native
-        nix develop .#ios --command yarn ubrn:ios --release
-
-    - name: Upload iOS build artifacts
+    - name: Upload built library
       uses: actions/upload-artifact@v4
       with:
-        name: ios-build
-        path: react-native/
-        exclude: react-native/node_modules/**
-        retention-days: 30
-
-    - name: Upload build logs
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: ios-build-logs
-        path: |
-          react-native/yarn-error.log
-          react-native/npm-debug.log
-        retention-days: 7
+        name: ${{ matrix.lib }}
+        path: react-native/result/lib/libapp.a
 
   merge-and-package:
     runs-on: ubuntu-latest
-    needs: [build-android, build-ios]
+
+    needs: [ build-android-libs, build-ios-libs ]
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Download Android build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: android-build
-        path: android-artifacts/
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
 
-    - name: Download iOS build artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: ios-build
-        path: ios-artifacts/
+      - name: Setup Nix Magic Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
 
-    - name: Merge artifacts
-      run: |
-        # Ensure directory exists
-        mkdir -p react-native
+      - name: Download android aarch64 lib
+        uses: actions/download-artifact@v4
+        with:
+          name: android-lib-aarch64
+          path: ./android-libs/arm64-v8a
 
-        # Copy Android artifacts (files are directly in android-artifacts/)
-        cp -r android-artifacts/* react-native/
+      - name: Download android x86_64 lib
+        uses: actions/download-artifact@v4
+        with:
+          name: android-lib-x86_64
+          path: ./android-libs/x86_64
 
-        # Copy iOS artifacts (will overwrite Android files where appropriate)
-        cp -r ios-artifacts/* react-native/
+      - name: Download ios aarch64 lib
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-lib-aarch64
+          path: ./ios-libs/ios-arm64
 
-    - name: Change to react-native directory
-      run: cd react-native
+      - name: Download ios aarch64-sim lib
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-lib-aarch64-sim
+          path: ./ios-libs/ios-arm64-simulator
 
-    - name: Install dependencies
-      run: |
-        cd react-native
-        yarn install
+      - name: Place libraries in react-native
+        run: |
+          mkdir -p react-native/android/src/main/jniLibs/arm64-v8a
+          mkdir -p react-native/android/src/main/jniLibs/x86_64
+          mkdir -p react-native/PortalAppLibFramework.xcframework/ios-arm64
+          mkdir -p react-native/PortalAppLibFramework.xcframework/ios-arm64-simulator
+          cp android-libs/arm64-v8a/libapp.a react-native/android/src/main/jniLibs/arm64-v8a/libapp.a
+          cp android-libs/x86_64/libapp.a react-native/android/src/main/jniLibs/x86_64/libapp.a
+          cp ios-libs/ios-arm64/libapp.a react-native/PortalAppLibFramework.xcframework/ios-arm64/libapp.a
+          cp ios-libs/ios-arm64-simulator/libapp.a react-native/PortalAppLibFramework.xcframework/ios-arm64-simulator/libapp.a
 
-    - name: Apply uniffi patches
-      run: |
-        cd react-native
-        node ./patch-uniffi-bindgen.js
+      - name: Write Info.plist for xcframework
+        run: |
+          cat > react-native/PortalAppLibFramework.xcframework/Info.plist <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<key>AvailableLibraries</key>
+          	<array>
+          		<dict>
+          			<key>BinaryPath</key>
+          			<string>libapp.a</string>
+          			<key>LibraryIdentifier</key>
+          			<string>ios-arm64</string>
+          			<key>LibraryPath</key>
+          			<string>libapp.a</string>
+          			<key>SupportedArchitectures</key>
+          			<array>
+          				<string>arm64</string>
+          			</array>
+          			<key>SupportedPlatform</key>
+          			<string>ios</string>
+          		</dict>
+          		<dict>
+          			<key>BinaryPath</key>
+          			<string>libapp.a</string>
+          			<key>LibraryIdentifier</key>
+          			<string>ios-arm64-simulator</string>
+          			<key>LibraryPath</key>
+          			<string>libapp.a</string>
+          			<key>SupportedArchitectures</key>
+          			<array>
+          				<string>arm64</string>
+          			</array>
+          			<key>SupportedPlatform</key>
+          			<string>ios</string>
+          			<key>SupportedPlatformVariant</key>
+          			<string>simulator</string>
+          		</dict>
+          	</array>
+          	<key>CFBundlePackageType</key>
+          	<string>XFWK</string>
+          	<key>XCFrameworkFormatVersion</key>
+          	<string>1.0</string>
+          </dict>
+          </plist>
+          EOF
 
-    - name: Create npm package
-      run: |
-        cd react-native
-        npm pack
+      - name: Install dependencies
+        run: |
+          cd react-native
+          yarn install
 
-    - name: Find package file
-      id: find-package
-      run: |
-        cd react-native
-        PACKAGE_FILE=$(ls *.tgz | head -1)
-        echo "package-file=$PACKAGE_FILE" >> $GITHUB_OUTPUT
-        echo "Found package: $PACKAGE_FILE"
+      - name: Run codegen
+        run: |
+          cd react-native
+          nix run .#ubrn -- generate all --config ./ubrn.config.yaml ../android-libs/arm64-v8a/libapp.a
 
-    - name: Upload package artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: library-package
-        path: react-native/${{ steps.find-package.outputs.package-file }}
-        retention-days: 30
+      - name: Apply uniffi patches
+        run: |
+          cd react-native
+          node ./patch-uniffi-bindgen.js
+
+      - name: Create npm package
+        run: |
+          cd react-native
+          npm pack
+
+      - name: Find package file
+        id: find-package
+        run: |
+          cd react-native
+          PACKAGE_FILE=$(ls *.tgz | head -1)
+          echo "package-file=$PACKAGE_FILE" >> $GITHUB_OUTPUT
+          echo "Found package: $PACKAGE_FILE"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: library-package
+          path: react-native/${{ steps.find-package.outputs.package-file }}
+          retention-days: 30
