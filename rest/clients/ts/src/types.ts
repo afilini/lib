@@ -157,8 +157,7 @@ export type Command =
   | { cmd: 'RequestInvoice', params: { recipient_key: string, content: InvoiceRequestContent } }
   | { cmd: 'IssueJwt', params: { target_key: string, duration_hours: number } }
   | { cmd: 'VerifyJwt', params: { pubkey: string, token: string } }
-  | { cmd: 'ListenCashuRequests', params: {} }
-  | { cmd: 'SendCashuToken', params: { content: CashuResponseContent } }
+  | { cmd: 'RequestCashu', params: { recipient_key: string, subkeys: string[], content: CashuRequestContent } }
   | { cmd: 'SendCashuDirect', params: { main_key: string, subkeys: string[], token: string } }
   ;
 
@@ -175,8 +174,7 @@ export type ResponseData =
   | { type: 'invoice_payment', invoice: string, payment_hash: string }
   | { type: 'issue_jwt', token: string }
   | { type: 'verify_jwt', target_key: string}
-  | { type: 'listen_cashu_requests', stream_id: string }
-  | { type: 'send_cashu_token_success', message: string }
+  | { type: 'cashu_response', status: CashuResponseStatus }
   | { type: 'send_cashu_direct_success', message: string }
   ;
 
@@ -254,3 +252,8 @@ export interface CashuResponseContent {
 export interface CashuDirectContent {
   token: string;
 } 
+
+export type CashuResponseStatus =
+  | { status: 'success', token: string }
+  | { status: 'insufficient_funds' }
+  | { status: 'rejected', reason?: string }; 

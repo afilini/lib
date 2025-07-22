@@ -405,7 +405,16 @@ pub mod payment {
     #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
     pub struct CashuResponseContent {
         pub request: CashuRequestContentWithKey,
-        pub token: String,
+        pub status: CashuResponseStatus,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
+    #[serde(rename_all = "snake_case", tag = "status")]
+    pub enum CashuResponseStatus {
+        Success { token: String },
+        InsufficientFunds,
+        Rejected { reason: Option<String> },
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

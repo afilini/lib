@@ -107,7 +107,7 @@ pub struct CashuRequestReceiverConversation {
 }
 
 impl MultiKeyListener for CashuRequestReceiverConversation {
-    const VALIDITY_SECONDS: Option<u64> = Some(60 * 5);
+    const VALIDITY_SECONDS: Option<u64> = None;
 
     type Error = ConversationError;
     type Message = CashuRequestContent;

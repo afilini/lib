@@ -918,81 +918,53 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             }
         }
-        Command::ListenCashuRequests => {
-            match ctx.sdk.listen_cashu_requests().await {
-                Ok(notification_stream) => {
-                    // Generate a unique stream ID
-                    let stream_id = Uuid::new_v4().to_string();
+        Command::RequestCashu {
+            recipient_key,
+            subkeys,
+            content,
+        } => {
+            // Parse keys
+            let recipient_key = match hex_to_pubkey(&recipient_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid recipient key: {}", e))
+                        .await;
+                    return;
+                }
+            };
+            let subkeys = match parse_subkeys(&subkeys) {
+                Ok(keys) => keys,
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid subkeys: {}", e))
+                        .await;
+                    return;
+                }
+            };
 
-                    // Setup notification forwarding
-                    let tx_clone = ctx.tx_notification.clone();
-                    let stream_id_clone = stream_id.clone();
-
-                    // Create a task to handle the notification stream
-                    let task = tokio::spawn(async move {
-                        let mut stream = notification_stream;
-
-                        // Process notifications from the stream
-                        while let Some(Ok(event)) = stream.next().await {
-                            debug!("Got cashu request event: {:?}", event);
-
-                            // Convert the event to a notification response
-                            let notification = Response::Notification {
-                                id: stream_id_clone.clone(),
-                                data: NotificationData::CashuRequest { request: event },
-                            };
-
-                            // Send the notification to the client
-                            if let Err(e) = tx_clone.send(notification).await {
-                                error!("Failed to forward cashu request event: {}", e);
-                                break;
-                            }
-                        }
-
-                        debug!(
-                            "Cashu request stream ended for stream_id: {}",
-                            stream_id_clone
-                        );
-                    });
-
-                    // Store the task
-                    ctx.active_streams.add_task(stream_id.clone(), task);
-
-                    // Convert the URL to a proper response struct
+            match ctx.sdk.request_cashu(recipient_key, subkeys, content).await {
+                Ok(Some(response)) => {
                     let response = Response::Success {
                         id: command.id,
-                        data: ResponseData::ListenCashuRequests { stream_id },
+                        data: ResponseData::CashuResponse { status: response.status },
                     };
 
                     let _ = ctx.send_message(response).await;
                 }
+                Ok(None) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, "No response from recipient")
+                        .await;
+                }
                 Err(e) => {
                     let _ = ctx
-                        .send_error_message(
-                            &command.id,
-                            &format!("Failed to create cashu request listener: {}", e),
-                        )
+                        .send_error_message(&command.id, &format!("Failed to request cashu: {}", e))
                         .await;
                 }
             }
         }
-        Command::SendCashuToken { content } => match ctx.sdk.send_cashu_token(content).await {
-            Ok(()) => {
-                let response = Response::Success {
-                    id: command.id,
-                    data: ResponseData::SendCashuTokenSuccess {
-                        message: String::from("Cashu token sent"),
-                    },
-                };
 
-                let _ = ctx.send_message(response).await;
-            }
-            Err(e) => {
-                let _ = ctx
-                    .send_error_message(&command.id, &format!("Failed to send cashu token: {}", e))
-                    .await;
-            }
-        },
         Command::SendCashuDirect {
             main_key,
             subkeys,

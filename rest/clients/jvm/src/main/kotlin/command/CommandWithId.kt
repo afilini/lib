@@ -23,8 +23,7 @@ data class CommandWithId(
     JsonSubTypes.Type(Command.SetProfile::class, name = "SetProfile"),
     JsonSubTypes.Type(Command.IssueJwt::class, name = "IssueJwt"),
     JsonSubTypes.Type(Command.VerifyJwt::class, name = "VerifyJwt"),
-    JsonSubTypes.Type(Command.ListenCashuRequests::class, name = "ListenCashuRequests"),
-    JsonSubTypes.Type(Command.SendCashuToken::class, name = "SendCashuToken"),
+    JsonSubTypes.Type(Command.RequestCashu::class, name = "RequestCashu"),
     JsonSubTypes.Type(Command.SendCashuDirect::class, name = "SendCashuDirect")
 )
 sealed interface Command<R : ResponseData> {
@@ -58,8 +57,11 @@ sealed interface Command<R : ResponseData> {
     data class SetProfile(val profile: Profile) : Command<ResponseData.ProfileData>
     data class IssueJwt(val pubkey: String, val expires_at: Long) : Command<ResponseData.IssueJwt>
     data class VerifyJwt(val pubkey: String, val token: String) : Command<ResponseData.VerifyJwt>
-    data object ListenCashuRequests : Command<ResponseData.ListenCashuRequests>
-    data class SendCashuToken(val content: CashuResponseContent) : Command<ResponseData.SendCashuTokenSuccess>
+    data class RequestCashu(
+        val recipient_key: String,
+        val subkeys: List<String>,
+        val content: CashuRequestContent
+    ) : Command<ResponseData.CashuResponse>
     data class SendCashuDirect(val main_key: String, val subkeys: List<String>, val token: String) : Command<ResponseData.SendCashuDirectSuccess>
 }
 
@@ -89,8 +91,7 @@ sealed class Response {
     JsonSubTypes.Type(ResponseData.ProfileData::class, name = "profile"),
     JsonSubTypes.Type(ResponseData.IssueJwt::class, name = "issue_jwt"),
     JsonSubTypes.Type(ResponseData.VerifyJwt::class, name = "verify_jwt"),
-    JsonSubTypes.Type(ResponseData.ListenCashuRequests::class, name = "listen_cashu_requests"),
-    JsonSubTypes.Type(ResponseData.SendCashuTokenSuccess::class, name = "send_cashu_token_success"),
+    JsonSubTypes.Type(ResponseData.CashuResponse::class, name = "cashu_response"),
     JsonSubTypes.Type(ResponseData.SendCashuDirectSuccess::class, name = "send_cashu_direct_success")
 )
 sealed class ResponseData {
@@ -104,8 +105,7 @@ sealed class ResponseData {
     data class ProfileData(val profile: Profile?) : ResponseData()
     data class IssueJwt(val token: String) : ResponseData()
     data class VerifyJwt(val target_key: String) : ResponseData()
-    data class ListenCashuRequests(val stream_id: String) : ResponseData()
-    data class SendCashuTokenSuccess(val message: String) : ResponseData()
+    data class CashuResponse(val status: CashuResponseStatus) : ResponseData()
     data class SendCashuDirectSuccess(val message: String) : ResponseData()
 }
 
@@ -157,3 +157,9 @@ data class CashuResponseContent(
 data class CashuDirectContent(
     val token: String
 )
+
+sealed class CashuResponseStatus {
+    data class Success(val token: String) : CashuResponseStatus()
+    object InsufficientFunds : CashuResponseStatus()
+    data class Rejected(val reason: String?) : CashuResponseStatus()
+}

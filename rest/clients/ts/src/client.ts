@@ -19,6 +19,8 @@ import {
   InvoiceResponseContent,
   CashuRequestContentWithKey,
   CashuResponseContent,
+  CashuRequestContent,
+  CashuResponseStatus,
 } from './types';
 
 /**
@@ -461,29 +463,16 @@ export class PortalSDK {
   }
 
   /**
-   * Listen for incoming Cashu requests
+   * Request a Cashu token from a recipient
    */
-  public async listenCashuRequests(onRequest: (request: CashuRequestContentWithKey) => void): Promise<void> {
-    const handler = (data: NotificationData) => {
-      if (data.type === 'cashu_request') {
-        onRequest(data.request);
-      }
-    };
-    const response = await this.sendCommand('ListenCashuRequests', {});
-    if (response.type === 'listen_cashu_requests') {
-      this.activeStreams.set(response.stream_id, handler);
-      return;
-    }
-    throw new Error('Unexpected response type');
-  }
-
-  /**
-   * Send a Cashu token in response to a request
-   */
-  public async sendCashuToken(content: CashuResponseContent): Promise<string> {
-    const response = await this.sendCommand('SendCashuToken', { content });
-    if (response.type === 'send_cashu_token_success') {
-      return response.message;
+  public async requestCashu(
+    recipientKey: string,
+    subkeys: string[],
+    content: CashuRequestContent
+  ): Promise<CashuResponseStatus> {
+    const response = await this.sendCommand('RequestCashu', { recipient_key: recipientKey, subkeys, content });
+    if (response.type === 'cashu_response') {
+      return response.status;
     }
     throw new Error('Unexpected response type');
   }

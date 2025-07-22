@@ -20,7 +20,10 @@ use portal::{
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
     },
-    cashu::{CashuDirectReceiverConversation, CashuRequestSenderConversation},
+    cashu::{
+        CashuDirectReceiverConversation, CashuRequestReceiverConversation,
+        CashuRequestSenderConversation, CashuResponseSenderConversation,
+    },
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
     },
@@ -36,11 +39,11 @@ use portal::{
             auth::{AuthResponseStatus, SubkeyProof},
             bindings::PublicKey,
             payment::{
-                CashuDirectContentWithKey, CashuRequestContent, CashuResponseContent,
-                CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
-                InvoiceRequestContentWithKey, InvoiceResponse, PaymentResponseContent,
-                RecurringPaymentRequestContent, RecurringPaymentResponseContent,
-                SinglePaymentRequestContent,
+                CashuDirectContentWithKey, CashuRequestContent, CashuRequestContentWithKey,
+                CashuResponseContent, CashuResponseStatus, CloseRecurringPaymentContent,
+                CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
+                InvoiceResponse, PaymentResponseContent, RecurringPaymentRequestContent,
+                RecurringPaymentResponseContent, SinglePaymentRequestContent,
             },
         },
     },
@@ -299,8 +302,11 @@ pub trait RelayStatusListener: Send + Sync {
 
 #[uniffi::export(with_foreign)]
 #[async_trait::async_trait]
-pub trait CashuResponseListener: Send + Sync {
-    async fn on_cashu_response(&self, event: CashuResponseContent) -> Result<(), CallbackError>;
+pub trait CashuRequestListener: Send + Sync {
+    async fn on_cashu_request(
+        &self,
+        event: CashuRequestContentWithKey,
+    ) -> Result<CashuResponseStatus, CallbackError>;
 }
 
 #[uniffi::export(with_foreign)]
@@ -714,30 +720,38 @@ impl PortalApp {
         Ok(())
     }
 
-    pub async fn request_cashu(
+    pub async fn listen_cashu_requests(
         &self,
-        recipient: PublicKey,
-        content: CashuRequestContent,
-        evt: Arc<dyn CashuResponseListener>,
+        evt: Arc<dyn CashuRequestListener>,
     ) -> Result<(), AppError> {
-        let conv = CashuRequestSenderConversation::new(
-            self.router.keypair().public_key(),
-            self.router.keypair().subkey_proof().cloned(),
-            content,
-        );
-        let mut rx: NotificationStream<CashuResponseContent> = self
+        let inner = CashuRequestReceiverConversation::new(self.router.keypair().public_key());
+        let mut rx: NotificationStream<CashuRequestContentWithKey> = self
             .router
-            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
-                recipient.into(),
-                vec![],
-                conv,
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                inner,
+                self.router.keypair().subkey_proof().cloned(),
             )))
             .await?;
 
-        if let Ok(cashu_response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
+        while let Ok(request) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let evt = Arc::clone(&evt);
+            let router = Arc::clone(&self.router);
             let _ = self.runtime.add_task(async move {
-                let _ = evt.on_cashu_response(cashu_response.clone()).await?;
+                let status = evt.on_cashu_request(request.clone()).await?;
+
+                let recipient = request.recipient.into();
+                let response = CashuResponseContent {
+                    request: request,
+                    status: status,
+                };
+                let conv = CashuResponseSenderConversation::new(response);
+                router
+                    .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                        recipient,
+                        vec![],
+                        conv,
+                    )))
+                    .await?;
                 Ok::<(), AppError>(())
             });
         }

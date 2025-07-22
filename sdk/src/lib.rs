@@ -4,7 +4,7 @@ use chrono::Duration;
 use portal::{
     cashu::{
         CashuDirectSenderConversation, CashuRequestReceiverConversation,
-        CashuResponseSenderConversation,
+        CashuRequestSenderConversation, CashuResponseSenderConversation,
     },
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
@@ -17,11 +17,11 @@ use portal::{
         LocalKeypair,
         key_handshake::KeyHandshakeUrl,
         model::payment::{
-            CashuDirectContent, CashuRequestContentWithKey, CashuResponseContent,
-            CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
-            InvoiceRequestContentWithKey, InvoiceResponse, PaymentResponseContent,
-            RecurringPaymentRequestContent, RecurringPaymentResponseContent,
-            SinglePaymentRequestContent,
+            CashuDirectContent, CashuRequestContent, CashuRequestContentWithKey,
+            CashuResponseContent, CloseRecurringPaymentContent, CloseRecurringPaymentResponse,
+            InvoiceRequestContent, InvoiceRequestContentWithKey, InvoiceResponse,
+            PaymentResponseContent, RecurringPaymentRequestContent,
+            RecurringPaymentResponseContent, SinglePaymentRequestContent,
         },
     },
     router::{
@@ -292,34 +292,28 @@ impl PortalSDK {
         Ok(claims)
     }
 
-    pub async fn listen_cashu_requests(
+    pub async fn request_cashu(
         &self,
-    ) -> Result<NotificationStream<CashuRequestContentWithKey>, PortalSDKError> {
-        let inner = CashuRequestReceiverConversation::new(self.router.keypair().public_key());
-        let rx = self
+        main_key: PublicKey,
+        subkeys: Vec<PublicKey>,
+        content: CashuRequestContent,
+    ) -> Result<Option<CashuResponseContent>, PortalSDKError> {
+        let conv = CashuRequestSenderConversation::new(
+            self.router.keypair().public_key(),
+            self.router.keypair().subkey_proof().cloned(),
+            content,
+        );
+        let mut rx: NotificationStream<CashuResponseContent> = self
             .router
-            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
-                inner,
-                self.router.keypair().subkey_proof().cloned(),
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
+                main_key, subkeys, conv,
             )))
             .await?;
-        Ok(rx)
-    }
 
-    pub async fn send_cashu_token(
-        &self,
-        content: CashuResponseContent,
-    ) -> Result<(), PortalSDKError> {
-        let conv = CashuResponseSenderConversation::new(content);
-        let _ = self
-            .router
-            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
-                self.router.keypair().public_key().into(),
-                vec![],
-                conv,
-            )))
-            .await?;
-        Ok(())
+        if let Ok(cashu_response) = rx.next().await.ok_or(PortalSDKError::Timeout)? {
+            return Ok(Some(cashu_response));
+        }
+        Ok(None)
     }
 
     pub async fn send_cashu_direct(
