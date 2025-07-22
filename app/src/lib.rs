@@ -20,6 +20,7 @@ use portal::{
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
     },
+    cashu::CashuRequestSenderConversation,
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
     },
@@ -35,16 +36,16 @@ use portal::{
             auth::{AuthResponseStatus, SubkeyProof},
             bindings::PublicKey,
             payment::{
-                CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
-                InvoiceRequestContentWithKey, InvoiceResponse, PaymentResponseContent,
-                RecurringPaymentRequestContent, RecurringPaymentResponseContent,
-                SinglePaymentRequestContent,
+                CashuRequestContent, CashuResponseContent, CloseRecurringPaymentContent,
+                CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
+                InvoiceResponse, PaymentResponseContent, RecurringPaymentRequestContent,
+                RecurringPaymentResponseContent, SinglePaymentRequestContent,
             },
         },
     },
     router::{
         MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter, MultiKeySenderAdapter,
-        adapters::one_shot::OneShotSenderAdapter, channel::Channel,
+        NotificationStream, adapters::one_shot::OneShotSenderAdapter, channel::Channel,
     },
 };
 
@@ -295,6 +296,12 @@ pub trait RelayStatusListener: Send + Sync {
     ) -> Result<(), CallbackError>;
 }
 
+#[uniffi::export(with_foreign)]
+#[async_trait::async_trait]
+pub trait CashuResponseListener: Send + Sync {
+    async fn on_cashu_response(&self, event: CashuResponseContent) -> Result<(), CallbackError>;
+}
+
 #[uniffi::export]
 impl PortalApp {
     #[uniffi::constructor]
@@ -376,13 +383,13 @@ impl PortalApp {
         evt: Arc<dyn AuthChallengeListener>,
     ) -> Result<(), AppError> {
         let inner = AuthChallengeListenerConversation::new(self.router.keypair().public_key());
-        let mut rx: portal::router::NotificationStream<portal::app::auth::AuthChallengeEvent> =
-            self.router
-                .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
-                    inner,
-                    self.router.keypair().subkey_proof().cloned(),
-                )))
-                .await?;
+        let mut rx: NotificationStream<portal::app::auth::AuthChallengeEvent> = self
+            .router
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                inner,
+                self.router.keypair().subkey_proof().cloned(),
+            )))
+            .await?;
 
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let evt = Arc::clone(&evt);
@@ -419,13 +426,13 @@ impl PortalApp {
         evt: Arc<dyn PaymentRequestListener>,
     ) -> Result<(), AppError> {
         let inner = PaymentRequestListenerConversation::new(self.router.keypair().public_key());
-        let mut rx: portal::router::NotificationStream<portal::app::payments::PaymentRequestEvent> =
-            self.router
-                .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
-                    inner,
-                    self.router.keypair().subkey_proof().cloned(),
-                )))
-                .await?;
+        let mut rx: NotificationStream<portal::app::payments::PaymentRequestEvent> = self
+            .router
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                inner,
+                self.router.keypair().subkey_proof().cloned(),
+            )))
+            .await?;
 
         while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let evt = Arc::clone(&evt);
@@ -488,7 +495,7 @@ impl PortalApp {
 
     pub async fn fetch_profile(&self, pubkey: PublicKey) -> Result<Option<Profile>, AppError> {
         let conv = FetchProfileInfoConversation::new(pubkey.into());
-        let mut notification: portal::router::NotificationStream<Option<portal::profile::Profile>> =
+        let mut notification: NotificationStream<Option<portal::profile::Profile>> =
             self.router.add_and_subscribe(Box::new(conv)).await?;
         let metadata = notification
             .next()
@@ -573,7 +580,7 @@ impl PortalApp {
     ) -> Result<(), AppError> {
         let inner =
             CloseRecurringPaymentReceiverConversation::new(self.router.keypair().public_key());
-        let mut rx: portal::router::NotificationStream<
+        let mut rx: NotificationStream<
             portal::protocol::model::payment::CloseRecurringPaymentResponse,
         > = self
             .router
@@ -621,7 +628,7 @@ impl PortalApp {
         evt: Arc<dyn InvoiceRequestListener>,
     ) -> Result<(), AppError> {
         let inner = InvoiceReceiverConversation::new(self.router.keypair().public_key());
-        let mut rx: portal::router::NotificationStream<
+        let mut rx: NotificationStream<
             portal::protocol::model::payment::InvoiceRequestContentWithKey,
         > = self
             .router
@@ -685,9 +692,7 @@ impl PortalApp {
             self.router.keypair().subkey_proof().cloned(),
             content,
         );
-        let mut rx: portal::router::NotificationStream<
-            portal::protocol::model::payment::InvoiceResponse,
-        > = self
+        let mut rx: NotificationStream<portal::protocol::model::payment::InvoiceResponse> = self
             .router
             .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
                 recipient.into(),
@@ -698,6 +703,36 @@ impl PortalApp {
 
         if let Ok(invoice_response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
             let _ = evt.on_invoice_response(invoice_response.clone()).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn request_cashu(
+        &self,
+        recipient: PublicKey,
+        content: CashuRequestContent,
+        evt: Arc<dyn CashuResponseListener>,
+    ) -> Result<(), AppError> {
+        let conv = CashuRequestSenderConversation::new(
+            self.router.keypair().public_key(),
+            self.router.keypair().subkey_proof().cloned(),
+            content,
+        );
+        let mut rx: NotificationStream<CashuResponseContent> = self
+            .router
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
+                recipient.into(),
+                vec![],
+                conv,
+            )))
+            .await?;
+
+        if let Ok(cashu_response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
+            let evt = Arc::clone(&evt);
+            let _ = self.runtime.add_task(async move {
+                let _ = evt.on_cashu_response(cashu_response.clone()).await?;
+                Ok::<(), AppError>(())
+            });
         }
         Ok(())
     }
