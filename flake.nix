@@ -27,7 +27,7 @@
           rustc = rustToolchain;
         };
 
-        rest = rustPlatform.buildRustPackage {
+        rest' = platform: platform.buildRustPackage {
           pname = "portal-rest";
           version = (pkgs.lib.importTOML ./rest/Cargo.toml).package.version;
           src = pkgs.lib.sources.sourceFilesBySuffices ./. [ ".rs" "Cargo.toml" "Cargo.lock" ];
@@ -71,8 +71,39 @@
         };
       in
       {
-        packages = {
-          inherit rest backend;
+        packages = rec {
+          inherit backend;
+
+          rest = rest' rustPlatform;
+          rest-static = rest' pkgs.pkgsStatic.rustPlatform;
+
+          rest-docker = let
+            minimal-closure = pkgs.runCommand "minimal-rust-app" {
+              nativeBuildInputs = [ pkgs.removeReferencesTo ];
+            } ''
+              mkdir -p $out/bin
+              cp ${rest-static}/bin/rest $out/bin/
+
+              for binary in $out/bin/*; do
+                remove-references-to -t ${pkgs.pkgsStatic.rustPlatform.rust.rustc} "$binary"
+              done
+            '';
+          in pkgs.dockerTools.buildLayeredImage {
+            name = "getportal/sdk-daemon";
+            tag = if system == "x86_64-linux" then "amd64" else "arm64";
+
+            config = {
+              Cmd = [ "${minimal-closure}/bin/rest" ];
+              ExposedPorts = {
+                "3000/tcp" = {};
+              };
+              Env = [
+                "AUTH_TOKEN=remeber-to-change-this"
+                "NOSTR_RELAYS=wss://relay.getportal.cc,wss://relay.damus.io,wss://relay.nostr.net"
+                "RUST_LOG=portal=debug,rest=debug,info"
+              ];
+            };
+          };
         };
 
         devShells.default = pkgs.mkShell {
