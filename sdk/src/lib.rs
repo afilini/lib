@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use chrono::Duration;
 use portal::{
-    cashu::CashuRequestReceiverConversation,
+    cashu::{CashuRequestReceiverConversation, CashuResponseSenderConversation},
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
     },
@@ -14,7 +14,7 @@ use portal::{
         LocalKeypair,
         key_handshake::KeyHandshakeUrl,
         model::payment::{
-            CashuRequestContentWithKey, CloseRecurringPaymentContent,
+            CashuRequestContentWithKey, CashuResponseContent, CloseRecurringPaymentContent,
             CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
             InvoiceResponse, PaymentResponseContent, RecurringPaymentRequestContent,
             RecurringPaymentResponseContent, SinglePaymentRequestContent,
@@ -300,6 +300,22 @@ impl PortalSDK {
             )))
             .await?;
         Ok(rx)
+    }
+
+    pub async fn send_cashu_token(
+        &self,
+        content: CashuResponseContent,
+    ) -> Result<(), PortalSDKError> {
+        let conv = CashuResponseSenderConversation::new(content);
+        let _ = self
+            .router
+            .add_conversation(Box::new(OneShotSenderAdapter::new_with_user(
+                self.router.keypair().public_key().into(),
+                vec![],
+                conv,
+            )))
+            .await?;
+        Ok(())
     }
 }
 
