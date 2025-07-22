@@ -69,6 +69,7 @@ pub enum Command {
         pubkey: String,
         token: String,
     },
+    ListenCashuRequests,
 }
 
 #[derive(Debug, Deserialize)]

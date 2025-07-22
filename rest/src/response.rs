@@ -1,6 +1,8 @@
 use portal::profile::Profile;
 use portal::protocol::model::auth::AuthResponseStatus;
-use portal::protocol::model::payment::{PaymentResponseContent, RecurringPaymentResponseContent};
+use portal::protocol::model::payment::{
+    CashuRequestContentWithKey, PaymentResponseContent, RecurringPaymentResponseContent,
+};
 use serde::Serialize;
 
 // Response structs for each API
@@ -60,6 +62,9 @@ pub enum ResponseData {
 
     #[serde(rename = "verify_jwt")]
     VerifyJwt { target_key: String },
+
+    #[serde(rename = "listen_cashu_requests")]
+    ListenCashuRequests { stream_id: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -84,6 +89,8 @@ pub enum NotificationData {
         recipient: String,
         main_key: String,
     },
+    #[serde(rename = "cashu_request")]
+    CashuRequest { request: CashuRequestContentWithKey },
 }
 
 #[derive(Debug, Serialize)]

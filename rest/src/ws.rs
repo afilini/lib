@@ -916,6 +916,64 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             }
         }
+        Command::ListenCashuRequests => {
+            match ctx.sdk.listen_cashu_requests().await {
+                Ok(notification_stream) => {
+                    // Generate a unique stream ID
+                    let stream_id = Uuid::new_v4().to_string();
+
+                    // Setup notification forwarding
+                    let tx_clone = ctx.tx_notification.clone();
+                    let stream_id_clone = stream_id.clone();
+
+                    // Create a task to handle the notification stream
+                    let task = tokio::spawn(async move {
+                        let mut stream = notification_stream;
+
+                        // Process notifications from the stream
+                        while let Some(Ok(event)) = stream.next().await {
+                            debug!("Got cashu request event: {:?}", event);
+
+                            // Convert the event to a notification response
+                            let notification = Response::Notification {
+                                id: stream_id_clone.clone(),
+                                data: NotificationData::CashuRequest { request: event },
+                            };
+
+                            // Send the notification to the client
+                            if let Err(e) = tx_clone.send(notification).await {
+                                error!("Failed to forward cashu request event: {}", e);
+                                break;
+                            }
+                        }
+
+                        debug!(
+                            "Cashu request stream ended for stream_id: {}",
+                            stream_id_clone
+                        );
+                    });
+
+                    // Store the task
+                    ctx.active_streams.add_task(stream_id.clone(), task);
+
+                    // Convert the URL to a proper response struct
+                    let response = Response::Success {
+                        id: command.id,
+                        data: ResponseData::ListenCashuRequests { stream_id },
+                    };
+
+                    let _ = ctx.send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to create cashu request listener: {}", e),
+                        )
+                        .await;
+                }
+            }
+        }
     }
 }
 
