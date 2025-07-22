@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use chrono::Duration;
 use portal::{
-    cashu::{CashuRequestReceiverConversation, CashuResponseSenderConversation},
+    cashu::{
+        CashuDirectSenderConversation, CashuRequestReceiverConversation,
+        CashuResponseSenderConversation,
+    },
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
     },
@@ -14,10 +17,11 @@ use portal::{
         LocalKeypair,
         key_handshake::KeyHandshakeUrl,
         model::payment::{
-            CashuRequestContentWithKey, CashuResponseContent, CloseRecurringPaymentContent,
-            CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
-            InvoiceResponse, PaymentResponseContent, RecurringPaymentRequestContent,
-            RecurringPaymentResponseContent, SinglePaymentRequestContent,
+            CashuDirectContent, CashuRequestContentWithKey, CashuResponseContent,
+            CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
+            InvoiceRequestContentWithKey, InvoiceResponse, PaymentResponseContent,
+            RecurringPaymentRequestContent, RecurringPaymentResponseContent,
+            SinglePaymentRequestContent,
         },
     },
     router::{
@@ -313,6 +317,21 @@ impl PortalSDK {
                 self.router.keypair().public_key().into(),
                 vec![],
                 conv,
+            )))
+            .await?;
+        Ok(())
+    }
+
+    pub async fn send_cashu_direct(
+        &self,
+        main_key: PublicKey,
+        subkeys: Vec<PublicKey>,
+        content: CashuDirectContent,
+    ) -> Result<(), PortalSDKError> {
+        let conv = CashuDirectSenderConversation::new(content);
+        self.router
+            .add_conversation(Box::new(MultiKeySenderAdapter::new_with_user(
+                main_key, subkeys, conv,
             )))
             .await?;
         Ok(())
