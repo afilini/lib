@@ -16,6 +16,7 @@ Portal provides a comprehensive solution for:
 - `/app` - API exposed to the app
 - `/backend` - Example backend
 - `/cli` - Command-line interface tool
+- `/rates` - Bitcoin exchange rates from multiple sources
 - `/react-native` - React Native bindings for the `app` crate
 - `/rest` - SDK wrapper exposing a REST/websocket interface
 - `/sdk` - Core SDK implementation
