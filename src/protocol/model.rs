@@ -33,13 +33,18 @@ pub mod event_kinds {
     pub const INVOICE_REQUEST: u16 = 28008;
     pub const INVOICE_RESPONSE: u16 = 28009;
 
-    // Identity events (29000-29999)
+    // Identity events (29000-29499)
     pub const CERTIFICATE_REQUEST: u16 = 29000;
     pub const CERTIFICATE_RESPONSE: u16 = 29001;
     pub const CERTIFICATE_ERROR: u16 = 29002;
     pub const CERTIFICATE_REVOCATION: u16 = 29003;
     pub const CERTIFICATE_VERIFY_REQUEST: u16 = 29004;
     pub const CERTIFICATE_VERIFY_RESPONSE: u16 = 29005;
+
+    // Cashu events (29500-29999)
+    pub const CASHU_REQUEST: u16 = 29500;
+    pub const CASHU_RESPONSE: u16 = 29501;
+    pub const CASHU_DIRECT: u16 = 29502;
 
     // Control events (30000-30999)
     pub const SUBKEY_PROOF: u16 = 30000;
@@ -377,6 +382,53 @@ pub mod payment {
         pub request: InvoiceRequestContentWithKey,
         pub invoice: String,
         pub payment_hash: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+    pub struct CashuRequestContent {
+        pub request_id: String,
+        pub mint_url: String,
+        pub unit: String,
+        pub amount: u64,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+    pub struct CashuRequestContentWithKey {
+        pub inner: CashuRequestContent,
+        pub main_key: PublicKey,
+        pub recipient: PublicKey,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+    pub struct CashuResponseContent {
+        pub request: CashuRequestContentWithKey,
+        pub status: CashuResponseStatus,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Enum))]
+    #[serde(rename_all = "snake_case", tag = "status")]
+    pub enum CashuResponseStatus {
+        Success { token: String },
+        InsufficientFunds,
+        Rejected { reason: Option<String> },
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+    pub struct CashuDirectContent {
+        pub token: String,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[cfg_attr(feature = "bindings", derive(uniffi::Record))]
+    pub struct CashuDirectContentWithKey {
+        pub inner: CashuDirectContent,
+        pub main_key: PublicKey,
+        pub recipient: PublicKey,
     }
 }
 

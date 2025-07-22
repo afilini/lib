@@ -2,6 +2,10 @@ use std::sync::Arc;
 
 use chrono::Duration;
 use portal::{
+    cashu::{
+        CashuDirectSenderConversation, CashuRequestReceiverConversation,
+        CashuRequestSenderConversation, CashuResponseSenderConversation,
+    },
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
     },
@@ -13,10 +17,11 @@ use portal::{
         LocalKeypair,
         key_handshake::KeyHandshakeUrl,
         model::payment::{
-            CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
-            InvoiceRequestContentWithKey, InvoiceResponse, PaymentResponseContent,
-            RecurringPaymentRequestContent, RecurringPaymentResponseContent,
-            SinglePaymentRequestContent,
+            CashuDirectContent, CashuRequestContent, CashuRequestContentWithKey,
+            CashuResponseContent, CloseRecurringPaymentContent, CloseRecurringPaymentResponse,
+            InvoiceRequestContent, InvoiceRequestContentWithKey, InvoiceResponse,
+            PaymentResponseContent, RecurringPaymentRequestContent,
+            RecurringPaymentResponseContent, SinglePaymentRequestContent,
         },
     },
     router::{
@@ -285,6 +290,45 @@ impl PortalSDK {
         let claims =
             portal::protocol::jwt::decode(&public_key, token).map_err(PortalSDKError::JwtError)?;
         Ok(claims)
+    }
+
+    pub async fn request_cashu(
+        &self,
+        main_key: PublicKey,
+        subkeys: Vec<PublicKey>,
+        content: CashuRequestContent,
+    ) -> Result<Option<CashuResponseContent>, PortalSDKError> {
+        let conv = CashuRequestSenderConversation::new(
+            self.router.keypair().public_key(),
+            self.router.keypair().subkey_proof().cloned(),
+            content,
+        );
+        let mut rx: NotificationStream<CashuResponseContent> = self
+            .router
+            .add_and_subscribe(Box::new(MultiKeySenderAdapter::new_with_user(
+                main_key, subkeys, conv,
+            )))
+            .await?;
+
+        if let Ok(cashu_response) = rx.next().await.ok_or(PortalSDKError::Timeout)? {
+            return Ok(Some(cashu_response));
+        }
+        Ok(None)
+    }
+
+    pub async fn send_cashu_direct(
+        &self,
+        main_key: PublicKey,
+        subkeys: Vec<PublicKey>,
+        content: CashuDirectContent,
+    ) -> Result<(), PortalSDKError> {
+        let conv = CashuDirectSenderConversation::new(content);
+        self.router
+            .add_conversation(Box::new(MultiKeySenderAdapter::new_with_user(
+                main_key, subkeys, conv,
+            )))
+            .await?;
+        Ok(())
     }
 }
 

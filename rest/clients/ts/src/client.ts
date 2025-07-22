@@ -16,7 +16,11 @@ import {
   RecurringPaymentResponseContent,
   CloseRecurringPaymentNotification,
   InvoiceStatus,
-  InvoiceResponseContent
+  InvoiceResponseContent,
+  CashuRequestContentWithKey,
+  CashuResponseContent,
+  CashuRequestContent,
+  CashuResponseStatus,
 } from './types';
 
 /**
@@ -456,5 +460,31 @@ export class PortalSDK {
     }).then(response => ({
       target_key: response.target_key,
     }));
+  }
+
+  /**
+   * Request a Cashu token from a recipient
+   */
+  public async requestCashu(
+    recipientKey: string,
+    subkeys: string[],
+    content: CashuRequestContent
+  ): Promise<CashuResponseStatus> {
+    const response = await this.sendCommand('RequestCashu', { recipient_key: recipientKey, subkeys, content });
+    if (response.type === 'cashu_response') {
+      return response.status;
+    }
+    throw new Error('Unexpected response type');
+  }
+
+  /**
+   * Send a Cashu token directly to a recipient
+   */
+  public async sendCashuDirect(mainKey: string, subkeys: string[], token: string): Promise<string> {
+    const response = await this.sendCommand('SendCashuDirect', { main_key: mainKey, subkeys, token });
+    if (response.type === 'send_cashu_direct_success') {
+      return response.message;
+    }
+    throw new Error('Unexpected response type');
   }
 }

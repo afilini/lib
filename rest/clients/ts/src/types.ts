@@ -157,6 +157,8 @@ export type Command =
   | { cmd: 'RequestInvoice', params: { recipient_key: string, content: InvoiceRequestContent } }
   | { cmd: 'IssueJwt', params: { target_key: string, duration_hours: number } }
   | { cmd: 'VerifyJwt', params: { pubkey: string, token: string } }
+  | { cmd: 'RequestCashu', params: { recipient_key: string, subkeys: string[], content: CashuRequestContent } }
+  | { cmd: 'SendCashuDirect', params: { main_key: string, subkeys: string[], token: string } }
   ;
 
 // Response types
@@ -172,6 +174,8 @@ export type ResponseData =
   | { type: 'invoice_payment', invoice: string, payment_hash: string }
   | { type: 'issue_jwt', token: string }
   | { type: 'verify_jwt', target_key: string}
+  | { type: 'cashu_response', status: CashuResponseStatus }
+  | { type: 'send_cashu_direct_success', message: string }
   ;
 
 export type Response = 
@@ -184,6 +188,7 @@ export type NotificationData =
   | { type: 'key_handshake', main_key: string }
   | { type: 'payment_status_update', status: InvoiceStatus }
   | { type: 'closed_recurring_payment', reason: string | null, subscription_id: string, main_key: string, recipient: string }
+  | { type: 'cashu_request', request: CashuRequestContentWithKey }
   ;
 
 export type CloseRecurringPaymentNotification = {
@@ -225,3 +230,30 @@ export interface KeyHandshakeUrlResponse {
   url: string;
   stream_id: string;
 } 
+
+export interface CashuRequestContent {
+  request_id: string;
+  mint_url: string;
+  unit: string;
+  amount: number;
+}
+
+export interface CashuRequestContentWithKey {
+  inner: CashuRequestContent;
+  main_key: string;
+  recipient: string;
+}
+
+export interface CashuResponseContent {
+  request: CashuRequestContentWithKey;
+  token: string;
+}
+
+export interface CashuDirectContent {
+  token: string;
+} 
+
+export type CashuResponseStatus =
+  | { status: 'success', token: string }
+  | { status: 'insufficient_funds' }
+  | { status: 'rejected', reason?: string }; 

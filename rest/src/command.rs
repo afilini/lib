@@ -1,7 +1,6 @@
 use portal::profile::Profile;
 use portal::protocol::model::payment::{
-    Currency, InvoiceRequestContent, InvoiceRequestContentWithKey, RecurringPaymentRequestContent,
-    SinglePaymentRequestContent,
+    CashuRequestContent, CashuResponseContent, Currency, InvoiceRequestContent, InvoiceRequestContentWithKey, RecurringPaymentRequestContent, SinglePaymentRequestContent
 };
 use serde::Deserialize;
 
@@ -67,6 +66,16 @@ pub enum Command {
     },
     VerifyJwt {
         pubkey: String,
+        token: String,
+    },
+    RequestCashu {
+        recipient_key: String,
+        subkeys: Vec<String>,
+        content: CashuRequestContent,
+    },
+    SendCashuDirect {
+        main_key: String,
+        subkeys: Vec<String>,
         token: String,
     },
 }

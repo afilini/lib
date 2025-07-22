@@ -20,6 +20,7 @@ use portal::{
         },
     },
 };
+use sdk::PortalSDK;
 
 struct LogRelayStatusChange;
 
@@ -76,4 +77,17 @@ pub async fn create_app_instance(
     log::info!("{}: Created app instance", name);
 
     Ok((keypair, app))
+}
+
+pub async fn create_sdk_instance(
+    mnemonic: &str,
+    relays: Vec<String>,
+) -> Result<PortalSDK, CliError> {
+    let mnemonic = Mnemonic::new(mnemonic)?;
+
+    // let mnemonic = generate_mnemonic()?;
+    let keypair = mnemonic.get_keypair()?;
+
+    let sdk = PortalSDK::new(keypair.inner, relays).await?;
+    Ok(sdk)
 }

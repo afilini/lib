@@ -710,6 +710,7 @@ dependencies = [
  "log",
  "nwc",
  "portal",
+ "sdk",
  "tokio",
 ]
 
