@@ -54,6 +54,7 @@ use portal::{
 };
 
 pub use portal::app::*;
+pub use rates;
 
 use crate::{
     logger::{CallbackLogger, LogCallback, LogLevel},
