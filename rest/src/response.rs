@@ -68,6 +68,9 @@ pub enum ResponseData {
 
     #[serde(rename = "send_cashu_token_success")]
     SendCashuTokenSuccess { message: String },
+
+    #[serde(rename = "send_cashu_direct_success")]
+    SendCashuDirectSuccess { message: String },
 }
 
 #[derive(Debug, Serialize)]

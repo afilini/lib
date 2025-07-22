@@ -16,7 +16,9 @@ import {
   RecurringPaymentResponseContent,
   CloseRecurringPaymentNotification,
   InvoiceStatus,
-  InvoiceResponseContent
+  InvoiceResponseContent,
+  CashuRequestContentWithKey,
+  CashuResponseContent,
 } from './types';
 
 /**
@@ -456,5 +458,44 @@ export class PortalSDK {
     }).then(response => ({
       target_key: response.target_key,
     }));
+  }
+
+  /**
+   * Listen for incoming Cashu requests
+   */
+  public async listenCashuRequests(onRequest: (request: CashuRequestContentWithKey) => void): Promise<void> {
+    const handler = (data: NotificationData) => {
+      if (data.type === 'cashu_request') {
+        onRequest(data.request);
+      }
+    };
+    const response = await this.sendCommand('ListenCashuRequests', {});
+    if (response.type === 'listen_cashu_requests') {
+      this.activeStreams.set(response.stream_id, handler);
+      return;
+    }
+    throw new Error('Unexpected response type');
+  }
+
+  /**
+   * Send a Cashu token in response to a request
+   */
+  public async sendCashuToken(content: CashuResponseContent): Promise<string> {
+    const response = await this.sendCommand('SendCashuToken', { content });
+    if (response.type === 'send_cashu_token_success') {
+      return response.message;
+    }
+    throw new Error('Unexpected response type');
+  }
+
+  /**
+   * Send a Cashu token directly to a recipient
+   */
+  public async sendCashuDirect(mainKey: string, subkeys: string[], token: string): Promise<string> {
+    const response = await this.sendCommand('SendCashuDirect', { main_key: mainKey, subkeys, token });
+    if (response.type === 'send_cashu_direct_success') {
+      return response.message;
+    }
+    throw new Error('Unexpected response type');
   }
 }

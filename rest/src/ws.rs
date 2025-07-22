@@ -10,7 +10,9 @@ use dashmap::DashMap;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use portal::protocol::jwt::CustomClaims;
-use portal::protocol::model::payment::{InvoiceRequestContentWithKey, SinglePaymentRequestContent};
+use portal::protocol::model::payment::{
+    CashuDirectContent, InvoiceRequestContentWithKey, SinglePaymentRequestContent,
+};
 use portal::protocol::model::Timestamp;
 use sdk::PortalSDK;
 use tokio::sync::mpsc;
@@ -991,6 +993,57 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                     .await;
             }
         },
+        Command::SendCashuDirect {
+            main_key,
+            subkeys,
+            token,
+        } => {
+            // Parse keys
+            let main_key = match hex_to_pubkey(&main_key) {
+                Ok(key) => key,
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid main key: {}", e))
+                        .await;
+                    return;
+                }
+            };
+
+            let subkeys = match parse_subkeys(&subkeys) {
+                Ok(keys) => keys,
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Invalid subkeys: {}", e))
+                        .await;
+                    return;
+                }
+            };
+
+            match ctx
+                .sdk
+                .send_cashu_direct(main_key, subkeys, CashuDirectContent { token })
+                .await
+            {
+                Ok(()) => {
+                    let response = Response::Success {
+                        id: command.id,
+                        data: ResponseData::SendCashuDirectSuccess {
+                            message: String::from("Cashu direct sent"),
+                        },
+                    };
+
+                    let _ = ctx.send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(
+                            &command.id,
+                            &format!("Failed to send cashu direct: {}", e),
+                        )
+                        .await;
+                }
+            }
+        }
     }
 }
 

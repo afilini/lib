@@ -22,7 +22,10 @@ data class CommandWithId(
     JsonSubTypes.Type(Command.FetchProfile::class, name = "FetchProfile"),
     JsonSubTypes.Type(Command.SetProfile::class, name = "SetProfile"),
     JsonSubTypes.Type(Command.IssueJwt::class, name = "IssueJwt"),
-    JsonSubTypes.Type(Command.VerifyJwt::class, name = "VerifyJwt")
+    JsonSubTypes.Type(Command.VerifyJwt::class, name = "VerifyJwt"),
+    JsonSubTypes.Type(Command.ListenCashuRequests::class, name = "ListenCashuRequests"),
+    JsonSubTypes.Type(Command.SendCashuToken::class, name = "SendCashuToken"),
+    JsonSubTypes.Type(Command.SendCashuDirect::class, name = "SendCashuDirect")
 )
 sealed interface Command<R : ResponseData> {
     // --- Command implementations ---
@@ -55,6 +58,9 @@ sealed interface Command<R : ResponseData> {
     data class SetProfile(val profile: Profile) : Command<ResponseData.ProfileData>
     data class IssueJwt(val pubkey: String, val expires_at: Long) : Command<ResponseData.IssueJwt>
     data class VerifyJwt(val pubkey: String, val token: String) : Command<ResponseData.VerifyJwt>
+    data object ListenCashuRequests : Command<ResponseData.ListenCashuRequests>
+    data class SendCashuToken(val content: CashuResponseContent) : Command<ResponseData.SendCashuTokenSuccess>
+    data class SendCashuDirect(val main_key: String, val subkeys: List<String>, val token: String) : Command<ResponseData.SendCashuDirectSuccess>
 }
 
 
@@ -82,7 +88,10 @@ sealed class Response {
     JsonSubTypes.Type(ResponseData.SinglePayment::class, name = "single_payment"),
     JsonSubTypes.Type(ResponseData.ProfileData::class, name = "profile"),
     JsonSubTypes.Type(ResponseData.IssueJwt::class, name = "issue_jwt"),
-    JsonSubTypes.Type(ResponseData.VerifyJwt::class, name = "verify_jwt")
+    JsonSubTypes.Type(ResponseData.VerifyJwt::class, name = "verify_jwt"),
+    JsonSubTypes.Type(ResponseData.ListenCashuRequests::class, name = "listen_cashu_requests"),
+    JsonSubTypes.Type(ResponseData.SendCashuTokenSuccess::class, name = "send_cashu_token_success"),
+    JsonSubTypes.Type(ResponseData.SendCashuDirectSuccess::class, name = "send_cashu_direct_success")
 )
 sealed class ResponseData {
     data class AuthSuccess(val message: String) : ResponseData()
@@ -95,6 +104,9 @@ sealed class ResponseData {
     data class ProfileData(val profile: Profile?) : ResponseData()
     data class IssueJwt(val token: String) : ResponseData()
     data class VerifyJwt(val target_key: String) : ResponseData()
+    data class ListenCashuRequests(val stream_id: String) : ResponseData()
+    data class SendCashuTokenSuccess(val message: String) : ResponseData()
+    data class SendCashuDirectSuccess(val message: String) : ResponseData()
 }
 
 data class AuthResponseData(
@@ -106,9 +118,16 @@ data class AuthResponseData(
 )
 
 // ---------- NotificationData sealed class ----------
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
+@JsonSubTypes(
+    JsonSubTypes.Type(NotificationData.KeyHandshake::class, name = "key_handshake"),
+    JsonSubTypes.Type(NotificationData.PaymentStatusUpdate::class, name = "payment_status_update"),
+    JsonSubTypes.Type(NotificationData.CashuRequest::class, name = "cashu_request")
+)
 sealed class NotificationData {
     data class KeyHandshake(val main_key: String) : NotificationData()
     data class PaymentStatusUpdate(val status: InvoiceStatus) : NotificationData()
+    data class CashuRequest(val request: CashuRequestContentWithKey) : NotificationData()
 }
 
 sealed class InvoiceStatus {
@@ -116,3 +135,25 @@ sealed class InvoiceStatus {
     object Timeout : InvoiceStatus()
     data class Error(val reason: String) : InvoiceStatus()
 }
+
+data class CashuRequestContent(
+    val request_id: String,
+    val mint_url: String,
+    val unit: String,
+    val amount: Long
+)
+
+data class CashuRequestContentWithKey(
+    val inner: CashuRequestContent,
+    val main_key: String,
+    val recipient: String
+)
+
+data class CashuResponseContent(
+    val request: CashuRequestContentWithKey,
+    val token: String
+)
+
+data class CashuDirectContent(
+    val token: String
+)

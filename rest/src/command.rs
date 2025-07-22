@@ -73,6 +73,11 @@ pub enum Command {
     SendCashuToken {
         content: CashuResponseContent,
     },
+    SendCashuDirect {
+        main_key: String,
+        subkeys: Vec<String>,
+        token: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
