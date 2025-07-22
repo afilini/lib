@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use chrono::Duration;
 use portal::{
+    cashu::CashuRequestReceiverConversation,
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
     },
@@ -13,10 +14,10 @@ use portal::{
         LocalKeypair,
         key_handshake::KeyHandshakeUrl,
         model::payment::{
-            CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
-            InvoiceRequestContentWithKey, InvoiceResponse, PaymentResponseContent,
-            RecurringPaymentRequestContent, RecurringPaymentResponseContent,
-            SinglePaymentRequestContent,
+            CashuRequestContentWithKey, CloseRecurringPaymentContent,
+            CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
+            InvoiceResponse, PaymentResponseContent, RecurringPaymentRequestContent,
+            RecurringPaymentResponseContent, SinglePaymentRequestContent,
         },
     },
     router::{
@@ -285,6 +286,20 @@ impl PortalSDK {
         let claims =
             portal::protocol::jwt::decode(&public_key, token).map_err(PortalSDKError::JwtError)?;
         Ok(claims)
+    }
+
+    pub async fn listen_cashu_requests(
+        &self,
+    ) -> Result<NotificationStream<CashuRequestContentWithKey>, PortalSDKError> {
+        let inner = CashuRequestReceiverConversation::new(self.router.keypair().public_key());
+        let rx = self
+            .router
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                inner,
+                self.router.keypair().subkey_proof().cloned(),
+            )))
+            .await?;
+        Ok(rx)
     }
 }
 
