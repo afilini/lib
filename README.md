@@ -34,21 +34,24 @@ Portal provides a comprehensive solution for:
 cargo build --release
 ```
 
-### Running the REST API Server
+### Running the SDK Daemon with Docker
+
+You can run the SDK Daemon using Docker. The image is published on Docker Hub as `getportal/sdk-daemon:latest`.
+
+### Run with Docker (pre-built image)
 
 ```bash
-cd rest
-# Copy and edit environment variables
-cp env.example .env
-# Edit .env with your settings
-nano .env
-# Run the server
-cargo run --release
+docker run --rm --name portal-sdk-daemon -d \
+  -p 3000:3000 \
+  -e NOSTR_KEY=<your-nsec-here> \
+  getportal/sdk-daemon:latest
 ```
 
-The server will start on `127.0.0.1:3000` by default.
+- The daemon will be available on port 3000.
+- The default auth token is 'remember-to-change-this'
+- You can override environment variables as needed (see below).
 
-### Environment Variables for REST API
+### Environment Variables
 
 - `AUTH_TOKEN`: Authentication token for API access
 - `NOSTR_KEY`: Your Nostr private key in hex format

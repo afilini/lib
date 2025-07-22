@@ -23,6 +23,43 @@ cargo build --release
 
 The server will start on `127.0.0.1:3000`.
 
+### Build the Docker Image with Nix
+
+To build the Docker image for your architecture using Nix:
+
+```bash
+nix build .#rest-docker
+```
+
+This will produce a Docker image tarball in `result/`. You can load it into Docker with:
+
+```bash
+docker load < result
+```
+
+### Multi-architecture (merged) manifest
+
+To create and push a multi-architecture manifest (for both amd64 and arm64):
+
+1. Build and load both images on their respective architectures (or use emulation):
+   - On amd64: `nix build .#rest-docker` (tag as `getportal/sdk-daemon:amd64`)
+   - On arm64: `nix build .#rest-docker` (tag as `getportal/sdk-daemon:arm64`)
+2. Push both images to Docker Hub:
+
+```bash
+docker push getportal/sdk-daemon:amd64
+docker push getportal/sdk-daemon:arm64
+```
+
+3. Create and push the merged manifest:
+
+```bash
+docker manifest create getportal/sdk-daemon:latest \
+  --amend getportal/sdk-daemon:amd64 \
+  --amend getportal/sdk-daemon:arm64
+docker manifest push getportal/sdk-daemon:latest
+```
+
 ## Authentication
 
 All REST API endpoints require a Bearer token for authentication:
