@@ -1,7 +1,7 @@
 use portal::profile::Profile;
 use portal::protocol::model::payment::{
-    Currency, InvoiceRequestContent, InvoiceRequestContentWithKey, RecurringPaymentRequestContent,
-    SinglePaymentRequestContent,
+    CashuResponseContent, Currency, InvoiceRequestContent, InvoiceRequestContentWithKey,
+    RecurringPaymentRequestContent, SinglePaymentRequestContent,
 };
 use serde::Deserialize;
 
@@ -70,6 +70,9 @@ pub enum Command {
         token: String,
     },
     ListenCashuRequests,
+    SendCashuToken {
+        content: CashuResponseContent,
+    },
 }
 
 #[derive(Debug, Deserialize)]

@@ -974,6 +974,23 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             }
         }
+        Command::SendCashuToken { content } => match ctx.sdk.send_cashu_token(content).await {
+            Ok(()) => {
+                let response = Response::Success {
+                    id: command.id,
+                    data: ResponseData::SendCashuTokenSuccess {
+                        message: String::from("Cashu token sent"),
+                    },
+                };
+
+                let _ = ctx.send_message(response).await;
+            }
+            Err(e) => {
+                let _ = ctx
+                    .send_error_message(&command.id, &format!("Failed to send cashu token: {}", e))
+                    .await;
+            }
+        },
     }
 }
 

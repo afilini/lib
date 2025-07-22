@@ -65,6 +65,9 @@ pub enum ResponseData {
 
     #[serde(rename = "listen_cashu_requests")]
     ListenCashuRequests { stream_id: String },
+
+    #[serde(rename = "send_cashu_token_success")]
+    SendCashuTokenSuccess { message: String },
 }
 
 #[derive(Debug, Serialize)]
