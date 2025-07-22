@@ -20,7 +20,7 @@ use portal::{
             PaymentStatusSenderConversation, RecurringPaymentStatusSenderConversation,
         },
     },
-    cashu::CashuRequestSenderConversation,
+    cashu::{CashuDirectReceiverConversation, CashuRequestSenderConversation},
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
     },
@@ -36,10 +36,11 @@ use portal::{
             auth::{AuthResponseStatus, SubkeyProof},
             bindings::PublicKey,
             payment::{
-                CashuRequestContent, CashuResponseContent, CloseRecurringPaymentContent,
-                CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
-                InvoiceResponse, PaymentResponseContent, RecurringPaymentRequestContent,
-                RecurringPaymentResponseContent, SinglePaymentRequestContent,
+                CashuDirectContentWithKey, CashuRequestContent, CashuResponseContent,
+                CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
+                InvoiceRequestContentWithKey, InvoiceResponse, PaymentResponseContent,
+                RecurringPaymentRequestContent, RecurringPaymentResponseContent,
+                SinglePaymentRequestContent,
             },
         },
     },
@@ -300,6 +301,12 @@ pub trait RelayStatusListener: Send + Sync {
 #[async_trait::async_trait]
 pub trait CashuResponseListener: Send + Sync {
     async fn on_cashu_response(&self, event: CashuResponseContent) -> Result<(), CallbackError>;
+}
+
+#[uniffi::export(with_foreign)]
+#[async_trait::async_trait]
+pub trait CashuDirectListener: Send + Sync {
+    async fn on_cashu_direct(&self, event: CashuDirectContentWithKey) -> Result<(), CallbackError>;
 }
 
 #[uniffi::export]
@@ -731,6 +738,29 @@ impl PortalApp {
             let evt = Arc::clone(&evt);
             let _ = self.runtime.add_task(async move {
                 let _ = evt.on_cashu_response(cashu_response.clone()).await?;
+                Ok::<(), AppError>(())
+            });
+        }
+        Ok(())
+    }
+
+    pub async fn listen_cashu_direct(
+        &self,
+        evt: Arc<dyn CashuDirectListener>,
+    ) -> Result<(), AppError> {
+        let inner = CashuDirectReceiverConversation::new(self.router.keypair().public_key());
+        let mut rx: NotificationStream<CashuDirectContentWithKey> = self
+            .router
+            .add_and_subscribe(Box::new(MultiKeyListenerAdapter::new(
+                inner,
+                self.router.keypair().subkey_proof().cloned(),
+            )))
+            .await?;
+
+        while let Ok(response) = rx.next().await.ok_or(AppError::ListenerDisconnected)? {
+            let evt = Arc::clone(&evt);
+            let _ = self.runtime.add_task(async move {
+                let _ = evt.on_cashu_direct(response.clone()).await?;
                 Ok::<(), AppError>(())
             });
         }
