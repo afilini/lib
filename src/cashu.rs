@@ -1,7 +1,7 @@
 use std::{collections::HashSet, ops::Deref};
 
 use nostr::{
-    event::{Kind, Tag},
+    event::{EventId, Kind, Tag},
     filter::Filter,
     key::PublicKey,
 };
@@ -9,8 +9,11 @@ use nostr::{
 use crate::{
     protocol::model::{
         auth::SubkeyProof,
-        event_kinds::{CASHU_REQUEST, CASHU_RESPONSE},
-        payment::{CashuRequestContent, CashuRequestContentWithKey, CashuResponseContent},
+        event_kinds::{CASHU_DIRECT, CASHU_REQUEST, CASHU_RESPONSE},
+        payment::{
+            CashuDirectContent, CashuDirectContentWithKey, CashuRequestContent,
+            CashuRequestContentWithKey, CashuResponseContent,
+        },
     },
     router::{
         ConversationError, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender,
@@ -178,4 +181,111 @@ impl OneShotSender for CashuResponseSenderConversation {
 
         Ok(response)
     }
+}
+
+/// Sender conversation to send a Cashu token directly.
+#[derive(derive_new::new)]
+pub struct CashuDirectSenderConversation {
+    content: CashuDirectContent,
+}
+
+impl MultiKeySender for CashuDirectSenderConversation {
+    const VALIDITY_SECONDS: Option<u64> = Some(60 * 5);
+
+    type Error = ConversationError;
+    type Message = ();
+
+    fn get_filter(
+        _state: &crate::router::MultiKeySenderAdapter<Self>,
+    ) -> Result<Filter, Self::Error> {
+        // Empty filter that will not match any events
+        // TODO: we should avoid subscribing to relays for empty filters
+        Ok(Filter::new().id(EventId::all_zeros()))
+    }
+
+    fn build_initial_message(
+        state: &mut crate::router::MultiKeySenderAdapter<Self>,
+        new_key: Option<PublicKey>,
+    ) -> Result<Response, Self::Error> {
+        let tags = state
+            .subkeys
+            .iter()
+            .chain([&state.user])
+            .map(|k| Tag::public_key(*k))
+            .collect();
+
+        if let Some(new_key) = new_key {
+            Ok(Response::new().subscribe_to_subkey_proofs().reply_to(
+                new_key,
+                Kind::Custom(CASHU_DIRECT),
+                tags,
+                state.content.clone(),
+            ))
+        } else {
+            Ok(Response::new().subscribe_to_subkey_proofs().reply_all(
+                Kind::Custom(CASHU_DIRECT),
+                tags,
+                state.content.clone(),
+            ))
+        }
+    }
+
+    fn on_message(
+        _state: &mut crate::router::MultiKeySenderAdapter<Self>,
+        _event: &crate::router::CleartextEvent,
+        _message: &Self::Message,
+    ) -> Result<Response, Self::Error> {
+        Ok(Response::default())
+    }
+}
+
+/// Receiver conversation to receive a Cashu token directly.
+///
+/// Notifies the sender with a [`CashuDirectContentWithKey`] event.
+#[derive(derive_new::new)]
+pub struct CashuDirectReceiverConversation {
+    local_key: PublicKey,
+}
+
+impl MultiKeyListener for CashuDirectReceiverConversation {
+    const VALIDITY_SECONDS: Option<u64> = None;
+
+    type Error = ConversationError;
+    type Message = CashuDirectContent;
+
+    fn init(state: &crate::router::MultiKeyListenerAdapter<Self>) -> Result<Response, Self::Error> {
+        let mut filter = Filter::new()
+            .kinds(vec![Kind::from(CASHU_DIRECT)])
+            .pubkey(state.local_key);
+
+        if let Some(subkey_proof) = &state.subkey_proof {
+            filter = filter.pubkey(subkey_proof.main_key.into());
+        }
+
+        Ok(Response::new().filter(filter))
+    }
+
+    fn on_message(
+        state: &mut crate::router::MultiKeyListenerAdapter<Self>,
+        event: &crate::router::CleartextEvent,
+        message: &Self::Message,
+    ) -> Result<Response, Self::Error> {
+        let main_key = match &state.subkey_proof {
+            Some(subkey_proof) => subkey_proof.main_key.into(),
+            None => event.pubkey.into(),
+        };
+
+        let res = CashuDirectContentWithKey {
+            inner: message.clone(),
+            main_key,
+            recipient: event.pubkey.into(),
+        };
+
+        // Note: we never call "finish" here, because we want to keep listening for events
+        Ok(Response::new().notify(res))
+    }
+}
+
+impl ConversationWithNotification for MultiKeyListenerAdapter<CashuDirectReceiverConversation> {
+    type Notification = CashuDirectContentWithKey;
 }
