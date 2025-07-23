@@ -27,7 +27,7 @@ jobs:
           path: react-native/result/lib/libapp.a
 
   build-ios-libs:
-    runs-on: macos-latest
+    runs-on: [ self-hosted, macOS ]
     strategy:
       matrix:
         lib: [ ios-lib-aarch64, ios-lib-aarch64-sim ]
@@ -35,12 +35,6 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-
-    - name: Install Nix
-      uses: DeterminateSystems/nix-installer-action@main
-
-    - name: Setup Nix Magic Cache
-      uses: DeterminateSystems/magic-nix-cache-action@main
 
     - name: Build ${{ matrix.lib }}
       run: nix build .#${{ matrix.lib }}
