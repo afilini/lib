@@ -1,7 +1,8 @@
 use portal::profile::Profile;
 use portal::protocol::model::auth::AuthResponseStatus;
 use portal::protocol::model::payment::{
-    CashuRequestContentWithKey, CashuResponseStatus, PaymentResponseContent, RecurringPaymentResponseContent
+    CashuRequestContentWithKey, CashuResponseStatus, PaymentResponseContent,
+    RecurringPaymentResponseContent,
 };
 use serde::Serialize;
 
@@ -68,6 +69,12 @@ pub enum ResponseData {
 
     #[serde(rename = "send_cashu_direct_success")]
     SendCashuDirectSuccess { message: String },
+
+    #[serde(rename = "cashu_mint")]
+    CashuMint { token: String },
+
+    #[serde(rename = "cashu_burn")]
+    CashuBurn { amount: u64 },
 }
 
 #[derive(Debug, Serialize)]

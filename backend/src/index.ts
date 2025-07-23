@@ -226,6 +226,49 @@ function mainFunction() {
               return;
             }
 
+            try {
+              if (data.action === 'mint_cashu') {
+                ws.send(`<div id="cashu-feedback" class="loading">Minting cashu...</div>`);
+
+                const token = await portalClient.mintCashu(
+                  data.mint_url,
+                  data.static_token,
+                  data.unit,
+                  parseInt(data['mint-amount']),
+                  data['mint-description']
+                );
+                console.log('Minted cashu', token);
+                await portalClient.sendCashuDirect(session.publicKey, [], token);
+
+                ws.send(`<div id="cashu-feedback" class="success">Minted token and sent to you!</div>`);
+                return;
+              }
+
+              if (data.action === 'request_and_burn_cashu') {
+                ws.send(`<div id="cashu-feedback" class="loading">Requesting cashu...</div>`);
+
+                const status = await portalClient.requestCashu(session.publicKey, [], data.mint_url, data.unit, parseInt(data['burn-amount']));
+
+                if (status.status === 'success') {
+                  try {
+                    const amount = await portalClient.burnCashu(data.mint_url, data.unit, status.token, data.static_token);
+                    console.log('Burned cashu', amount);
+                    ws.send(`<div id="cashu-feedback" class="success">Burned cashu: ${amount}</div>`);
+                  } catch (e) {
+                    console.log('Error burning cashu', e);
+                    ws.send(`<div id="cashu-feedback" class="error">Error burning cashu: ${e}</div>`);
+                  }
+                } else {
+                  ws.send(`<div id="cashu-feedback" class="error">Error requesting cashu: ${JSON.stringify(status)}</div>`);
+                }
+
+                return;
+              }
+            } catch (e) {
+              ws.send(`<div id="cashu-feedback" class="error">Cashu error: ${e}</div>`);
+              return;
+            }
+
             const payment = data as PaymentRequest;
             payment.amount = parseInt(data.amount);
 

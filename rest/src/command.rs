@@ -1,6 +1,7 @@
 use portal::profile::Profile;
 use portal::protocol::model::payment::{
-    CashuRequestContent, CashuResponseContent, Currency, InvoiceRequestContent, InvoiceRequestContentWithKey, RecurringPaymentRequestContent, SinglePaymentRequestContent
+    CashuRequestContent, CashuResponseContent, Currency, InvoiceRequestContent,
+    InvoiceRequestContentWithKey, RecurringPaymentRequestContent, SinglePaymentRequestContent,
 };
 use serde::Deserialize;
 
@@ -71,11 +72,26 @@ pub enum Command {
     RequestCashu {
         recipient_key: String,
         subkeys: Vec<String>,
-        content: CashuRequestContent,
+        mint_url: String,
+        unit: String,
+        amount: u64,
     },
     SendCashuDirect {
         main_key: String,
         subkeys: Vec<String>,
+        token: String,
+    },
+    MintCashu {
+        mint_url: String,
+        unit: String,
+        static_auth_token: Option<String>,
+        amount: u64,
+        description: Option<String>,
+    },
+    BurnCashu {
+        mint_url: String,
+        unit: String,
+        static_auth_token: Option<String>,
         token: String,
     },
 }

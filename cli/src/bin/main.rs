@@ -1,9 +1,10 @@
 use std::{io::Write, str::FromStr, sync::Arc};
 
 use app::{
-    AuthChallengeListener, CallbackError, ClosedRecurringPaymentListener, Mnemonic,
-    PaymentRequestListener, PortalApp, RecurringPaymentRequest, RelayStatus, RelayStatusListener,
-    RelayUrl, SinglePaymentRequest, auth::AuthChallengeEvent, db::PortalDB,
+    AuthChallengeListener, CallbackError, CashuDirectListener, CashuRequestListener,
+    ClosedRecurringPaymentListener, Mnemonic, PaymentRequestListener, PortalApp,
+    RecurringPaymentRequest, RelayStatus, RelayStatusListener, RelayUrl, SinglePaymentRequest,
+    auth::AuthChallengeEvent, db::PortalDB,
 };
 use nwc::nostr;
 use portal::{
@@ -15,6 +16,7 @@ use portal::{
             auth::AuthResponseStatus,
             bindings::PublicKey,
             payment::{
+                CashuDirectContentWithKey, CashuRequestContentWithKey, CashuResponseStatus,
                 CloseRecurringPaymentResponse, PaymentResponseContent, PaymentStatus,
                 RecurringPaymentResponseContent, RecurringPaymentStatus,
             },
@@ -110,6 +112,30 @@ impl ClosedRecurringPaymentListener for LogClosedRecurringPayment {
     }
 }
 
+struct LogCashuRequestListener;
+
+#[async_trait::async_trait]
+impl CashuRequestListener for LogCashuRequestListener {
+    async fn on_cashu_request(
+        &self,
+        event: CashuRequestContentWithKey,
+    ) -> Result<CashuResponseStatus, CallbackError> {
+        log::info!("Received Cashu request: {:?}", event);
+        // Always approve for test
+        Ok(CashuResponseStatus::Success {
+            token: "testtoken123".to_string(),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl CashuDirectListener for LogCashuRequestListener {
+    async fn on_cashu_direct(&self, event: CashuDirectContentWithKey) -> Result<(), CallbackError> {
+        log::info!("Received Cashu direct: {:?}", event);
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -129,31 +155,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         keypair.public_key().to_bech32().unwrap()
     );
 
-    let db = PortalDB::new(
-        keypair.clone(),
-        vec![
-            "wss://relay.nostr.net".to_string(),
-            "wss://relay.damus.io".to_string(),
-        ],
-    )
-    .await?;
+    // let db = PortalDB::new(
+    //     keypair.clone(),
+    //     vec![
+    //         "wss://relay.nostr.net".to_string(),
+    //         "wss://relay.damus.io".to_string(),
+    //     ],
+    // )
+    // .await?;
 
     // Testing database
-    let age_example = 1.to_string();
-    db.store("age".to_string(), &age_example).await?;
-    let age = db.read("age".to_string()).await?;
-    if age != age_example {
-        // error
-        log::error!("Failed to set or get value from database: {:?}", age);
-    }
+    // let age_example = 1.to_string();
+    // db.store("age".to_string(), &age_example).await?;
+    // let age = db.read("age".to_string()).await?;
+    // if age != age_example {
+    //     // error
+    //     log::error!("Failed to set or get value from database: {:?}", age);
+    // }
 
-    let history = db.read_history("age".to_string()).await?;
-    log::info!("History of age: {:?}", history);
+    // let history = db.read_history("age".to_string()).await?;
+    // log::info!("History of age: {:?}", history);
 
     let app = PortalApp::new(
         keypair,
         vec![
             "wss://relay.nostr.net".to_string(),
+            "wss://relay.getportal.cc".to_string(),
             // "wss://relay.damus.io".to_string(),
         ],
         Arc::new(LogRelayStatusChange),
@@ -166,18 +193,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _app.listen().await.unwrap();
     });
 
-    app.set_profile(Profile {
-        name: Some("John Doe".to_string()),
-        display_name: Some("John Doe".to_string()),
-        picture: Some("https://tr.rbxcdn.com/180DAY-4d8c678185e70957c8f9b5ca267cd335/420/420/Image/Png/noFilter".to_string()),
-        nip05: Some("john.doe@example.com".to_string()),
-    }).await?;
-    dbg!(
-        app.fetch_profile(PublicKey(nostr::PublicKey::parse(
-            "1e48492f5515d70e4fb40841894701cd97a35d7ea5bf93c84d2eac300ce4c25c"
-        )?))
-        .await?
-    );
+    // app.set_profile(Profile {
+    //     name: Some("John Doe".to_string()),
+    //     display_name: Some("John Doe".to_string()),
+    //     picture: Some("https://tr.rbxcdn.com/180DAY-4d8c678185e70957c8f9b5ca267cd335/420/420/Image/Png/noFilter".to_string()),
+    //     nip05: Some("john.doe@example.com".to_string()),
+    // }).await?;
+    // dbg!(
+    //     app.fetch_profile(PublicKey(nostr::PublicKey::parse(
+    //         "1e48492f5515d70e4fb40841894701cd97a35d7ea5bf93c84d2eac300ce4c25c"
+    //     )?))
+    //     .await?
+    // );
 
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
@@ -202,8 +229,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
-        _app.register_nip05("phantomsto".to_owned()).await.unwrap();
+        _app.listen_cashu_direct(Arc::new(LogCashuRequestListener))
+            .await
+            .unwrap();
     });
+
+    let _app = Arc::clone(&app);
+    tokio::spawn(async move {
+        _app.listen_cashu_requests(Arc::new(LogCashuRequestListener))
+            .await
+            .unwrap();
+    });
+
+    // let _app = Arc::clone(&app);
+    // tokio::spawn(async move {
+    //     _app.register_nip05("phantomsto".to_owned()).await.unwrap();
+    // });
 
     // let _app = Arc::clone(&app);
     // tokio::spawn(async move {

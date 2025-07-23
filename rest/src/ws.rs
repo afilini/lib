@@ -1,19 +1,25 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::str::FromStr;
+use std::sync::Arc;
 
 use crate::command::{Command, CommandWithId};
 use crate::response::*;
 use crate::{AppState, PublicKey};
 use axum::extract::ws::{Message, WebSocket};
+use cdk::amount::SplitTarget;
+use cdk::mint_url::MintUrl;
+use cdk::nuts::CurrencyUnit;
+use cdk::wallet::{SendOptions, Wallet, WalletBuilder};
+use cdk_sqlite::wallet::memory;
 use chrono::Duration;
 use dashmap::DashMap;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt};
 use portal::protocol::jwt::CustomClaims;
 use portal::protocol::model::payment::{
-    CashuDirectContent, InvoiceRequestContentWithKey, SinglePaymentRequestContent,
+    CashuDirectContent, CashuRequestContent, SinglePaymentRequestContent,
 };
 use portal::protocol::model::Timestamp;
+use rand::RngCore;
 use sdk::PortalSDK;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -921,7 +927,9 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
         Command::RequestCashu {
             recipient_key,
             subkeys,
-            content,
+            mint_url,
+            unit,
+            amount,
         } => {
             // Parse keys
             let recipient_key = match hex_to_pubkey(&recipient_key) {
@@ -943,11 +951,19 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             };
 
+            let content = CashuRequestContent {
+                mint_url,
+                unit,
+                amount,
+                request_id: Uuid::new_v4().to_string(),
+            };
             match ctx.sdk.request_cashu(recipient_key, subkeys, content).await {
                 Ok(Some(response)) => {
                     let response = Response::Success {
                         id: command.id,
-                        data: ResponseData::CashuResponse { status: response.status },
+                        data: ResponseData::CashuResponse {
+                            status: response.status,
+                        },
                     };
 
                     let _ = ctx.send_message(response).await;
@@ -1016,6 +1032,182 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             }
         }
+        Command::MintCashu {
+            mint_url,
+            static_auth_token,
+            unit,
+            amount,
+            description,
+        } => {
+            // Mint tokens using cdk wallet
+            let ctx_clone = ctx.clone();
+            let command_id = command.id.clone();
+            let mint_url = mint_url.clone();
+            let unit = unit.clone();
+            tokio::task::spawn(async move {
+                let mint_url = match MintUrl::from_str(&mint_url) {
+                    Ok(url) => url,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(&command_id, &format!("Invalid mint URL: {}", e))
+                            .await;
+                        return;
+                    }
+                };
+                let currency_unit = match CurrencyUnit::from_str(&unit) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(&command_id, &format!("Invalid unit: {}", e))
+                            .await;
+                        return;
+                    }
+                };
+
+                let wallet =
+                    match get_cashu_wallet(mint_url, currency_unit, static_auth_token).await {
+                        Ok(w) => w,
+                        Err(e) => {
+                            let _ = ctx_clone
+                                .send_error_message(
+                                    &command_id,
+                                    &format!("Failed to create wallet: {}", e),
+                                )
+                                .await;
+                            return;
+                        }
+                    };
+
+                // Request minting (this will typically require paying an invoice, but for static-token mints it may be instant)
+                let quote = match wallet.mint_quote(amount.into(), description).await {
+                    Ok(quote) => quote,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(
+                                &command_id,
+                                &format!("Failed to get mint quote: {}", e),
+                            )
+                            .await;
+                        return;
+                    }
+                };
+                let result = wallet.mint(&quote.id, SplitTarget::None, None).await;
+                match result {
+                    Ok(proofs) => proofs,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(
+                                &command_id,
+                                &format!("Failed to mint token: {}", e),
+                            )
+                            .await;
+                        return;
+                    }
+                };
+                let prepared_send = match wallet
+                    .prepare_send(amount.into(), SendOptions::default())
+                    .await
+                {
+                    Ok(prepared_send) => prepared_send,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(
+                                &command_id,
+                                &format!("Failed to prepare send: {}", e),
+                            )
+                            .await;
+                        return;
+                    }
+                };
+                let token = match wallet.send(prepared_send, None).await {
+                    Ok(token) => token,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(
+                                &command_id,
+                                &format!("Failed to send token: {}", e),
+                            )
+                            .await;
+                        return;
+                    }
+                };
+
+                let response = Response::Success {
+                    id: command_id,
+                    data: ResponseData::CashuMint {
+                        token: token.to_string(),
+                    },
+                };
+                let _ = ctx_clone.send_message(response).await;
+            });
+        }
+        Command::BurnCashu {
+            mint_url,
+            unit,
+            token,
+            static_auth_token,
+        } => {
+            // Burn tokens using cdk wallet
+            let ctx_clone = ctx.clone();
+            let command_id = command.id.clone();
+            let mint_url = mint_url.clone();
+            let unit = unit.clone();
+            tokio::task::spawn(async move {
+                let mint_url = match MintUrl::from_str(&mint_url) {
+                    Ok(url) => url,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(&command_id, &format!("Invalid mint URL: {}", e))
+                            .await;
+                        return;
+                    }
+                };
+                let currency_unit = match CurrencyUnit::from_str(&unit) {
+                    Ok(u) => u,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(&command_id, &format!("Invalid unit: {}", e))
+                            .await;
+                        return;
+                    }
+                };
+
+                let wallet =
+                    match get_cashu_wallet(mint_url, currency_unit, static_auth_token).await {
+                        Ok(w) => w,
+                        Err(e) => {
+                            let _ = ctx_clone
+                                .send_error_message(
+                                    &command_id,
+                                    &format!("Failed to create wallet: {}", e),
+                                )
+                                .await;
+                            return;
+                        }
+                    };
+
+                let receive = match wallet.receive(&token, Default::default()).await {
+                    Ok(receive) => receive,
+                    Err(e) => {
+                        let _ = ctx_clone
+                            .send_error_message(
+                                &command_id,
+                                &format!("Failed to receive token: {}", e),
+                            )
+                            .await;
+                        return;
+                    }
+                };
+
+                let response = Response::Success {
+                    id: command_id,
+                    data: ResponseData::CashuBurn {
+                        amount: receive.into(),
+                    },
+                };
+                let _ = ctx_clone.send_message(response).await;
+            });
+        }
     }
 }
 
@@ -1029,4 +1221,33 @@ fn parse_subkeys(subkeys: &[String]) -> Result<Vec<PublicKey>, String> {
         result.push(hex_to_pubkey(subkey)?);
     }
     Ok(result)
+}
+
+async fn get_cashu_wallet(
+    mint_url: MintUrl,
+    unit: CurrencyUnit,
+    static_auth_token: Option<String>,
+) -> Result<Wallet, String> {
+    // Generate a random seed for the temporary wallet
+    let mut seed = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut seed);
+
+    // Use an in-memory localstore (no persistence)
+    let localstore = Arc::new(memory::empty().await.expect("Failed to create localstore"));
+    let mut builder = WalletBuilder::new()
+        .mint_url(mint_url)
+        .unit(unit)
+        .localstore(localstore)
+        .seed(&seed);
+
+    if let Some(static_auth_token) = static_auth_token {
+        builder = builder.static_token(static_auth_token);
+    }
+
+    let wallet = builder.build().map_err(|e| e.to_string())?;
+
+    // Fetch mint info to cache endpoint auth requirements
+    wallet.get_mint_info().await.map_err(|e| e.to_string())?;
+
+    Ok(wallet)
 }

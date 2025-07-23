@@ -49,6 +49,39 @@
       .logout-button:hover {
         background-color: #d32f2f;
       }
+      /* Cashu Feedback Styling */
+      #cashu-feedback {
+        padding: 12px 16px;
+        border-radius: 6px;
+        margin-top: 15px;
+        font-weight: 500;
+        border-left: 4px solid;
+      }
+      
+      #cashu-feedback:empty {
+        display: none;
+      }
+      
+      /* Success state */
+      #cashu-feedback.success {
+        background-color: #d4edda;
+        color: #155724;
+        border-left-color: #28a745;
+      }
+      
+      /* Error state */
+      #cashu-feedback.error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border-left-color: #dc3545;
+      }
+      
+      /* Loading state */
+      #cashu-feedback.loading {
+        background-color: #d1ecf1;
+        color: #0c5460;
+        border-left-color: #17a2b8;
+      }
       /* Payment form styles */
       .form-section {
         border: 1px solid #ddd;
@@ -238,6 +271,60 @@
           </form>
         </div>
 
+        <div id="payment-result" class="result"></div>
+        
+        <div class="form-section">
+          <h2>Cashu Token Settings</h2>
+          <div class="form-field">
+            <label for="global-mint-url">Mint URL:</label>
+            <input type="text" id="global-mint-url" name="global-mint-url" value="https://mint.getportal.cc" required>
+          </div>
+          <div class="form-field">
+            <label for="global-currency">Currency Unit:</label>
+            <input type="text" id="global-currency" name="global-currency" value="multi" required>
+          </div>
+          <div class="form-field">
+            <label for="global-static-token">Static Token:</label>
+            <input type="text" id="global-static-token" name="global-static-token" value="test-static-token-for-mint-getportal-cc">
+          </div>
+        </div>
+
+        <div class="form-section">
+          <h2>Cashu Token Demo</h2>
+          <form id="mint-cashu-form" ws-send>
+            <input type="hidden" name="action" value="mint_cashu">
+            <input type="hidden" id="mint-mint-url" name="mint_url">
+            <input type="hidden" id="mint-unit" name="unit">
+            <input type="hidden" id="mint-static-token" name="static_token">
+            <div class="form-field">
+              <label for="mint-amount">Amount:</label>
+              <input type="number" id="mint-amount" name="mint-amount" value="1" min="1" required>
+            </div>
+            <div class="form-field">
+              <label for="mint-description">Description:</label>
+              <input type="text" id="mint-description" name="mint-description" value="Test token" required>
+            </div>
+            <button type="submit" class="submit-button">Mint & Send Token</button>
+          </form>
+          <div id="mint-cashu-result" class="result"></div>
+          <form id="burn-cashu-form" ws-send style="margin-top: 2em;">
+            <input type="hidden" name="action" value="request_and_burn_cashu">
+            <input type="hidden" id="burn-mint-url" name="mint_url">
+            <input type="hidden" id="burn-unit" name="unit">
+            <input type="hidden" id="burn-static-token" name="static_token">
+            <div class="form-field">
+              <label for="burn-amount">Amount to Request:</label>
+              <input type="number" id="burn-amount" name="burn-amount" value="1" min="1" required>
+            </div>
+            <button type="submit" class="submit-button">Burn Token</button>
+          </form>
+          <div id="burn-cashu-result" class="result"></div>
+
+          <div class="feedback" style="margin-top:2em; min-height:2em;">
+            <div id="cashu-feedback"></div>
+          </div>
+        </div>
+
         <div id="history-section" class="history-section">
           <h2>Payment History</h2>
           <div class="payment-list">
@@ -284,6 +371,27 @@
                 setTimeout(() => { window.location.href = url; }, 1000);
             }
         }
+      });
+
+      document.addEventListener('DOMContentLoaded', function() {
+        // Sync hidden fields with global settings
+        function syncHiddenFields() {
+          const globalMintUrl = document.getElementById('global-mint-url').value;
+          const globalUnit = document.getElementById('global-currency').value;
+          
+          document.getElementById('mint-mint-url').value = globalMintUrl;
+          document.getElementById('mint-unit').value = globalUnit;
+          document.getElementById('mint-static-token').value = document.getElementById('global-static-token').value;
+          document.getElementById('burn-mint-url').value = globalMintUrl;
+          document.getElementById('burn-unit').value = globalUnit;
+          document.getElementById('burn-static-token').value = document.getElementById('global-static-token').value;
+        }
+        
+        // Set initial values and add change listeners
+        syncHiddenFields();
+        document.getElementById('global-mint-url').addEventListener('input', syncHiddenFields);
+        document.getElementById('global-currency').addEventListener('input', syncHiddenFields);
+        document.getElementById('global-static-token').addEventListener('input', syncHiddenFields);
       });
     </script>
   </body>

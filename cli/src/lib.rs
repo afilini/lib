@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use app::{CallbackError, Keypair, Mnemonic, PortalApp, RelayStatus, RelayStatusListener, RelayUrl};
+use app::{
+    CallbackError, Keypair, Mnemonic, PortalApp, RelayStatus, RelayStatusListener, RelayUrl,
+};
 use sdk::PortalSDK;
 
 struct LogRelayStatusChange;

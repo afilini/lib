@@ -26,5 +26,9 @@ dashmap = "6.1.0"
 
 chrono = "0.4.41"
 
+cdk = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb", features = ["wallet"] }
+cdk-sqlite = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb" }
+rand = "0.8"
+
 [features]
 task-tracing = ["console-subscriber"]

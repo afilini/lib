@@ -468,9 +468,11 @@ export class PortalSDK {
   public async requestCashu(
     recipientKey: string,
     subkeys: string[],
-    content: CashuRequestContent
+    mint_url: string,
+    unit: string,
+    amount: number
   ): Promise<CashuResponseStatus> {
-    const response = await this.sendCommand('RequestCashu', { recipient_key: recipientKey, subkeys, content });
+    const response = await this.sendCommand('RequestCashu', { recipient_key: recipientKey, subkeys, mint_url, unit, amount });
     if (response.type === 'cashu_response') {
       return response.status;
     }
@@ -484,6 +486,28 @@ export class PortalSDK {
     const response = await this.sendCommand('SendCashuDirect', { main_key: mainKey, subkeys, token });
     if (response.type === 'send_cashu_direct_success') {
       return response.message;
+    }
+    throw new Error('Unexpected response type');
+  }
+
+  /**
+   * Mint a Cashu token from a mint and return it
+   */
+  public async mintCashu(mint_url: string, static_auth_token: string | undefined, unit: string, amount: number, description?: string): Promise<string> {
+    const response = await this.sendCommand('MintCashu', { mint_url, static_auth_token, unit, amount, description });
+    if (response.type === 'cashu_mint') {
+      return response.token;
+    }
+    throw new Error('Unexpected response type');
+  }
+
+  /**
+   * Burn a Cashu token at a mint
+   */
+  public async burnCashu(mint_url: string, unit: string, token: string, static_auth_token?: string): Promise<number> {
+    const response = await this.sendCommand('BurnCashu', { mint_url, unit, token, static_auth_token });
+    if (response.type === 'cashu_burn') {
+      return response.amount;
     }
     throw new Error('Unexpected response type');
   }
