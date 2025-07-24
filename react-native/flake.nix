@@ -8,6 +8,16 @@
     crane.url = "github:ipetkov/crane";
   };
 
+  # This would be great but it creates an annoying interactive prompt, even if we locally trust the substituter already
+  # nixConfig = {
+  #   extra-substituters = [
+  #     "https://binarycache.getportal.cc"
+  #   ];
+  #   extra-trusted-public-keys = [
+  #     "binarycache.getportal.cc:I4++LAqnkRNdfYo5IFR+Khe8uJheqVnR/xQ8Gf29OvI="
+  #   ];
+  # };
+
   outputs = { self, nixpkgs, rust-overlay, flake-utils, crane, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
