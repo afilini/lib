@@ -233,7 +233,7 @@
             ${pkgs.lib.optionalString withIos ''
               # Since those packages are built on a native macos worker, we take them from its package output set
               mkdir -p PortalAppLibFramework.xcframework/{ios-arm64,ios-arm64-simulator}
-              cp ${./static/Info.plist} PortalAppLibFramework.xcframework/ios-arm64/Info.plist
+              cp ${./static/Info.plist} PortalAppLibFramework.xcframework/Info.plist
               cp ${self.outputs.packages.aarch64-darwin.ios-lib-aarch64}/lib/libapp.a PortalAppLibFramework.xcframework/ios-arm64/libapp.a
               cp ${self.outputs.packages.aarch64-darwin.ios-lib-aarch64-sim}/lib/libapp.a PortalAppLibFramework.xcframework/ios-arm64-simulator/libapp.a
             ''}
