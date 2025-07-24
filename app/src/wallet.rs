@@ -428,10 +428,14 @@ impl WalletDatabase for AppCashuLocalStore {
         &self,
         transaction: cdk_common::wallet::Transaction,
     ) -> Result<(), Self::Err> {
-        let transaction_string = serde_json::to_string(&transaction).unwrap_or_default();
+        let mut transaction_string = serde_json::to_value(&transaction).unwrap_or_default();
+        transaction_string["id"] = serde_json::Value::String(transaction.id().to_string());
 
         self.inner
-            .add_transaction(transaction_string)
+            .add_transaction(
+                serde_json::to_string(&transaction_string)
+                    .expect("Failed to serialize transaction"),
+            )
             .await
             .map_err(|e| {
                 cdk::cdk_database::Error::Database(Box::new(std::io::Error::new(
