@@ -157,7 +157,7 @@ impl OneShotSender for PaymentStatusSenderConversation {
         keys.insert(state.service_key);
         keys.insert(state.recipient);
 
-        let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
+        let tags = keys.iter().map(|k| Tag::public_key(*k)).collect();
         let response = Response::new()
             .reply_to(
                 state.recipient,

@@ -4,7 +4,7 @@ use crate::{
         auth::SubkeyProof,
         event_kinds::*,
         payment::{
-            PaymentResponseContent, RecurringPaymentRequestContent,
+            PaymentResponseContent, PaymentStatus, RecurringPaymentRequestContent,
             RecurringPaymentResponseContent, SinglePaymentRequestContent,
         },
     },
@@ -112,6 +112,7 @@ pub struct SinglePaymentRequestSenderConversation {
     subkey_proof: Option<SubkeyProof>,
 
     payment_request: SinglePaymentRequestContent,
+    last_status: Option<PaymentStatus>,
 }
 
 impl SinglePaymentRequestSenderConversation {
@@ -124,6 +125,7 @@ impl SinglePaymentRequestSenderConversation {
             local_key,
             subkey_proof,
             payment_request,
+            last_status: None,
         }
     }
 }
@@ -185,7 +187,22 @@ impl MultiKeySender for SinglePaymentRequestSenderConversation {
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
         if message.request_id == state.payment_request.request_id {
-            Ok(Response::new().notify(message.clone()).finish())
+            // TODO: it looks like we are getting duplicated messages, do this as a temporary measure
+            if let Some(last_status) = &state.last_status {
+                if last_status == &message.status {
+                    return Ok(Response::default());
+                }
+            }
+
+            let mut response = Response::new().notify(message.clone());
+
+            if message.status.is_final() {
+                response = response.finish();
+            } else {
+                state.last_status = Some(message.status.clone());
+            }
+
+            Ok(response)
         } else {
             Ok(Response::default())
         }

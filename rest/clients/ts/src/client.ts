@@ -9,8 +9,6 @@ import {
   SinglePaymentRequestContent,
   Profile,
   AuthResponseData,
-  RecurringPaymentStatusContent,
-  PaymentStatusContent,
   Event,
   InvoicePaymentRequestContent,
   RecurringPaymentResponseContent,
@@ -319,15 +317,16 @@ export class PortalSDK {
     subkeys: string[] = [],
     paymentRequest: SinglePaymentRequestContent,
     onStatusChange: (status: InvoiceStatus) => void
-  ): Promise<PaymentStatusContent> {
+  ): Promise<void> {
     const _self = this;
-    let streamId: string | null = null;
+    let streamId: string;
 
     const handler = (data: NotificationData) => {
       if (data.type === 'payment_status_update') {
         onStatusChange(data.status as InvoiceStatus);
 
-        if (streamId) {
+        if (data.status.status === 'user_failed' || data.status.status === 'user_rejected') {
+          console.log('Deleting stream id:', streamId);
           _self.activeStreams.delete(streamId);
         }
       }
@@ -337,11 +336,9 @@ export class PortalSDK {
     
     if (response.type === 'single_payment') {
       streamId = response.stream_id;
-      if (streamId) {
-        this.activeStreams.set(streamId, handler);
-      }
+      this.activeStreams.set(streamId, handler);
 
-      return response.status.status;
+      return;
     }
     
     throw new Error('Unexpected response type');
@@ -358,11 +355,29 @@ export class PortalSDK {
     mainKey: string,
     subkeys: string[] = [],
     paymentRequest: InvoicePaymentRequestContent,
-  ): Promise<PaymentStatusContent> {
+    onStatusChange: (status: InvoiceStatus) => void
+  ): Promise<void> {
+    const _self = this;
+    let streamId: string;
+
+    const handler = (data: NotificationData) => {
+      if (data.type === 'payment_status_update') {
+        onStatusChange(data.status as InvoiceStatus);
+
+        if (data.status.status === 'user_failed' || data.status.status === 'user_rejected') {
+          console.log('Deleting stream id:', streamId);
+          _self.activeStreams.delete(streamId);
+        }
+      }
+    };
+
     const response = await this.sendCommand('RequestPaymentRaw', { main_key: mainKey, subkeys, payment_request: paymentRequest });
     
     if (response.type === 'single_payment') {
-      return response;
+      streamId = response.stream_id;
+      this.activeStreams.set(streamId, handler);
+
+      return;
     }
     
     throw new Error('Unexpected response type');

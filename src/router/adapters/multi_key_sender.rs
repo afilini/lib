@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    ops::Deref,
+    ops::{Deref, DerefMut},
     time::{Duration, SystemTime},
 };
 
@@ -169,5 +169,11 @@ impl<Inner: MultiKeySender> Deref for MultiKeySenderAdapter<Inner> {
 
     fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+
+impl<Inner: MultiKeySender> DerefMut for MultiKeySenderAdapter<Inner> {
+    fn deref_mut(&mut self) -> &mut Inner {
+        &mut self.inner
     }
 }

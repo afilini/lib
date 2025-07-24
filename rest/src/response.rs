@@ -38,10 +38,7 @@ pub enum ResponseData {
     },
 
     #[serde(rename = "single_payment")]
-    SinglePayment {
-        status: PaymentResponseContent,
-        stream_id: Option<String>,
-    },
+    SinglePayment { stream_id: String },
 
     #[serde(rename = "profile")]
     ProfileData { profile: Option<Profile> },
@@ -109,4 +106,8 @@ pub enum InvoiceStatus {
     Paid { preimage: Option<String> },
     Timeout,
     Error { reason: String },
+    UserApproved,
+    UserSuccess { preimage: Option<String> },
+    UserFailed { reason: Option<String> },
+    UserRejected { reason: Option<String> },
 }

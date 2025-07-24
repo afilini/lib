@@ -9,7 +9,6 @@ export {
   RecurringPaymentRequestContent,
   SinglePaymentRequestContent,
   RecurringPaymentStatusContent,
-  PaymentStatusContent,
   AuthResponseData,
   Profile,
   Command,

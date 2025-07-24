@@ -2,9 +2,9 @@ use std::{io::Write, str::FromStr, sync::Arc};
 
 use app::{
     AuthChallengeListener, CallbackError, CashuDirectListener, CashuRequestListener,
-    ClosedRecurringPaymentListener, Mnemonic, PaymentRequestListener, PortalApp,
-    RecurringPaymentRequest, RelayStatus, RelayStatusListener, RelayUrl, SinglePaymentRequest,
-    auth::AuthChallengeEvent, db::PortalDB,
+    ClosedRecurringPaymentListener, Mnemonic, PaymentRequestListener, PaymentStatusNotifier,
+    PortalApp, RecurringPaymentRequest, RelayStatus, RelayStatusListener, RelayUrl,
+    SinglePaymentRequest, auth::AuthChallengeEvent, db::PortalDB,
 };
 use nwc::nostr;
 use portal::{
@@ -38,7 +38,7 @@ impl RelayStatusListener for LogRelayStatusChange {
     }
 }
 
-struct ApproveLogin;
+struct ApproveLogin(Arc<PortalApp>);
 
 #[async_trait::async_trait]
 impl AuthChallengeListener for ApproveLogin {
@@ -47,6 +47,9 @@ impl AuthChallengeListener for ApproveLogin {
         event: AuthChallengeEvent,
     ) -> Result<AuthResponseStatus, CallbackError> {
         log::info!("Received auth challenge: {:?}", event);
+
+        dbg!(self.0.fetch_profile(event.service_key).await);
+
         Ok(AuthResponseStatus::Approved {
             granted_permissions: vec![],
             session_token: String::from("ABC"),
@@ -61,8 +64,16 @@ impl PaymentRequestListener for ApprovePayment {
     async fn on_single_payment_request(
         &self,
         event: SinglePaymentRequest,
-    ) -> Result<PaymentResponseContent, CallbackError> {
+        notifier: Arc<dyn PaymentStatusNotifier>,
+    ) -> Result<(), CallbackError> {
         log::info!("Received single payment request: {:?}", event);
+
+        notifier
+            .notify(PaymentResponseContent {
+                status: PaymentStatus::Approved,
+                request_id: event.content.request_id.clone(),
+            })
+            .await?;
 
         let nwc = self.0.clone();
         tokio::task::spawn(async move {
@@ -74,12 +85,35 @@ impl PaymentRequestListener for ApprovePayment {
                 })
                 .await;
             log::info!("Payment result: {:?}", payment_result);
+
+            match payment_result {
+                Ok(payment) => {
+                    notifier
+                        .notify(PaymentResponseContent {
+                            status: PaymentStatus::Success {
+                                preimage: Some(payment.preimage),
+                            },
+                            request_id: event.content.request_id,
+                        })
+                        .await
+                        .unwrap();
+                }
+                Err(e) => {
+                    log::error!("Payment failed: {:?}", e);
+                    notifier
+                        .notify(PaymentResponseContent {
+                            status: PaymentStatus::Failed {
+                                reason: Some(e.to_string()),
+                            },
+                            request_id: event.content.request_id,
+                        })
+                        .await
+                        .unwrap();
+                }
+            }
         });
 
-        Ok(PaymentResponseContent {
-            status: PaymentStatus::Pending,
-            request_id: event.content.request_id,
-        })
+        Ok(())
     }
 
     async fn on_recurring_payment_request(
@@ -181,7 +215,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         vec![
             "wss://relay.nostr.net".to_string(),
             "wss://relay.getportal.cc".to_string(),
-            // "wss://relay.damus.io".to_string(),
         ],
         Arc::new(LogRelayStatusChange),
     )
@@ -208,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _app = Arc::clone(&app);
     tokio::spawn(async move {
-        _app.listen_for_auth_challenge(Arc::new(ApproveLogin))
+        _app.listen_for_auth_challenge(Arc::new(ApproveLogin(Arc::clone(&_app))))
             .await
             .unwrap();
     });
