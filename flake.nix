@@ -36,7 +36,7 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "cashu-0.11.0" = "sha256-nF77EP9jWnjgJTzd+O+fO13xfGYWA2r2uz/qLfgZ2s0=";
+              "cashu-0.11.0" = "sha256-kwwfQX5vDclfa86xPbbkbu+bh1VQXlX+imunUUoTYV4=";
             };
           };
           buildAndTestSubdir = "rest";

@@ -29,7 +29,7 @@ chrono-tz = { version = "0.10.3", features = ["serde"] }
 derive-new = "0.7.0"
 jwt-compact = { version = "0.9.0-beta.1", features = ["es256k"] }
 secp256k1 = "0.29"
-cdk = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb" }
+cdk = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "db8817b8fade55dd23697d0e07c760e48cf11a73" }
 
 reqwest = { version = "0.12.20", default-features = false, features = ["rustls-tls"] }
 

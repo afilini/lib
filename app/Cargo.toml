@@ -32,7 +32,7 @@ async-utility = "0.3.1"
 
 chrono = "0.4.41"
 
-cdk = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb", features = ["wallet"] }
-cdk-common = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb" }
+cdk = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "db8817b8fade55dd23697d0e07c760e48cf11a73", features = ["wallet"] }
+cdk-common = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "db8817b8fade55dd23697d0e07c760e48cf11a73" }
 
 rand = "0.8"

@@ -713,7 +713,7 @@ dependencies = [
 [[package]]
 name = "cashu"
 version = "0.11.0"
-source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb#d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb"
+source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=db8817b8fade55dd23697d0e07c760e48cf11a73#db8817b8fade55dd23697d0e07c760e48cf11a73"
 dependencies = [
  "bitcoin",
  "cbor-diag",
@@ -775,7 +775,7 @@ dependencies = [
 [[package]]
 name = "cdk"
 version = "0.11.0"
-source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb#d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb"
+source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=db8817b8fade55dd23697d0e07c760e48cf11a73#db8817b8fade55dd23697d0e07c760e48cf11a73"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -809,7 +809,7 @@ dependencies = [
 [[package]]
 name = "cdk-common"
 version = "0.11.0"
-source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb#d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb"
+source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=db8817b8fade55dd23697d0e07c760e48cf11a73#db8817b8fade55dd23697d0e07c760e48cf11a73"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -832,7 +832,7 @@ dependencies = [
 [[package]]
 name = "cdk-signatory"
 version = "0.11.0"
-source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb#d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb"
+source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=db8817b8fade55dd23697d0e07c760e48cf11a73#db8817b8fade55dd23697d0e07c760e48cf11a73"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -856,7 +856,7 @@ dependencies = [
 [[package]]
 name = "cdk-sqlite"
 version = "0.11.0"
-source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb#d3301e78fe2a3138a5aa46ec54cb0b7cf24c8bcb"
+source = "git+https://github.com/PortalTechnologiesInc/cdk?rev=db8817b8fade55dd23697d0e07c760e48cf11a73#db8817b8fade55dd23697d0e07c760e48cf11a73"
 dependencies = [
  "async-trait",
  "bitcoin",
