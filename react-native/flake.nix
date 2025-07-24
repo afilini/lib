@@ -206,8 +206,8 @@
           cat ${mkCargoMetadata "arm64-v8a"}/metadata.json | sed 's|/build/source|${../app}|g'
         '';
 
-        reactNativeLib = pkgs.stdenv.mkDerivation (finalAttrs: {
-          name = "react-native-lib";
+        reactNativeLib = { withIos ? false }: pkgs.stdenv.mkDerivation (finalAttrs: {
+          name = "react-native-lib${if withIos then "" else "-android-only"}";
         
           src = pkgs.lib.sources.cleanSource ./.;
 
@@ -227,14 +227,16 @@
 
             # Copy the artifacts to the android directory
             mkdir -p android/src/main/jniLibs/{arm64-v8a,x86_64}
-            cp ${libAndroidAarch64}/lib/libapp.a android/src/main/jniLibs/arm64-v8a/libapp.a
-            cp ${libAndroidX86_64}/lib/libapp.a android/src/main/jniLibs/x86_64/libapp.a
+            cp ${libAndroidAarch64}/lib/libapp.a android/src/main/jniLibs/arm64-v8a/libportal.a
+            cp ${libAndroidX86_64}/lib/libapp.a android/src/main/jniLibs/x86_64/libportal.a
 
-            # Since those packages are built on a native macos worker, we take them from its package output set
-            mkdir -p PortalAppLibFramework.xcframework/{ios-arm64,ios-arm64-simulator}
-            cp ${./static/Info.plist} PortalAppLibFramework.xcframework/ios-arm64/Info.plist
-            cp ${self.outputs.packages.aarch64-darwin.ios-lib-aarch64}/lib/libapp.a PortalAppLibFramework.xcframework/ios-arm64/libapp.a
-            cp ${self.outputs.packages.aarch64-darwin.ios-lib-aarch64-sim}/lib/libapp.a PortalAppLibFramework.xcframework/ios-arm64-simulator/libapp.a
+            ${pkgs.lib.optionalString withIos ''
+              # Since those packages are built on a native macos worker, we take them from its package output set
+              mkdir -p PortalAppLibFramework.xcframework/{ios-arm64,ios-arm64-simulator}
+              cp ${./static/Info.plist} PortalAppLibFramework.xcframework/ios-arm64/Info.plist
+              cp ${self.outputs.packages.aarch64-darwin.ios-lib-aarch64}/lib/libapp.a PortalAppLibFramework.xcframework/ios-arm64/libapp.a
+              cp ${self.outputs.packages.aarch64-darwin.ios-lib-aarch64-sim}/lib/libapp.a PortalAppLibFramework.xcframework/ios-arm64-simulator/libapp.a
+            ''}
 
             # Fix tsc compilation issues (https://github.com/jhugman/uniffi-bindgen-react-native/issues/244)
             node ./patch-uniffi-bindgen.js
@@ -287,7 +289,8 @@
           GRADLE_OPTS = "-Dorg.gradle.project.android.aapt2FromMavenOverride=${ANDROID_SDK_ROOT}/build-tools/${android.buildToolsVersion}/aapt2";
         };
 
-        packages.react-native-lib = reactNativeLib;
+        packages.react-native-lib = reactNativeLib { withIos = true; };
+        packages.react-native-lib-android-only = reactNativeLib { withIos = false; };
 
         packages.android-lib-aarch64 = libAndroidAarch64;
         packages.android-lib-x86_64 = libAndroidX86_64;
