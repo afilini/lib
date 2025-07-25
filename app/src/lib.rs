@@ -413,6 +413,27 @@ impl PortalApp {
         Ok(Arc::new(Self { router, runtime }))
     }
 
+    /// Reconnect to all relays
+    ///
+    /// This method disconnects all relays and then connects them again.
+    pub async fn reconnect(&self) -> Result<(), AppError> {
+        let router = self.router.channel();
+
+        // 1. Disconnect all relays (sets them to Terminated)
+        router.disconnect().await;
+
+        // 2. Reset all relay connection stats
+        // let relays = router.relays().await;
+        // for relay in relays.values() {
+        //     relay.stats().reset_attempts();
+        // }
+
+        // 3. Connect all relays (spawns fresh tasks)
+        router.connect().await;
+
+        Ok(())
+    }
+
     pub async fn shutdown(&self) -> Result<(), AppError> {
         self.router.shutdown().await?;
 
