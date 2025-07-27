@@ -11,6 +11,7 @@ import {
   AuthResponseData,
   Event,
   InvoicePaymentRequestContent,
+  InvoiceRequestContent,
   RecurringPaymentResponseContent,
   CloseRecurringPaymentNotification,
   InvoiceStatus,
@@ -448,9 +449,11 @@ export class PortalSDK {
    */
   public async requestInvoice(
     recipientKey: string,
-    content: InvoicePaymentRequestContent) : Promise<InvoiceResponseContent> {
-    return this.sendCommand<InvoiceResponseContent>('RequestInvoice', {
+    subkeys: string[],
+    content: InvoiceRequestContent) : Promise<InvoiceResponseContent> {
+    return this.sendCommand('RequestInvoice', {
       recipient_key: recipientKey,
+      subkeys,
       content
     });
   }
@@ -523,6 +526,50 @@ export class PortalSDK {
     const response = await this.sendCommand('BurnCashu', { mint_url, unit, token, static_auth_token });
     if (response.type === 'cashu_burn') {
       return response.amount;
+    }
+    throw new Error('Unexpected response type');
+  }
+
+  /**
+   * Pay an invoice through the NWC wallet
+   * @param invoice The Bolt 11 invoice to pay
+   * @returns The preimage of the payment
+   */
+  public async payInvoice(invoice: string): Promise<string> {
+    const response = await this.sendCommand('PayInvoice', { invoice });
+    if (response.type === 'pay_invoice') {
+      return response.preimage;
+    }
+    throw new Error('Unexpected response type');
+  }
+
+  /**
+   * Check the status of an invoice through the NWC wallet
+   * @param invoice The Bolt 11 invoice to check
+   * @returns The invoice status information
+   */
+  public async checkInvoiceStatus(invoice: string): Promise<{
+    invoice: string;
+    payment_hash: string;
+    amount: number;
+    description?: string;
+    preimage?: string;
+    settled_at?: number;
+    created_at: number;
+    expires_at?: number;
+  }> {
+    const response = await this.sendCommand('CheckInvoiceStatus', { invoice });
+    if (response.type === 'check_invoice_status') {
+      return {
+        invoice: response.invoice,
+        payment_hash: response.payment_hash,
+        amount: response.amount,
+        description: response.description,
+        preimage: response.preimage,
+        settled_at: response.settled_at,
+        created_at: response.created_at,
+        expires_at: response.expires_at,
+      };
     }
     throw new Error('Unexpected response type');
   }

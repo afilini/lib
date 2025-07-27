@@ -72,6 +72,21 @@ pub enum ResponseData {
 
     #[serde(rename = "cashu_burn")]
     CashuBurn { amount: u64 },
+
+    #[serde(rename = "pay_invoice")]
+    PayInvoice { preimage: String },
+
+    #[serde(rename = "check_invoice_status")]
+    CheckInvoiceStatus {
+        invoice: String,
+        payment_hash: String,
+        amount: u64,
+        description: Option<String>,
+        preimage: Option<String>,
+        settled_at: Option<u64>,
+        created_at: u64,
+        expires_at: Option<u64>,
+    },
 }
 
 #[derive(Debug, Serialize)]

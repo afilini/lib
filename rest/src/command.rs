@@ -94,6 +94,12 @@ pub enum Command {
         static_auth_token: Option<String>,
         token: String,
     },
+    PayInvoice {
+        invoice: String,
+    },
+    CheckInvoiceStatus {
+        invoice: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]

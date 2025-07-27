@@ -1321,6 +1321,70 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 let _ = ctx_clone.send_message(response).await;
             });
         }
+        Command::PayInvoice { invoice } => {
+            let nwc = match &ctx.nwc {
+                Some(nwc) => nwc,
+                None => {
+                    let _ = ctx.send_error_message(&command.id, "Nostr Wallet Connect is not available: set the NWC_URL environment variable to enable it").await;
+                    return;
+                }
+            };
+
+            match nwc.pay_invoice(portal::nostr::nips::nip47::PayInvoiceRequest::new(invoice)).await {
+                Ok(response) => {
+                    let response = Response::Success {
+                        id: command.id,
+                        data: ResponseData::PayInvoice {
+                            preimage: response.preimage,
+                        },
+                    };
+
+                    let _ = ctx.send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Failed to pay invoice: {}", e))
+                        .await;
+                }
+            }
+        }
+        Command::CheckInvoiceStatus { invoice } => {
+            let nwc = match &ctx.nwc {
+                Some(nwc) => nwc,
+                None => {
+                    let _ = ctx.send_error_message(&command.id, "Nostr Wallet Connect is not available: set the NWC_URL environment variable to enable it").await;
+                    return;
+                }
+            };
+
+            match nwc.lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
+                invoice: Some(invoice.clone()),
+                payment_hash: None,
+            }).await {
+                Ok(response) => {
+                    let response = Response::Success {
+                        id: command.id,
+                        data: ResponseData::CheckInvoiceStatus {
+                            invoice: response.invoice.unwrap_or(invoice),
+                            payment_hash: response.payment_hash,
+                            amount: response.amount,
+                            description: response.description,
+                            preimage: response.preimage,
+                            settled_at: response.settled_at.map(|t| t.as_u64()),
+                            created_at: response.created_at.as_u64(),
+                            expires_at: response.expires_at.map(|t| t.as_u64()),
+                        },
+                    };
+
+                    let _ = ctx.send_message(response).await;
+                }
+                Err(e) => {
+                    let _ = ctx
+                        .send_error_message(&command.id, &format!("Failed to check invoice status: {}", e))
+                        .await;
+                }
+            }
+        }
     }
 }
 

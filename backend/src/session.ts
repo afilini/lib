@@ -14,6 +14,7 @@ export interface Payment {
   amount: number;
   description: string;
   status: 'pending' | 'completed' | 'failed';
+  refundStatus: 'none' | 'pending' | 'completed' | 'failed';
   createdAt: number;
   updatedAt: number;
 }
@@ -56,6 +57,7 @@ export class DatabaseManager {
         amount INTEGER NOT NULL,
         description TEXT NOT NULL,
         status TEXT NOT NULL CHECK(status IN ('pending', 'completed', 'failed')),
+        refund_status TEXT NOT NULL DEFAULT 'none' CHECK(refund_status IN ('none', 'pending', 'completed', 'failed')),
         created_at INTEGER NOT NULL DEFAULT (unixepoch()),
         updated_at INTEGER NOT NULL DEFAULT (unixepoch())
       );
@@ -119,8 +121,8 @@ export class DatabaseManager {
   // Payment methods
   public createPayment(payment: Omit<Payment, 'createdAt' | 'updatedAt'>): Payment {
     const stmt = this.db.prepare(`
-      INSERT INTO payments (id, public_key, amount, description, status)
-      VALUES (@id, @publicKey, @amount, @description, @status)
+      INSERT INTO payments (id, public_key, amount, description, status, refund_status)
+      VALUES (@id, @publicKey, @amount, @description, @status, @refundStatus)
     `);
     stmt.run(payment);
     return this.getPayment(payment.id)!;
@@ -138,6 +140,7 @@ export class DatabaseManager {
       amount: row.amount,
       description: row.description,
       status: row.status,
+      refundStatus: row.refund_status,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     };
@@ -152,6 +155,15 @@ export class DatabaseManager {
     stmt.run(status, id);
   }
 
+  public updatePaymentRefundStatus(id: string, refundStatus: Payment['refundStatus']): void {
+    const stmt = this.db.prepare(`
+      UPDATE payments 
+      SET refund_status = ?, updated_at = unixepoch()
+      WHERE id = ?
+    `);
+    stmt.run(refundStatus, id);
+  }
+
   public getPublicKeyPayments(publicKey: string): Payment[] {
     const stmt = this.db.prepare('SELECT * FROM payments WHERE public_key = ? ORDER BY created_at DESC');
     const rows = stmt.all(publicKey) as any[];
@@ -162,6 +174,7 @@ export class DatabaseManager {
       amount: row.amount,
       description: row.description,
       status: row.status,
+      refundStatus: row.refund_status,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }));
@@ -192,6 +205,7 @@ export class DatabaseManager {
       amount: row.amount,
       description: row.description,
       status: row.status,
+      refundStatus: row.refund_status,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }));

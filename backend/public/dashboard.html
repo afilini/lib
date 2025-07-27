@@ -151,7 +151,7 @@
       }
       .payment-item {
         display: grid;
-        grid-template-columns: 100px 1fr 100px auto;
+        grid-template-columns: 100px 1fr 100px auto auto;
         gap: 15px;
         padding: 15px;
         border-radius: 4px;
@@ -206,6 +206,36 @@
       .delete-button:hover {
         background-color: #d32f2f;
       }
+      .refund-button {
+        background-color: #ff9800;
+        color: white;
+        padding: 5px 10px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+      .refund-button:hover {
+        background-color: #f57c00;
+      }
+      .refund-status {
+        font-size: 0.9rem;
+        font-weight: 500;
+        padding: 2px 8px;
+        border-radius: 3px;
+      }
+      .refund-status.pending {
+        background-color: #fff3e0;
+        color: #e65100;
+      }
+      .refund-status.completed {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+      }
+      .refund-status.failed {
+        background-color: #ffebee;
+        color: #c62828;
+      }
       @media (max-width: 900px) {
         .dashboard-container {
           width: 90%;
@@ -213,6 +243,9 @@
         .payment-item {
           grid-template-columns: 1fr;
           gap: 5px;
+        }
+        .refund-button, .refund-status {
+          justify-self: end;
         }
         .subscription-item {
           grid-template-columns: 1fr 1fr;

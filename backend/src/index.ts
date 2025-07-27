@@ -191,6 +191,8 @@ function mainFunction() {
             map.push(ws);
         }
 
+        const refundingDedup: Record<string, boolean> = {};
+
         // Send user info
         ws.send(`<span id="user-name">${session.displayName}</span>`);
   
@@ -222,6 +224,55 @@ function mainFunction() {
               } else {
                 console.log('Subscription not found or not owned by user');
                 ws.send(JSON.stringify({ error: 'Subscription not found or not authorized' }));
+              }
+              return;
+            }
+
+            // Handle refund payment action
+            if (data.action === 'refund_payment' && data.payment_id) {
+              console.log('Refunding payment:', data.payment_id);
+              if (refundingDedup[data.payment_id]) {
+                console.log('Payment already being refunded, skipping');
+                return;
+              }
+              refundingDedup[data.payment_id] = true;
+
+              const connections = connectionMap.get(session.publicKey) || [];
+
+              // TODO: we need to keep track of the original invoice to refer to it in the refund
+
+              const payment = db.getPayment(data.payment_id);
+              if (payment && payment.publicKey === session.publicKey && payment.status === 'completed') {
+                // Update refund status to pending
+                db.updatePaymentRefundStatus(data.payment_id, 'pending');
+                // Send updated history to all connected clients for this user
+                for (const conn of connections) {
+                  sendHistory(conn, session.publicKey);
+                }
+
+                const refundInvoice = await portalClient.requestInvoice(session.publicKey, [], {
+                  request_id: uuidv4(),
+                  amount: payment.amount * 1000,
+                  currency: Currency.Millisats,
+                  description: payment.description,
+                  expires_at: Timestamp.fromNow(3600), // 1 hour from now
+                });
+                
+                // Pay the refund invoice through NWC
+                console.log('Refund initiated for payment:', data.payment_id);
+                const preimage = await portalClient.payInvoice(refundInvoice.invoice);
+                console.log('Refund payment successful, preimage:', preimage);
+                
+                db.updatePaymentRefundStatus(data.payment_id, 'completed');
+                console.log('Refund completed successfully');
+                
+                // Send updated history to all connected clients for this user
+                for (const conn of connections) {
+                  sendHistory(conn, session.publicKey);
+                }
+              } else {
+                console.log('Payment not found, not owned by user, or not completed');
+                ws.send(JSON.stringify({ error: 'Payment not found, not authorized, or not completed' }));
               }
               return;
             }
@@ -564,6 +615,19 @@ function sendHistory(ws: WebSocket, publicKey: string) {
                 <span class="description">${p.description}</span>
                 <span class="status">${p.status}</span>
                 <span class="date">${new Date(p.createdAt * 1000).toLocaleString()}</span>
+                ${p.status === 'completed' && p.refundStatus === 'none' ? 
+                  `<button class="refund-button" 
+                    hx-ws="send" 
+                    hx-vals='{"action": "refund_payment", "payment_id": "${p.id}"}'>
+                    Refund
+                  </button>` : 
+                  p.refundStatus === 'pending' ? 
+                  `<span class="refund-status pending">Refunding...</span>` :
+                  p.refundStatus === 'completed' ? 
+                  `<span class="refund-status completed">Refunded</span>` :
+                  p.refundStatus === 'failed' ? 
+                  `<span class="refund-status failed">Refund Failed</span>` : ''
+                }
             </div>
             `).join('')}
         </div>
@@ -603,7 +667,8 @@ async function claimSinglePayment(
         publicKey: publicKey,
         amount: payment.amount,
         description: payment.description,
-        status: 'pending'
+        status: 'pending',
+        refundStatus: 'none'
     });
     for (const w of ws) {
         sendHistory(w, publicKey);

@@ -21,5 +21,6 @@ export {
   PaymentRequest,
   KeyHandshakeUrlResponse,
   InvoicePaymentRequestContent,
-  InvoiceResponseContent
+  InvoiceResponseContent,
+  InvoiceRequestContent
 } from './types'; 

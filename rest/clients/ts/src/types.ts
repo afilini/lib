@@ -123,6 +123,7 @@ export interface InvoiceRequestContent {
   current_exchange_rate?: ExchangeRate;
   expires_at: Timestamp; 
   description?: string;
+  refund_invoice?: string;
 }
 
 export interface InvoiceResponseContent {
@@ -159,6 +160,8 @@ export type Command =
   | { cmd: 'SendCashuDirect', params: { main_key: string, subkeys: string[], token: string } }
   | { cmd: 'MintCashu', params: { mint_url: string, static_auth_token?: string, unit: string, amount: number, description?: string } }
   | { cmd: 'BurnCashu', params: { mint_url: string, unit: string, token: string, static_auth_token?: string } }
+  | { cmd: 'PayInvoice', params: { invoice: string } }
+  | { cmd: 'CheckInvoiceStatus', params: { invoice: string } }
   ;
 
 // Response types
@@ -178,6 +181,8 @@ export type ResponseData =
   | { type: 'send_cashu_direct_success', message: string }
   | { type: 'cashu_mint', token: string }
   | { type: 'cashu_burn', amount: number }
+  | { type: 'pay_invoice', preimage: string }
+  | { type: 'check_invoice_status', invoice: string, payment_hash: string, amount: number, description?: string, preimage?: string, settled_at?: number, created_at: number, expires_at?: number }
   ;
 
 export type Response = 
