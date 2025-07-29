@@ -30,12 +30,12 @@ impl NWC {
         Ok(response.preimage)
     }
 
-    pub async fn lookup_invoice(&self, invoice: String) -> Result<LookupInvoiceResponse, AppError> {
+    pub async fn lookup_invoice(&self, invoice: String, payment_hash: String) -> Result<LookupInvoiceResponse, AppError> {
         let response = self
             .inner
             .lookup_invoice(portal::nostr::nips::nip47::LookupInvoiceRequest {
-                invoice: None,
-                payment_hash: Some(invoice),
+                invoice: Some(invoice),
+                payment_hash: Some(payment_hash),
             })
             .await?;
 

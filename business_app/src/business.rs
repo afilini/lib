@@ -75,6 +75,7 @@ impl PortalBusiness {
         let inner = KeyHandshakeReceiverConversation::new(
             self.router.keypair().public_key(),
             static_token.clone(),
+            true,
         );
 
         let mut event: NotificationStream<KeyHandshakeEvent> = self
@@ -85,19 +86,15 @@ impl PortalBusiness {
             )))
             .await?;
 
-        let _runtime = self.runtime.clone();
-        async_utility::task::spawn(tokio::spawn(async move {
-            while let Ok(response) = event.next().await.ok_or(AppError::ListenerDisconnected)? {
-                log::debug!("Received key handshake: {:?}", response);
+        while let Ok(response) = event.next().await.ok_or(AppError::ListenerDisconnected)? {
+            log::debug!("Received key handshake: {:?}", response);
 
-                let evt = Arc::clone(&listener);
-                let _ = _runtime.add_task(async move {
-                    evt.on_key_handshake(response.main_key.into()).await?;
-                    Ok::<(), AppError>(())
-                });
-            }
-            Ok::<(), AppError>(())
-        }));
+            let evt = Arc::clone(&listener);
+            let _ = self.runtime.add_task(async move {
+                evt.on_key_handshake(response.main_key.into()).await?;
+                Ok::<(), AppError>(())
+            });
+        }
 
         Ok(url)
     }

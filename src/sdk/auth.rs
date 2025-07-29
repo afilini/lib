@@ -25,6 +25,7 @@ use crate::{
 pub struct KeyHandshakeReceiverConversation {
     local_key: PublicKey,
     token: String,
+    persist: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,11 +58,16 @@ impl MultiKeyListener for KeyHandshakeReceiverConversation {
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
         if message.token == state.token {
-            Ok(Response::new()
+            let mut response = Response::new()
                 .notify(KeyHandshakeEvent {
                     main_key: event.pubkey,
-                })
-                .finish())
+                });
+            
+            if !state.inner.persist {
+                response = response.finish();
+            }
+
+            Ok(response)
         } else {
             Ok(Response::default())
         }
