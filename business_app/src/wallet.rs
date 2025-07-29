@@ -207,6 +207,8 @@ impl CashuWallet {
 
     pub async fn mint_token(self: Arc<Self>, amount: u64) -> Result<String, CashuWalletError> {
         async_utility::task::spawn(async move {
+            let _ = self.inner.get_mint_info().await?;
+
             let quote = self.inner.mint_quote(Amount::from(amount), Some("Minted from Portal Business".to_string())).await?;
             let _ = self.inner.mint(&quote.id, SplitTarget::None, None).await?;
             let prepared_send = self.inner.prepare_send(Amount::from(amount), SendOptions::default()).await?;
