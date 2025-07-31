@@ -381,7 +381,9 @@ impl PortalApp {
 
         // Add relays to the pool
         for relay in &relays {
-            relay_pool.add_relay(relay, RelayOptions::default()).await?;
+            relay_pool
+                .add_relay(relay, RelayOptions::default().reconnect(false))
+                .await?;
         }
         relay_pool.connect().await;
 
