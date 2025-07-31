@@ -66,9 +66,6 @@ pub enum MessageRouterActorMessage {
 
     /// This is used to handle relay pool notifications.
     HandleRelayPoolNotification(RelayPoolNotification),
-
-    /// This is used from SDK to get the relays.
-    GetRelays(oneshot::Sender<Result<Vec<String>, ConversationError>>),
 }
 
 pub struct MessageRouterActor<C>
@@ -165,12 +162,6 @@ where
                             .await
                         {
                             log::error!("Failed to handle relay pool notification: {:?}", e);
-                        }
-                    }
-                    MessageRouterActorMessage::GetRelays(response_tx) => {
-                        let result = state.get_relays(&channel_clone).await;
-                        if let Err(e) = response_tx.send(result) {
-                            log::error!("Failed to send GetRelays response: {:?}", e);
                         }
                     }
                 }
@@ -355,14 +346,6 @@ where
         let result = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
         result.map_err(MessageRouterActorError::Conversation)
     }
-
-    pub async fn get_relays(&self) -> Result<Vec<String>, MessageRouterActorError> {
-        let (tx, rx) = oneshot::channel();
-        self.send_message(MessageRouterActorMessage::GetRelays(tx))
-            .await?;
-        let result = rx.await.map_err(|e| MessageRouterActorError::Receiver(e))?;
-        result.map_err(MessageRouterActorError::Conversation)
-    }
 }
 
 pub struct MessageRouterActorState {
@@ -399,11 +382,6 @@ impl MessageRouterActorState {
     where
         C::Error: From<nostr::types::url::Error>,
     {
-        channel
-            .add_relay(url.clone())
-            .await
-            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-
         // Subscribe existing conversations to new relays
         {
             for conversation_id in self.global_relay_node.conversations.iter() {
@@ -451,11 +429,6 @@ impl MessageRouterActorState {
     where
         C::Error: From<nostr::types::url::Error>,
     {
-        channel
-            .remove_relay(url.clone())
-            .await
-            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-
         if let Some(node) = self.relay_nodes.remove(&url) {
             for conv in node.conversations.iter() {
                 let relays_of_conversation = self.get_relays_by_conversation(conv)?;
@@ -795,11 +768,6 @@ impl MessageRouterActorState {
                 channel
                     .subscribe(id.clone(), response.filter.clone())
                     .await
-                    .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-
-                channel
-                    .num_relays()
-                    .await
                     .map_err(|e| ConversationError::Inner(Box::new(e)))?
             };
 
@@ -1050,20 +1018,5 @@ impl MessageRouterActorState {
             .await?;
 
         Ok(rx)
-    }
-
-    pub async fn get_relays<C: Channel>(
-        &self,
-        channel: &Arc<C>,
-    ) -> Result<Vec<String>, ConversationError>
-    where
-        C::Error: From<nostr::types::url::Error>,
-    {
-        let relays = channel
-            .get_relays()
-            .await
-            .map_err(|e| ConversationError::Inner(Box::new(e)))?;
-
-        Ok(relays)
     }
 }

@@ -15,7 +15,7 @@ pub trait Channel: Send + 'static {
         &self,
         id: PortalId,
         filter: nostr::Filter,
-    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
+    ) -> impl std::future::Future<Output = Result<usize, Self::Error>> + Send;
 
     fn subscribe_to<I, U>(
         &self,
@@ -53,36 +53,22 @@ pub trait Channel: Send + 'static {
         &self,
     ) -> impl std::future::Future<Output = Result<RelayPoolNotification, Self::Error>> + Send;
 
-    fn add_relay(
-        &self,
-        url: String,
-    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
-
-    fn remove_relay(
-        &self,
-        url: String,
-    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
-
-    fn num_relays(&self) -> impl std::future::Future<Output = Result<usize, Self::Error>> + Send;
-
     fn shutdown(&self) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send;
-
-    fn get_relays(
-        &self,
-    ) -> impl std::future::Future<Output = Result<Vec<String>, Self::Error>> + Send;
 }
 
 impl Channel for RelayPool {
     type Error = nostr_relay_pool::pool::Error;
 
-    async fn subscribe(&self, id: PortalId, filter: nostr::Filter) -> Result<(), Self::Error> {
+    async fn subscribe(&self, id: PortalId, filter: nostr::Filter) -> Result<usize, Self::Error> {
         self.subscribe_with_id(
             SubscriptionId::new(id.to_string()),
             filter,
             SubscribeOptions::default(),
         )
         .await?;
-        Ok(())
+
+        let relays = self.__write_relay_urls().await;
+        Ok(relays.len())
     }
 
     async fn subscribe_to<I, U>(
@@ -134,32 +120,57 @@ impl Channel for RelayPool {
             .map_err(|_| nostr_relay_pool::pool::Error::Shutdown)
     }
 
-    async fn add_relay(&self, url: String) -> Result<(), Self::Error> {
-        self.add_relay(&url, RelayOptions::default()).await?;
-        self.connect_relay(url).await?;
-        Ok(())
-    }
-
-    async fn remove_relay(&self, url: String) -> Result<(), Self::Error> {
-        self.remove_relay(url).await?;
-        Ok(())
-    }
-
-    async fn num_relays(&self) -> Result<usize, Self::Error> {
-        Ok(self.__write_relay_urls().await.len())
-    }
-
     async fn shutdown(&self) -> Result<(), Self::Error> {
         self.shutdown().await;
         Ok(())
     }
+}
 
-    async fn get_relays(&self) -> Result<Vec<String>, Self::Error> {
-        Ok(self
-            .relays()
-            .await
-            .keys()
-            .map(|r| r.to_string())
-            .collect::<Vec<_>>())
+impl<C: Channel + Send + Sync> Channel for std::sync::Arc<C> {
+    type Error = C::Error;
+
+    async fn subscribe(&self, id: PortalId, filter: nostr::Filter) -> Result<usize, Self::Error> {
+        <C as Channel>::subscribe(self, id, filter).await
+    }
+
+    async fn subscribe_to<I, U>(
+        &self,
+        urls: I,
+        id: PortalId,
+        filter: nostr::Filter,
+    ) -> Result<(), Self::Error>
+    where
+        <I as IntoIterator>::IntoIter: Send,
+        I: IntoIterator<Item = U> + Send,
+        U: TryIntoUrl,
+        Self::Error: From<<U as TryIntoUrl>::Err>,
+    {
+        <C as Channel>::subscribe_to(self, urls, id, filter).await
+    }
+
+    async fn unsubscribe(&self, id: PortalId) -> Result<(), Self::Error> {
+        <C as Channel>::unsubscribe(self, id).await
+    }
+
+    async fn broadcast(&self, event: nostr::Event) -> Result<(), Self::Error> {
+        <C as Channel>::broadcast(self, event).await
+    }
+
+    async fn broadcast_to<I, U>(&self, urls: I, event: nostr::Event) -> Result<(), Self::Error>
+    where
+        <I as IntoIterator>::IntoIter: Send,
+        I: IntoIterator<Item = U> + Send,
+        U: TryIntoUrl,
+        Self::Error: From<<U as TryIntoUrl>::Err>,
+    {
+        <C as Channel>::broadcast_to(self, urls, event).await
+    }
+
+    async fn receive(&self) -> Result<RelayPoolNotification, Self::Error> {
+        <C as Channel>::receive(self).await
+    }
+
+    async fn shutdown(&self) -> Result<(), Self::Error> {
+        <C as Channel>::shutdown(self).await
     }
 }

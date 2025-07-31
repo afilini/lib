@@ -225,7 +225,8 @@ pub enum KeypairError {
 
 #[derive(uniffi::Object)]
 pub struct PortalApp {
-    router: Arc<MessageRouter<RelayPool>>,
+    router: Arc<MessageRouter<Arc<RelayPool>>>,
+    relay_pool: Arc<RelayPool>,
     runtime: Arc<BindingsRuntime>,
 }
 
@@ -279,7 +280,7 @@ pub trait PaymentStatusNotifier: Send + Sync {
 }
 
 struct LocalStatusNotifier {
-    router: Arc<MessageRouter<RelayPool>>,
+    router: Arc<MessageRouter<Arc<RelayPool>>>,
     request: PaymentRequestEvent,
 }
 
@@ -386,6 +387,7 @@ impl PortalApp {
                 .await?;
         }
         relay_pool.connect().await;
+        let relay_pool = Arc::new(relay_pool);
 
         // Initialize runtime
         let runtime = Arc::new(BindingsRuntime::new());
@@ -399,8 +401,9 @@ impl PortalApp {
 
         // Create router with keypair
         let keypair = keypair.inner.clone();
+        let relay_pool_clone = Arc::clone(&relay_pool);
         let router = async_utility::task::spawn(async move {
-            let router = MessageRouter::new(relay_pool, keypair);
+            let router = MessageRouter::new(relay_pool_clone, keypair);
             Arc::new(router)
         })
         .join()
@@ -412,7 +415,11 @@ impl PortalApp {
         router.ping().await?;
         log::debug!("Router actor is ready");
 
-        Ok(Arc::new(Self { router, runtime }))
+        Ok(Arc::new(Self {
+            router,
+            relay_pool,
+            runtime,
+        }))
     }
 
     /// Reconnect to all relays
@@ -450,7 +457,13 @@ impl PortalApp {
     }
 
     pub async fn send_key_handshake(&self, url: KeyHandshakeUrl) -> Result<(), AppError> {
-        let relays = self.router.channel().get_relays().await?;
+        let relays = self
+            .relay_pool
+            .relays()
+            .await
+            .keys()
+            .map(|r| r.to_string())
+            .collect::<Vec<_>>();
 
         let _id = self
             .router
@@ -685,12 +698,21 @@ impl PortalApp {
     }
 
     pub async fn add_relay(&self, url: String) -> Result<(), AppError> {
+        self.relay_pool
+            .add_relay(&url, RelayOptions::default().reconnect(false))
+            .await?;
         self.router.add_relay(url).await?;
         Ok(())
     }
 
     pub async fn remove_relay(&self, url: String) -> Result<(), AppError> {
+        self.relay_pool.remove_relay(&url).await?;
         self.router.remove_relay(url).await?;
+        Ok(())
+    }
+
+    pub async fn reconnect_relay(&self, url: String) -> Result<(), AppError> {
+        self.relay_pool.connect_relay(url).await?;
         Ok(())
     }
 

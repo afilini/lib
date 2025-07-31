@@ -43,7 +43,8 @@ use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 pub struct PortalSDK {
-    router: Arc<MessageRouter<RelayPool>>,
+    router: Arc<MessageRouter<Arc<RelayPool>>>,
+    relay_pool: Arc<RelayPool>,
     _listener: JoinHandle<Result<(), MessageRouterActorError>>,
 }
 
@@ -54,13 +55,18 @@ impl PortalSDK {
             relay_pool.add_relay(relay, RelayOptions::default()).await?;
         }
         relay_pool.connect().await;
+        let relay_pool = Arc::new(relay_pool);
 
-        let router = Arc::new(MessageRouter::new(relay_pool, keypair.clone()));
+        let router = Arc::new(MessageRouter::new(Arc::clone(&relay_pool), keypair.clone()));
 
         let _router = Arc::clone(&router);
         let _listener = tokio::spawn(async move { _router.listen().await });
 
-        Ok(Self { router, _listener })
+        Ok(Self {
+            router,
+            relay_pool,
+            _listener,
+        })
     }
 
     pub async fn new_key_handshake_url(
@@ -89,7 +95,13 @@ impl PortalSDK {
             )))
             .await?;
 
-        let relays = self.router.channel().get_relays().await?;
+        let relays = self
+            .relay_pool
+            .relays()
+            .await
+            .keys()
+            .map(|r| r.to_string())
+            .collect::<Vec<_>>();
 
         let (main_key, subkey) = if let Some(subkey_proof) = self.router.keypair().subkey_proof() {
             (

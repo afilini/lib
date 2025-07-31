@@ -66,12 +66,10 @@ pub enum SimulatedChannelError {
 impl Channel for SimulatedChannel {
     type Error = SimulatedChannelError;
 
-    async fn subscribe(&self, id: PortalId, filter: Filter) -> Result<(), Self::Error> {
-        // Use the first sender for subscribers
-        self.subscribers
-            .write()
-            .await
-            .insert(id.clone(), (filter, self.my_sender.clone()));
+    async fn subscribe(&self, id: PortalId, filter: Filter) -> Result<usize, Self::Error> {
+        let mut subscribers = self.subscribers.write().await;
+        subscribers.insert(id.clone(), (filter, self.my_sender.clone()));
+        Ok(subscribers.len())
 
         // Send any existing messages that match the filter
         // let messages = self.messages.lock().await;
@@ -86,8 +84,6 @@ impl Channel for SimulatedChannel {
         //         let _ = self.broadcast_notification(notification).await;
         //     }
         // }
-
-        Ok(())
     }
 
     async fn subscribe_to<I, U>(
@@ -173,28 +169,10 @@ impl Channel for SimulatedChannel {
         }
     }
 
-    async fn add_relay(&self, url: String) -> Result<(), Self::Error> {
-        todo!()
-    }
-
-    async fn remove_relay(&self, url: String) -> Result<(), Self::Error> {
-        todo!()
-    }
-
-    async fn num_relays(&self) -> Result<usize, Self::Error> {
-        // For simulated channel, return the number of senders
-        Ok(self.senders.lock().await.len())
-    }
-
     async fn shutdown(&self) -> Result<(), Self::Error> {
         // For simulated channel, just clear the senders
         self.senders.lock().await.clear();
         Ok(())
-    }
-
-    async fn get_relays(&self) -> Result<Vec<String>, Self::Error> {
-        // For simulated channel, return a list of simulated relay URLs
-        Ok(vec!["wss://simulated".to_string()])
     }
 }
 
