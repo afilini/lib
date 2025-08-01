@@ -3,8 +3,7 @@ use std::sync::Arc;
 use chrono::Duration;
 use portal::{
     cashu::{
-        CashuDirectSenderConversation, CashuRequestReceiverConversation,
-        CashuRequestSenderConversation, CashuResponseSenderConversation,
+        CashuDirectSenderConversation, CashuRequestSenderConversation
     },
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
@@ -14,20 +13,16 @@ use portal::{
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
-        LocalKeypair,
-        key_handshake::KeyHandshakeUrl,
-        model::payment::{
-            CashuDirectContent, CashuRequestContent, CashuRequestContentWithKey,
+        key_handshake::KeyHandshakeUrl, model::payment::{
+            CashuDirectContent, CashuRequestContent,
             CashuResponseContent, CloseRecurringPaymentContent, CloseRecurringPaymentResponse,
-            InvoiceRequestContent, InvoiceRequestContentWithKey, InvoiceResponse,
+            InvoiceRequestContent, InvoiceResponse,
             PaymentResponseContent, RecurringPaymentRequestContent,
             RecurringPaymentResponseContent, SinglePaymentRequestContent,
-        },
+        }, LocalKeypair
     },
     router::{
-        ConversationError, MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter,
-        MultiKeySenderAdapter, NotificationStream, adapters::one_shot::OneShotSenderAdapter,
-        channel::Channel,
+        adapters::one_shot::OneShotSenderAdapter, ConversationError, MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
     },
     sdk::{
         auth::{
@@ -37,10 +32,9 @@ use portal::{
         payments::{
             RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation,
         },
-    },
+    }, utils::verify_nip05,
 };
 use tokio::task::JoinHandle;
-use uuid::Uuid;
 
 pub struct PortalSDK {
     router: Arc<MessageRouter<Arc<RelayPool>>>,
@@ -193,8 +187,8 @@ impl PortalSDK {
 
         if let Some(mut profile) = profile {
             if let Some(nip05) = &profile.nip05 {
-                let verified = portal::nostr::nips::nip05::verify(&main_key, &nip05, None).await;
-                if verified.ok() != Some(true) {
+                let verified = verify_nip05(nip05, &main_key).await;
+                if !verified {
                     profile.nip05 = None;
                 }
             }

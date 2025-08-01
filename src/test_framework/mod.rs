@@ -1,6 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
-use nostr::{RelayUrl, event::Event, filter::Filter, message::SubscriptionId};
+use nostr::{
+    event::Event,
+    filter::{Filter, MatchEventOptions},
+    message::SubscriptionId,
+    RelayUrl,
+};
 use nostr_relay_pool::RelayPoolNotification;
 use tokio::sync::{Mutex, RwLock, mpsc};
 
@@ -118,7 +123,7 @@ impl Channel for SimulatedChannel {
         // Broadcast to all subscribers
         let subscribers = self.subscribers.write().await;
         for (subscription_id, (filter, sender)) in subscribers.iter() {
-            if filter.match_event(&event) {
+            if filter.match_event(&event, MatchEventOptions::default()) {
                 let relay_url = RelayUrl::parse("wss://simulated").unwrap();
                 let notification = RelayPoolNotification::Event {
                     event: Box::new(event.clone()),
@@ -145,7 +150,7 @@ impl Channel for SimulatedChannel {
         // Broadcast to all subscribers
         let subscribers = self.subscribers.write().await;
         for (subscription_id, (filter, sender)) in subscribers.iter() {
-            if filter.match_event(&event) {
+            if filter.match_event(&event, MatchEventOptions::default()) {
                 let relay_url = RelayUrl::parse("wss://simulated").unwrap();
                 let notification = RelayPoolNotification::Event {
                     event: Box::new(event.clone()),

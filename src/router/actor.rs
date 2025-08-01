@@ -5,7 +5,7 @@ use std::{
 
 use nostr::{
     event::{Event, EventBuilder, Kind},
-    filter::Filter,
+    filter::{Filter, MatchEventOptions},
     message::{RelayMessage, SubscriptionId},
     nips::nip44,
 };
@@ -665,7 +665,7 @@ impl MessageRouterActorState {
             }
 
             if let LocalEvent::Message(event) = &event {
-                if filter.match_event(&event) {
+                if filter.match_event(&event, MatchEventOptions::default()) {
                     other_conversations.push(id.clone());
                 }
             }

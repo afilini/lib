@@ -24,7 +24,7 @@ use portal::{
     },
     cashu::{
         CashuDirectReceiverConversation, CashuRequestReceiverConversation,
-        CashuRequestSenderConversation, CashuResponseSenderConversation,
+        CashuResponseSenderConversation,
     },
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
@@ -41,18 +41,19 @@ use portal::{
             auth::{AuthResponseStatus, SubkeyProof},
             bindings::PublicKey,
             payment::{
-                CashuDirectContentWithKey, CashuRequestContent, CashuRequestContentWithKey,
-                CashuResponseContent, CashuResponseStatus, CloseRecurringPaymentContent,
-                CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
-                InvoiceResponse, PaymentResponseContent, RecurringPaymentRequestContent,
+                CashuDirectContentWithKey, CashuRequestContentWithKey, CashuResponseContent,
+                CashuResponseStatus, CloseRecurringPaymentContent, CloseRecurringPaymentResponse,
+                InvoiceRequestContent, InvoiceRequestContentWithKey, InvoiceResponse,
+                PaymentResponseContent, RecurringPaymentRequestContent,
                 RecurringPaymentResponseContent, SinglePaymentRequestContent,
             },
         },
     },
     router::{
-        MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter, MultiKeySenderAdapter,
-        NotificationStream, adapters::one_shot::OneShotSenderAdapter, channel::Channel,
+        MessageRouter, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream,
+        adapters::one_shot::OneShotSenderAdapter,
     },
+    utils::verify_nip05,
 };
 
 pub use portal::app::*;
@@ -599,9 +600,8 @@ impl PortalApp {
             Ok(Some(mut profile)) => {
                 let checked_profile = async_utility::task::spawn(async move {
                     if let Some(nip05) = &profile.nip05 {
-                        let verified =
-                            portal::nostr::nips::nip05::verify(&pubkey.into(), &nip05, None).await;
-                        if verified.ok() != Some(true) {
+                        let verified = verify_nip05(nip05, &pubkey).await;
+                        if !verified {
                             profile.nip05 = None;
                         }
                     }
@@ -964,6 +964,7 @@ pub enum RelayStatus {
     Disconnected,
     Terminated,
     Banned,
+    Sleeping,
 }
 
 impl From<nostr_relay_pool::relay::RelayStatus> for RelayStatus {
@@ -976,6 +977,7 @@ impl From<nostr_relay_pool::relay::RelayStatus> for RelayStatus {
             nostr_relay_pool::relay::RelayStatus::Disconnected => RelayStatus::Disconnected,
             nostr_relay_pool::relay::RelayStatus::Terminated => RelayStatus::Terminated,
             nostr_relay_pool::relay::RelayStatus::Banned => RelayStatus::Banned,
+            nostr_relay_pool::relay::RelayStatus::Sleeping => RelayStatus::Sleeping,
         }
     }
 }

@@ -2230,9 +2230,9 @@ checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 
 [[package]]
 name = "lru"
-version = "0.14.0"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f8cc7106155f10bdf99a6f379688f543ad6596a415375b36a59a054ceda1198"
+checksum = "86ea4e65087ff52f3862caff188d489f1fab49a0cb09e01b2e3f1a617b10aaed"
 
 [[package]]
 name = "matchers"
@@ -2327,9 +2327,9 @@ dependencies = [
 
 [[package]]
 name = "nostr"
-version = "0.42.2"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d193102a62a22b61f9a61b9df54fb19ebab8c1763d088fbb9a6f0f57000fba2d"
+checksum = "f30e6dcb36d88017587b0b5578d1ed3398afe8e4f45fdb910e48b8675aaf6f68"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -2341,8 +2341,6 @@ dependencies = [
  "chacha20poly1305",
  "getrandom 0.2.15",
  "instant",
- "regex",
- "reqwest",
  "scrypt",
  "secp256k1",
  "serde",
@@ -2353,9 +2351,9 @@ dependencies = [
 
 [[package]]
 name = "nostr-database"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6aafe85dc7c039c399796043b76009fa744c3a45ac073a023932f7b7d91b1e7"
+checksum = "b1c75a8c2175d2785ba73cfddef21d1e30da5fbbdf158569b6808ba44973a15b"
 dependencies = [
  "lru",
  "nostr",
@@ -2364,9 +2362,9 @@ dependencies = [
 
 [[package]]
 name = "nostr-relay-pool"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df4d5628d2444349570fb185b0c2d92cfdb7e68d62b13bf3e8a4348b5de7430b"
+checksum = "265d9b44771ed15db93b183a0c93dbb703b2b0d0b74dffb5c2a081be52373a5a"
 dependencies = [
  "async-utility",
  "async-wsocket",
@@ -2381,23 +2379,22 @@ dependencies = [
 
 [[package]]
 name = "nostr-sdk"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1e928ba9ac2695fbe10b8aefda59f2abfeb23c10a0e86a0b3e0f6a27bb274a2"
+checksum = "599f8963d6a1522a13b1a2b0ea6e168acfc367706606f1d33fa595e91fa22db0"
 dependencies = [
  "async-utility",
  "nostr",
  "nostr-database",
  "nostr-relay-pool",
  "tokio",
- "tracing",
 ]
 
 [[package]]
 name = "nostrstore"
-version = "0.2.4"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae7ed29876eb86cc0a4326ed0a65e62767254499ada48c375afd614c6d52b6e6"
+checksum = "5dff1d893a5bda49e0e1fb66b2eb22757d41f1b6c930bac635eee03b5fa7c4e0"
 dependencies = [
  "hmac",
  "nostr-sdk",
@@ -2467,13 +2464,14 @@ dependencies = [
 
 [[package]]
 name = "nwc"
-version = "0.42.0"
+version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ef99ca88a2c0c457da4a65705f59c07dd2bbd5c8acae6393a198a5ea17c178d"
+checksum = "adb6990c75699662813e9c61b82dcd6d28fe34dad00858992fdd38320c57ff4a"
 dependencies = [
  "async-utility",
  "nostr",
  "nostr-relay-pool",
+ "tracing",
 ]
 
 [[package]]
@@ -3342,6 +3340,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "portal",
+ "reqwest",
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
