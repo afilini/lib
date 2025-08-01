@@ -187,7 +187,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 1.0.69",
  "tokio",
  "uniffi",
 ]
@@ -1028,7 +1028,7 @@ version = "0.1.0"
 dependencies = [
  "app",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.21.7",
  "env_logger",
  "log",
  "nwc",
@@ -3343,7 +3343,7 @@ dependencies = [
  "chrono",
  "portal",
  "serde_json",
- "thiserror 2.0.12",
+ "thiserror 1.0.69",
  "tokio",
  "uuid",
 ]

@@ -1,14 +1,11 @@
 [workspace]
 members = [ "app" , "cli", "rest", "sdk", "rates"]
 
-[package]
-name = "portal"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
+[workspace.dependencies]
+# Core dependencies
 nostr = { version = "0.42.0", features = ["nip44", "nip05"] }
 nostr-relay-pool = "0.42.0"
+nwc = "0.42.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 hex = "0.4"
@@ -22,21 +19,69 @@ log = "0.4.27"
 env_logger = "0.11.8"
 tokio-stream = "0.1.17"
 futures = "0.3.31"
-uniffi = { version = "0.29.1", optional = true }
-anyhow = { version = "1.0.98", optional = true }
+uniffi = "0.29.1"
+anyhow = "1.0.98"
 chrono = "0.4.40"
 chrono-tz = { version = "0.10.3", features = ["serde"] }
 derive-new = "0.7.0"
 jwt-compact = { version = "0.9.0-beta.1", features = ["es256k"] }
 secp256k1 = "0.29"
 cdk = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "db8817b8fade55dd23697d0e07c760e48cf11a73" }
-
 reqwest = { version = "0.12.20", default-features = false, features = ["rustls-tls"] }
+
+# Additional dependencies used across workspace
+async-trait = "0.1.88"
+bip39 = { version = "2.1.0", features = ["rand"] }
+bitcoin = "0.32.5"
+nostrstore = "0.2.4"
+async-utility = "0.3.1"
+cdk-common = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "db8817b8fade55dd23697d0e07c760e48cf11a73" }
+cdk-sqlite = { git = "https://github.com/PortalTechnologiesInc/cdk", rev = "db8817b8fade55dd23697d0e07c760e48cf11a73" }
+axum = { version = "0.6", features = ["ws"] }
+tower-http = { version = "0.4", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.12.1", features = ["v4", "serde"] }
+dotenv = "0.15"
+console-subscriber = "0.4.1"
+dashmap = "6.1.0"
+android_logger = "0.15.0"
+async = "0.0.0"
+
+[package]
+name = "portal"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+nostr = { workspace = true }
+nostr-relay-pool = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+base64 = { workspace = true }
+tokio = { workspace = true }
+urlencoding = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+tokio-stream = { workspace = true }
+futures = { workspace = true }
+uniffi = { workspace = true, optional = true }
+anyhow = { workspace = true, optional = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+derive-new = { workspace = true }
+jwt-compact = { workspace = true }
+secp256k1 = { workspace = true }
+cdk = { workspace = true }
+reqwest = { workspace = true }
 
 [features]
 default = ["bindings"]
 bindings = ["uniffi", "anyhow"]
-
 
 [patch.crates-io]
 # nostr = { path = "../git/nostr/crates/nostr" }
