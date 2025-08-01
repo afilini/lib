@@ -1,6 +1,5 @@
 use cli::CliError;
 use cli::create_app_instance;
-use portal::protocol::model::Timestamp;
 
 #[tokio::main]
 async fn main() -> Result<(), CliError> {

@@ -1,5 +1,3 @@
-use std::{collections::HashSet, ops::Deref};
-
 use nostr::{
     event::{EventId, Kind, Tag},
     filter::Filter,
@@ -13,7 +11,7 @@ use crate::{
     },
     router::{
         ConversationError, MultiKeyListener, MultiKeyListenerAdapter, MultiKeySender, Response,
-        adapters::{ConversationWithNotification, one_shot::OneShotSender},
+        adapters::ConversationWithNotification,
     },
 };
 

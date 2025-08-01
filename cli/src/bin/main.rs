@@ -4,17 +4,14 @@ use app::{
     AuthChallengeListener, CallbackError, CashuDirectListener, CashuRequestListener,
     ClosedRecurringPaymentListener, Mnemonic, PaymentRequestListener, PaymentStatusNotifier,
     PortalApp, RecurringPaymentRequest, RelayStatus, RelayStatusListener, RelayUrl,
-    SinglePaymentRequest, auth::AuthChallengeEvent, db::PortalDB,
+    SinglePaymentRequest, auth::AuthChallengeEvent,
 };
-use nwc::nostr;
 use portal::{
     nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
-    profile::Profile,
     protocol::{
         key_handshake::KeyHandshakeUrl,
         model::{
             auth::AuthResponseStatus,
-            bindings::PublicKey,
             payment::{
                 CashuDirectContentWithKey, CashuRequestContentWithKey, CashuResponseStatus,
                 CloseRecurringPaymentResponse, PaymentResponseContent, PaymentStatus,

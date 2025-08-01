@@ -1,26 +1,12 @@
-use std::{io::Write, str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use app::{
-    AuthChallengeListener, CallbackError, ClosedRecurringPaymentListener, InvoiceRequestListener,
-    InvoiceResponseListener, Mnemonic, PaymentRequestListener, PortalApp, RecurringPaymentRequest,
-    RelayStatus, RelayStatusListener, RelayUrl, SinglePaymentRequest, auth::AuthChallengeEvent,
-    db::PortalDB, nwc::MakeInvoiceResponse,
+    CallbackError, InvoiceRequestListener, InvoiceResponseListener, nwc::MakeInvoiceResponse,
 };
 use cli::{CliError, create_app_instance};
-use nwc::nostr;
-use portal::{
-    nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
-    profile::Profile,
-    protocol::model::{
-        Timestamp,
-        auth::AuthResponseStatus,
-        bindings::PublicKey,
-        payment::{
-            CloseRecurringPaymentResponse, InvoiceRequestContent, InvoiceRequestContentWithKey,
-            InvoiceResponse, PaymentResponseContent, PaymentStatus,
-            RecurringPaymentResponseContent, RecurringPaymentStatus,
-        },
-    },
+use portal::protocol::model::{
+    Timestamp,
+    payment::{InvoiceRequestContent, InvoiceRequestContentWithKey, InvoiceResponse},
 };
 
 struct LogInvoiceRequestListener;

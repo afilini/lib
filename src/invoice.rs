@@ -1,18 +1,12 @@
 use std::{collections::HashSet, ops::Deref};
 
-use nostr::{
-    Tag,
-    event::{EventId, Kind},
-    filter::Filter,
-    key::PublicKey,
-};
+use nostr::{Tag, event::Kind, filter::Filter, key::PublicKey};
 
 use derive_new::new;
 
 use crate::{
     protocol::model::{
         auth::SubkeyProof,
-        bindings,
         event_kinds::{INVOICE_REQUEST, INVOICE_RESPONSE},
         payment::{InvoiceRequestContent, InvoiceRequestContentWithKey, InvoiceResponse},
     },
@@ -125,7 +119,7 @@ impl MultiKeyListener for InvoiceReceiverConversation {
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
         let sender_key = if let Some(subkey_proof) = state.subkey_proof.clone() {
-            if let Err(e) = subkey_proof.verify(&event.pubkey) {
+            if let Err(_) = subkey_proof.verify(&event.pubkey) {
                 return Ok(Response::default());
             }
 

@@ -2,9 +2,7 @@ use std::sync::Arc;
 
 use chrono::Duration;
 use portal::{
-    cashu::{
-        CashuDirectSenderConversation, CashuRequestSenderConversation
-    },
+    cashu::{CashuDirectSenderConversation, CashuRequestSenderConversation},
     close_subscription::{
         CloseRecurringPaymentConversation, CloseRecurringPaymentReceiverConversation,
     },
@@ -13,16 +11,18 @@ use portal::{
     nostr_relay_pool::{RelayOptions, RelayPool},
     profile::{FetchProfileInfoConversation, Profile, SetProfileConversation},
     protocol::{
-        key_handshake::KeyHandshakeUrl, model::payment::{
-            CashuDirectContent, CashuRequestContent,
-            CashuResponseContent, CloseRecurringPaymentContent, CloseRecurringPaymentResponse,
-            InvoiceRequestContent, InvoiceResponse,
-            PaymentResponseContent, RecurringPaymentRequestContent,
+        LocalKeypair,
+        key_handshake::KeyHandshakeUrl,
+        model::payment::{
+            CashuDirectContent, CashuRequestContent, CashuResponseContent,
+            CloseRecurringPaymentContent, CloseRecurringPaymentResponse, InvoiceRequestContent,
+            InvoiceResponse, PaymentResponseContent, RecurringPaymentRequestContent,
             RecurringPaymentResponseContent, SinglePaymentRequestContent,
-        }, LocalKeypair
+        },
     },
     router::{
-        adapters::one_shot::OneShotSenderAdapter, ConversationError, MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter, MultiKeySenderAdapter, NotificationStream
+        ConversationError, MessageRouter, MessageRouterActorError, MultiKeyListenerAdapter,
+        MultiKeySenderAdapter, NotificationStream, adapters::one_shot::OneShotSenderAdapter,
     },
     sdk::{
         auth::{
@@ -32,7 +32,8 @@ use portal::{
         payments::{
             RecurringPaymentRequestSenderConversation, SinglePaymentRequestSenderConversation,
         },
-    }, utils::verify_nip05,
+    },
+    utils::verify_nip05,
 };
 use tokio::task::JoinHandle;
 

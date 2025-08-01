@@ -1,7 +1,5 @@
-use std::error::Error;
-
 use nostr::{message::SubscriptionId, types::TryIntoUrl};
-use nostr_relay_pool::{RelayOptions, RelayPool, RelayPoolNotification, SubscribeOptions};
+use nostr_relay_pool::{RelayPool, RelayPoolNotification, SubscribeOptions};
 
 use crate::router::ids::PortalId;
 

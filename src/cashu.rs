@@ -130,7 +130,7 @@ impl MultiKeyListener for CashuRequestReceiverConversation {
         message: &Self::Message,
     ) -> Result<Response, Self::Error> {
         let sender_key = if let Some(subkey_proof) = state.subkey_proof.clone() {
-            if let Err(e) = subkey_proof.verify(&event.pubkey) {
+            if let Err(_) = subkey_proof.verify(&event.pubkey) {
                 return Ok(Response::default());
             }
 

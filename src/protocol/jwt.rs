@@ -1,20 +1,13 @@
 use jwt_compact::TimeOptions;
-use jwt_compact::{
-    Algorithm, UntrustedToken,
-    alg::{Es256k, VerifyingKey},
-};
-use nostr::key::Keys;
+use jwt_compact::{UntrustedToken, alg::Es256k};
 use serde::{Deserialize, Serialize};
 
 use chrono::{Duration, Utc};
-use jwt_compact::{
-    alg::{Hs256, Hs256Key},
-    prelude::*,
-};
+use jwt_compact::prelude::*;
 use secp256k1::{PublicKey, SecretKey, XOnlyPublicKey};
 use thiserror::Error;
 
-use crate::protocol::{LocalKeypair, model::bindings};
+use crate::protocol::model::bindings;
 
 #[derive(Debug, Error)]
 pub enum JwtError {

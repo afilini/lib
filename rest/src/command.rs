@@ -1,7 +1,6 @@
 use portal::profile::Profile;
 use portal::protocol::model::payment::{
-    CashuRequestContent, CashuResponseContent, Currency, InvoiceRequestContent,
-    InvoiceRequestContentWithKey, RecurringPaymentRequestContent, SinglePaymentRequestContent,
+    Currency, InvoiceRequestContent, RecurringPaymentRequestContent, SinglePaymentRequestContent,
 };
 use serde::Deserialize;
 

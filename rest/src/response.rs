@@ -1,9 +1,6 @@
 use portal::profile::Profile;
 use portal::protocol::model::auth::AuthResponseStatus;
-use portal::protocol::model::payment::{
-    CashuRequestContentWithKey, CashuResponseStatus, PaymentResponseContent,
-    RecurringPaymentResponseContent,
-};
+use portal::protocol::model::payment::{CashuResponseStatus, RecurringPaymentResponseContent};
 use serde::Serialize;
 
 // Response structs for each API
@@ -96,8 +93,6 @@ pub enum NotificationData {
         recipient: String,
         main_key: String,
     },
-    #[serde(rename = "cashu_request")]
-    CashuRequest { request: CashuRequestContentWithKey },
 }
 
 #[derive(Debug, Serialize)]

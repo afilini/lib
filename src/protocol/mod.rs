@@ -1,8 +1,6 @@
 use std::ops::Deref;
 
-use chrono::Duration;
 use model::auth::SubkeyProof;
-use nostr::key::PublicKey;
 
 pub mod calendar;
 pub mod identity;

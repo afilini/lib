@@ -1,4 +1,4 @@
-use std::{collections::HashSet, ops::Deref};
+use std::collections::HashSet;
 
 use nostr::{
     event::{Kind, Tag},
@@ -12,12 +12,12 @@ use crate::{
         Timestamp,
         bindings::{self},
         event_kinds::{
-            PAYMENT_REQUEST, PAYMENT_RESPONSE, RECURRING_PAYMENT_CANCEL, RECURRING_PAYMENT_REQUEST,
+            PAYMENT_REQUEST, PAYMENT_RESPONSE, RECURRING_PAYMENT_REQUEST,
             RECURRING_PAYMENT_RESPONSE,
         },
         payment::{
-            CloseRecurringPaymentContent, PaymentResponseContent, RecurringPaymentRequestContent,
-            RecurringPaymentResponseContent, RecurringPaymentStatus, SinglePaymentRequestContent,
+            PaymentResponseContent, RecurringPaymentRequestContent,
+            RecurringPaymentResponseContent, SinglePaymentRequestContent,
         },
     },
     router::{
@@ -201,7 +201,7 @@ impl OneShotSender for RecurringPaymentStatusSenderConversation {
         keys.insert(state.service_key);
         keys.insert(state.recipient);
 
-        let tags = keys.iter().map(|k| Tag::public_key(*k.deref())).collect();
+        let tags = keys.iter().map(|k| Tag::public_key(*k)).collect();
 
         let response = Response::new()
             .reply_to(

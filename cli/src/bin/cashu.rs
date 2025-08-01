@@ -1,14 +1,10 @@
 use std::{sync::Arc, time::Duration as StdDuration};
 
-use app::{CallbackError, CashuRequestListener, Mnemonic, PortalApp, RelayStatusListener};
+use app::{CallbackError, CashuRequestListener};
 use cli::{CliError, create_app_instance, create_sdk_instance};
-use portal::protocol::LocalKeypair;
-use portal::protocol::model::{
-    Timestamp,
-    bindings::PublicKey,
-    payment::{CashuRequestContent, CashuRequestContentWithKey, CashuResponseStatus},
+use portal::protocol::model::payment::{
+    CashuRequestContent, CashuRequestContentWithKey, CashuResponseStatus,
 };
-use sdk::PortalSDK;
 
 struct LogCashuRequestListener;
 

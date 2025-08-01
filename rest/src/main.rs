@@ -15,7 +15,7 @@ use sdk::PortalSDK;
 use serde::Serialize;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
-use tracing::{info, Level};
+use tracing::info;
 
 mod command;
 mod response;
@@ -31,14 +31,8 @@ enum ApiError {
     #[error("Authentication failed: {0}")]
     AuthenticationError(String),
 
-    #[error("Environment error: {0}")]
-    EnvError(String),
-
     #[error("SDK error: {0}")]
     SdkError(#[from] sdk::PortalSDKError),
-
-    #[error("Internal server error: {0}")]
-    InternalError(String),
 
     #[error("Anyhow error: {0}")]
     AnyhowError(#[from] anyhow::Error),
@@ -48,9 +42,7 @@ impl From<ApiError> for (StatusCode, Json<ErrorResponse>) {
     fn from(error: ApiError) -> Self {
         let status = match &error {
             ApiError::AuthenticationError(_) => StatusCode::UNAUTHORIZED,
-            ApiError::EnvError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::SdkError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            ApiError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::AnyhowError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 

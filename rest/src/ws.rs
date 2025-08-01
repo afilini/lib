@@ -139,11 +139,11 @@ impl ActiveStreams {
         }
     }
 
-    fn remove_task(&mut self, id: &str) {
-        if let Some((_, handle)) = self.tasks.remove(id) {
-            handle.abort();
-        }
-    }
+    // fn remove_task(&mut self, id: &str) {
+    //     if let Some((_, handle)) = self.tasks.remove(id) {
+    //         handle.abort();
+    //     }
+    // }
 }
 
 pub async fn handle_socket(socket: WebSocket, state: AppState) {

@@ -1,10 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
 use nostr::{
+    RelayUrl,
     event::Event,
     filter::{Filter, MatchEventOptions},
     message::SubscriptionId,
-    RelayUrl,
 };
 use nostr_relay_pool::RelayPoolNotification;
 use tokio::sync::{Mutex, RwLock, mpsc};

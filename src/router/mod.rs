@@ -183,11 +183,6 @@ impl Response {
             }
         }
     }
-
-    fn extend(&mut self, response: Response) {
-        self.responses.extend(response.responses);
-        self.subscribe_to_subkey_proofs |= response.subscribe_to_subkey_proofs;
-    }
 }
 
 #[derive(Debug, Clone)]
