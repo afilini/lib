@@ -1,8 +1,14 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use nostr_relay_pool::{
+    RelayOptions,
+    monitor::{Monitor, MonitorNotification},
+};
+use nwc::options::NostrWalletConnectOptions;
 use portal::protocol::model::Timestamp;
 
-use crate::{AppError, RelayStatus, RelayUrl};
+use crate::{AppError, RelayStatus, RelayStatusListener, RelayUrl};
 
 #[derive(uniffi::Object)]
 pub struct NWC {
@@ -12,13 +18,26 @@ pub struct NWC {
 #[uniffi::export]
 impl NWC {
     #[uniffi::constructor]
-    pub fn new(uri: String) -> Result<Self, AppError> {
-        Ok(Self {
-            inner: nwc::NWC::new(
+    pub fn new(
+        uri: String,
+        relay_status_listener: Arc<dyn RelayStatusListener>,
+    ) -> Result<Self, AppError> {
+        let monitor = Monitor::new(4096);
+        let sub = monitor.subscribe();
+
+        let s = Self {
+            inner: nwc::NWC::with_opts(
                 uri.parse()
                     .map_err(|_| AppError::NWC("Invalid NWC URL".to_string()))?,
+                NostrWalletConnectOptions::default()
+                    .relay(RelayOptions::default().reconnect(false))
+                    .monitor(monitor),
             ),
-        })
+        };
+
+        Self::setup_relay_status_monitoring(sub, relay_status_listener);
+
+        Ok(s)
     }
 
     pub async fn pay_invoice(&self, invoice: String) -> Result<String, AppError> {
@@ -197,5 +216,33 @@ impl From<portal::nostr::nips::nip47::MakeInvoiceResponse> for MakeInvoiceRespon
             invoice: response.invoice,
             payment_hash: response.payment_hash,
         }
+    }
+}
+
+impl NWC {
+    /// Set up relay status monitoring in a separate task
+    fn setup_relay_status_monitoring(
+        mut notifications: tokio::sync::broadcast::Receiver<MonitorNotification>,
+        relay_status_listener: Arc<dyn RelayStatusListener>,
+    ) {
+        async_utility::task::spawn(async move {
+            while let Ok(notification) = notifications.recv().await {
+                match notification {
+                    MonitorNotification::StatusChanged { relay_url, status } => {
+                        // log::info!("Relay {:?} status changed: {:?}", relay_url, status);
+
+                        let relay_url = RelayUrl(relay_url);
+                        let status = RelayStatus::from(status);
+                        if let Err(e) = relay_status_listener
+                            .on_relay_status_change(relay_url, status)
+                            .await
+                        {
+                            log::error!("Relay status listener error: {:?}", e);
+                        }
+                    }
+                }
+            }
+            Ok::<(), AppError>(())
+        });
     }
 }
