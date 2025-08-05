@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthResponseData, Currency, PortalSDK, Profile, RecurringPaymentStatusContent, Timestamp } from 'portal-sdk';
-import { DatabaseManager, Payment } from './session';
+import { DatabaseManager, Payment, UserRelay } from './session';
 import { bech32 } from 'bech32';
 import { CloseRecurringPaymentNotification, InvoiceStatus } from 'portal-sdk/dist/src/types';
 
@@ -33,6 +33,24 @@ function formatNpub(mainKey: string) {
   return npub.slice(0, 10) + '...' + npub.slice(-10);
 }
 
+async function reconnectToStoredRelays() {
+  try {
+    const storedRelays = db.getAllRelays();
+    console.log(`Found ${storedRelays.length} unique stored relays to reconnect to`);
+
+    for (const relayUrl of storedRelays) {
+      try {
+        await portalClient.addRelay(relayUrl);
+        console.log(`Successfully reconnected to relay: ${relayUrl}`);
+      } catch (error) {
+        console.error(`Failed to reconnect to relay ${relayUrl}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Error reconnecting to stored relays:', error);
+  }
+}
+
 const portalClient = new PortalSDK({
   serverUrl: 'ws://127.0.0.1:3000/ws',
   connectTimeout: 5000
@@ -50,8 +68,11 @@ portalClient.connect()
 function mainFunction() {
   const authToken = process.env.AUTH_TOKEN || 'your-auth-token'; // Replace with your actual token
   portalClient.authenticate(authToken)
-    .then(() => {
+    .then(async () => {
         console.log('Authentication successful');
+
+        // Reconnect to stored relays
+        await reconnectToStoredRelays();
 
         return Promise.all([
           portalClient.setProfile({
@@ -111,8 +132,14 @@ function mainFunction() {
           
           let customLoginUrl: string;
           
-          customLoginUrl = await portalClient.newKeyHandshakeUrl((mainKey) => {
+          customLoginUrl = await portalClient.newKeyHandshakeUrl((mainKey, preferredRelays) => {
             console.log('Auth Init received for key:', mainKey);
+            console.log('Preferred relays:', preferredRelays);
+
+            // Store the user's preferred relays
+            for (const relayUrl of preferredRelays) {
+              db.addUserRelay(mainKey, relayUrl);
+            }
 
             const status = loginTokens.get(customLoginUrl);
             if (status && status.type === 'waiting') {
@@ -398,8 +425,14 @@ function mainFunction() {
             });
       }
     } else {
-      const loginUrl = await portalClient.newKeyHandshakeUrl((mainKey) => {
+      const loginUrl = await portalClient.newKeyHandshakeUrl((mainKey, preferredRelays) => {
           console.log('Auth Init received for key:', mainKey);
+          console.log('Preferred relays:', preferredRelays);
+
+          // Store the user's preferred relays
+          for (const relayUrl of preferredRelays) {
+            db.addUserRelay(mainKey, relayUrl);
+          }
 
           const status = loginTokens.get(loginUrl);
           if (status && status.type === 'waiting') {

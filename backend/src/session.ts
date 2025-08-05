@@ -31,6 +31,13 @@ export interface Subscription {
   portalSubscriptionId: string | null;
 }
 
+export interface UserRelay {
+  id: string;
+  publicKey: string;
+  relayUrl: string;
+  createdAt: number;
+}
+
 export class DatabaseManager {
   private db: Database.Database;
 
@@ -80,6 +87,17 @@ export class DatabaseManager {
       CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
       CREATE INDEX IF NOT EXISTS idx_subscriptions_next_payment ON subscriptions(next_payment_at);
       CREATE INDEX IF NOT EXISTS idx_sessions_public_key ON sessions(public_key);
+
+      CREATE TABLE IF NOT EXISTS user_relays (
+        id TEXT PRIMARY KEY,
+        public_key TEXT NOT NULL,
+        relay_url TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        UNIQUE(public_key, relay_url)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_user_relays_public_key ON user_relays(public_key);
+      CREATE INDEX IF NOT EXISTS idx_user_relays_url ON user_relays(relay_url);
     `);
   }
 
@@ -337,5 +355,43 @@ export class DatabaseManager {
       cleanupPendingPayments.run();
       cleanupSubscriptions.run();
     })();
+  }
+
+  // User relay methods
+  public addUserRelay(publicKey: string, relayUrl: string): void {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO user_relays (id, public_key, relay_url)
+      VALUES (@id, @publicKey, @relayUrl)
+    `);
+    stmt.run({
+      id: `${publicKey}-${relayUrl}`,
+      publicKey,
+      relayUrl
+    });
+  }
+
+  public removeUserRelay(publicKey: string, relayUrl: string): void {
+    const stmt = this.db.prepare(`
+      DELETE FROM user_relays 
+      WHERE public_key = ? AND relay_url = ?
+    `);
+    stmt.run(publicKey, relayUrl);
+  }
+
+  public getUserRelays(publicKey: string): UserRelay[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM user_relays 
+      WHERE public_key = ? 
+      ORDER BY created_at DESC
+    `);
+    return stmt.all(publicKey) as UserRelay[];
+  }
+
+  public getAllRelays(): string[] {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT relay_url FROM user_relays
+    `);
+    const rows = stmt.all() as { relay_url: string }[];
+    return rows.map(row => row.relay_url);
   }
 } 

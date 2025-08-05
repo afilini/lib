@@ -55,13 +55,13 @@
           name = "portal-ts-client";
           version = (builtins.fromJSON (builtins.readFile ./rest/clients/ts/package.json)).version;
           src = ./rest/clients/ts;
-          npmDepsHash = "sha256-FMDlTvFqtjCk7lVmDnBuuWlNmQVri9cbcD3vK24Y+1k=";
+          npmDepsHash = "sha256-mqvFouAchAj1n7sVgKS9cwUGHF5fc5oh7C+3gZV77/I=";
         };
         backend = pkgs.buildNpmPackage {
           name = "portal-backend";
           version = (builtins.fromJSON (builtins.readFile ./backend/package.json)).version;
           src = ./backend;
-          npmDepsHash = "sha256-xIZk9Ty377OsHxwusllRzsx90uoWXIGzDRH2sUDWREc=";
+          npmDepsHash = "sha256-37YrynQdzAHc0gP+wWEQLjzDkrknqcS/Hxa49H3NsjU=";
           buildInputs = [ pkgs.sqlite ];
           preBuild = ''
             # Remove symlink to non-existent "../rest/clients/ts"
