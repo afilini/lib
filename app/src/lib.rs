@@ -7,6 +7,9 @@ pub mod wallet;
 use std::{collections::HashMap, sync::Arc};
 
 use bitcoin::{Network, bip32};
+use lightning_invoice::{Bolt11Invoice, ParseOrSemanticError};
+use std::{str::FromStr, time::UNIX_EPOCH};
+
 use cdk_common::SECP256K1;
 use chrono::Duration;
 use nostr::event::EventBuilder;
@@ -230,6 +233,36 @@ pub struct PortalApp {
     relay_pool: Arc<RelayPool>,
     runtime: Arc<BindingsRuntime>,
 }
+#[derive(uniffi::Record, Debug)]
+pub struct Bolt11InvoiceData {
+    pub amount_msat: Option<u64>,
+    pub timestamp: Timestamp,
+    pub expiry: Timestamp,
+}
+
+#[uniffi::export]
+pub fn parse_bolt11(invoice: &str) -> Result<Bolt11InvoiceData, ParseError> {
+    let bolt11_invoice = Bolt11Invoice::from_str(invoice)?;
+
+    let amount_msat = bolt11_invoice.amount_milli_satoshis();
+
+    let Ok(duration) = bolt11_invoice.timestamp().duration_since(UNIX_EPOCH) else {
+        return Err(ParseError::Inner(
+            "Failed to parse invoice duration".to_string(),
+        ));
+    };
+
+    let timestamp_secs_as_u64 = duration.as_secs();
+
+    let timestamp = Timestamp::new(timestamp_secs_as_u64);
+    let expiry = Timestamp::new(timestamp_secs_as_u64 + bolt11_invoice.expiry_time().as_secs());
+
+    Ok(Bolt11InvoiceData {
+        amount_msat,
+        timestamp,
+        expiry,
+    })
+}
 
 #[uniffi::export]
 pub fn parse_key_handshake_url(url: &str) -> Result<KeyHandshakeUrl, ParseError> {
@@ -255,6 +288,11 @@ impl From<portal::protocol::key_handshake::ParseError> for ParseError {
 }
 impl From<portal::protocol::calendar::CalendarError> for ParseError {
     fn from(error: portal::protocol::calendar::CalendarError) -> Self {
+        ParseError::Inner(error.to_string())
+    }
+}
+impl From<ParseOrSemanticError> for ParseError {
+    fn from(error: ParseOrSemanticError) -> Self {
         ParseError::Inner(error.to_string())
     }
 }

@@ -4,7 +4,7 @@ use app::{
     AuthChallengeListener, CallbackError, CashuDirectListener, CashuRequestListener,
     ClosedRecurringPaymentListener, Mnemonic, PaymentRequestListener, PaymentStatusNotifier,
     PortalApp, RecurringPaymentRequest, RelayStatus, RelayStatusListener, RelayUrl,
-    SinglePaymentRequest, auth::AuthChallengeEvent,
+    SinglePaymentRequest, auth::AuthChallengeEvent, parse_bolt11
 };
 use portal::{
     nostr::nips::{nip19::ToBech32, nip47::PayInvoiceRequest},
@@ -19,7 +19,6 @@ use portal::{
             },
         },
     },
-    utils::parse_bolt11,
 };
 
 struct LogRelayStatusChange;
