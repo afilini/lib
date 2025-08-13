@@ -3,9 +3,9 @@ members = [ "app" , "cli", "rest", "sdk", "rates"]
 
 [workspace.dependencies]
 # Core dependencies
-nostr = { version = "0.43.0", features = ["nip44"] }
-nostr-relay-pool = "0.43.0"
-nwc = "0.43.0"
+nostr = { git = "https://github.com/rust-nostr/nostr.git", rev = "bc72787a9dd8eb1c8aae366efa1034eb0276b2f5" , features = ["nip44"] }
+nostr-relay-pool = { git = "https://github.com/rust-nostr/nostr.git", rev = "bc72787a9dd8eb1c8aae366efa1034eb0276b2f5" }
+nwc = { git = "https://github.com/rust-nostr/nostr.git", rev = "bc72787a9dd8eb1c8aae366efa1034eb0276b2f5" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 hex = "0.4"
@@ -84,4 +84,4 @@ default = ["bindings"]
 bindings = ["uniffi", "anyhow"]
 
 [patch.crates-io]
-# nostr = { path = "../git/nostr/crates/nostr" }
+nostr-sdk = { git = "https://github.com/rust-nostr/nostr.git", rev = "bc72787a9dd8eb1c8aae366efa1034eb0276b2f5" }
