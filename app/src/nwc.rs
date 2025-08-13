@@ -40,6 +40,11 @@ impl NWC {
         Ok(s)
     }
 
+    pub async fn reconnect_relay(&self, url: String) -> Result<(), AppError> {
+        self.inner.reconnect_relay(url).await?;
+        Ok(())
+    }
+
     pub async fn pay_invoice(&self, invoice: String) -> Result<String, AppError> {
         let response = self
             .inner
