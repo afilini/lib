@@ -30,7 +30,7 @@ impl NWC {
                 uri.parse()
                     .map_err(|_| AppError::NWC("Invalid NWC URL".to_string()))?,
                 NostrWalletConnectOptions::default()
-                    .relay(RelayOptions::default().reconnect(true))
+                    .relay(RelayOptions::default().reconnect(false))
                     .monitor(monitor),
             ),
         };
