@@ -212,7 +212,7 @@ pub struct MakeInvoiceResponse {
     /// Bolt 11 invoice
     pub invoice: String,
     /// Invoice's payment hash
-    pub payment_hash: String,
+    pub payment_hash: Option<String>,
 }
 
 impl From<portal::nostr::nips::nip47::MakeInvoiceResponse> for MakeInvoiceResponse {

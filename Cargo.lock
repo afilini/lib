@@ -2329,7 +2329,7 @@ dependencies = [
 [[package]]
 name = "nostr"
 version = "0.43.0"
-source = "git+https://github.com/rust-nostr/nostr.git?rev=bc72787a9dd8eb1c8aae366efa1034eb0276b2f5#bc72787a9dd8eb1c8aae366efa1034eb0276b2f5"
+source = "git+https://github.com/rust-nostr/nostr.git?rev=36cc4bbf921044527b03b7e63bf7113d60ac935b#36cc4bbf921044527b03b7e63bf7113d60ac935b"
 dependencies = [
  "aes",
  "base64 0.22.1",
@@ -2352,7 +2352,7 @@ dependencies = [
 [[package]]
 name = "nostr-database"
 version = "0.43.0"
-source = "git+https://github.com/rust-nostr/nostr.git?rev=bc72787a9dd8eb1c8aae366efa1034eb0276b2f5#bc72787a9dd8eb1c8aae366efa1034eb0276b2f5"
+source = "git+https://github.com/rust-nostr/nostr.git?rev=36cc4bbf921044527b03b7e63bf7113d60ac935b#36cc4bbf921044527b03b7e63bf7113d60ac935b"
 dependencies = [
  "lru",
  "nostr",
@@ -2362,7 +2362,7 @@ dependencies = [
 [[package]]
 name = "nostr-relay-pool"
 version = "0.43.0"
-source = "git+https://github.com/rust-nostr/nostr.git?rev=bc72787a9dd8eb1c8aae366efa1034eb0276b2f5#bc72787a9dd8eb1c8aae366efa1034eb0276b2f5"
+source = "git+https://github.com/rust-nostr/nostr.git?rev=36cc4bbf921044527b03b7e63bf7113d60ac935b#36cc4bbf921044527b03b7e63bf7113d60ac935b"
 dependencies = [
  "async-utility",
  "async-wsocket",
@@ -2378,7 +2378,7 @@ dependencies = [
 [[package]]
 name = "nostr-sdk"
 version = "0.43.0"
-source = "git+https://github.com/rust-nostr/nostr.git?rev=bc72787a9dd8eb1c8aae366efa1034eb0276b2f5#bc72787a9dd8eb1c8aae366efa1034eb0276b2f5"
+source = "git+https://github.com/rust-nostr/nostr.git?rev=36cc4bbf921044527b03b7e63bf7113d60ac935b#36cc4bbf921044527b03b7e63bf7113d60ac935b"
 dependencies = [
  "async-utility",
  "nostr",
@@ -2462,7 +2462,7 @@ dependencies = [
 [[package]]
 name = "nwc"
 version = "0.43.0"
-source = "git+https://github.com/rust-nostr/nostr.git?rev=bc72787a9dd8eb1c8aae366efa1034eb0276b2f5#bc72787a9dd8eb1c8aae366efa1034eb0276b2f5"
+source = "git+https://github.com/rust-nostr/nostr.git?rev=36cc4bbf921044527b03b7e63bf7113d60ac935b#36cc4bbf921044527b03b7e63bf7113d60ac935b"
 dependencies = [
  "async-utility",
  "nostr",

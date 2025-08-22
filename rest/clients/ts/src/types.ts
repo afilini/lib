@@ -173,7 +173,7 @@ export type ResponseData =
   | { type: 'profile', profile: Profile | null }
   | { type: 'close_recurring_payment_success', message: string }
   | { type: 'listen_closed_recurring_payment', stream_id: string }
-  | { type: 'invoice_payment', invoice: string, payment_hash: string }
+  | { type: 'invoice_payment', invoice: string, payment_hash: string | null }
   | { type: 'issue_jwt', token: string }
   | { type: 'verify_jwt', target_key: string}
   | { type: 'cashu_response', status: CashuResponseStatus }

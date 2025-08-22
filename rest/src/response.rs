@@ -49,7 +49,7 @@ pub enum ResponseData {
     #[serde(rename = "invoice_payment")]
     InvoicePayment {
         invoice: String,
-        payment_hash: String,
+        payment_hash: Option<String>,
     },
 
     #[serde(rename = "issue_jwt")]

@@ -391,7 +391,7 @@ pub mod payment {
     pub struct InvoiceResponse {
         pub request: InvoiceRequestContentWithKey,
         pub invoice: String,
-        pub payment_hash: String,
+        pub payment_hash: Option<String>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
