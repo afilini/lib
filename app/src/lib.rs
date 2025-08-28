@@ -70,6 +70,7 @@ use crate::{
 uniffi::setup_scaffolding!();
 
 const PROFILE_SERVICE_URL: &str = "https://profile.getportal.cc";
+const MAX_NEW_RELAYS: usize = 5;
 
 #[uniffi::export]
 pub fn init_logger(callback: Arc<dyn LogCallback>, max_level: LogLevel) -> Result<(), AppError> {
@@ -529,6 +530,10 @@ impl PortalApp {
 
                 self.relay_pool.connect_relay(relay).await?;
                 self.router.add_relay(relay.clone(), false).await?;
+
+                if new_relays.len() >= MAX_NEW_RELAYS {
+                    break;
+                }
             }
         }
 
