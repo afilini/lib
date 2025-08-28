@@ -98,7 +98,7 @@ pub enum Command {
     },
     RemoveRelay {
         relay: String,
-    }
+    },
 }
 
 #[derive(Debug, Deserialize)]

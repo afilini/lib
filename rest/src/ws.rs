@@ -1344,7 +1344,7 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 };
                 let _ = ctx_clone.send_message(response).await;
             });
-        },
+        }
         Command::AddRelay { relay } => {
             let command_id = command.id.clone();
             let ctx_clone = ctx.clone();
@@ -1363,7 +1363,7 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
 
                 let _ = ctx_clone.send_message(response).await;
             });
-        },
+        }
         Command::RemoveRelay { relay } => {
             let command_id = command.id.clone();
             let ctx_clone = ctx.clone();

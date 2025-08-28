@@ -39,6 +39,7 @@ use tokio::task::JoinHandle;
 
 pub struct PortalSDK {
     router: Arc<MessageRouter<Arc<RelayPool>>>,
+    prefererred_relays: Vec<String>,
     relay_pool: Arc<RelayPool>,
     _listener: JoinHandle<Result<(), MessageRouterActorError>>,
 }
@@ -64,6 +65,7 @@ impl PortalSDK {
         Ok(Self {
             router,
             relay_pool,
+            prefererred_relays: relays,
             _listener,
         })
     }
@@ -94,14 +96,6 @@ impl PortalSDK {
             )))
             .await?;
 
-        let relays = self
-            .relay_pool
-            .relays()
-            .await
-            .keys()
-            .map(|r| r.to_string())
-            .collect::<Vec<_>>();
-
         let (main_key, subkey) = if let Some(subkey_proof) = self.router.keypair().subkey_proof() {
             (
                 subkey_proof.main_key.into(),
@@ -113,7 +107,7 @@ impl PortalSDK {
 
         let url = KeyHandshakeUrl {
             main_key: main_key.into(),
-            relays,
+            relays: self.prefererred_relays.clone(),
             token: token.clone(),
             subkey: subkey.map(|k| k.into()),
         };
