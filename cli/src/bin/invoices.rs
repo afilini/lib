@@ -19,7 +19,7 @@ impl InvoiceRequestListener for LogInvoiceRequestListener {
     ) -> Result<MakeInvoiceResponse, CallbackError> {
         Ok(MakeInvoiceResponse {
             invoice: String::from("bolt11"),
-            payment_hash: String::from("bolt11 hash"),
+            payment_hash: Some(String::from("bolt11 hash")),
         })
     }
 }
