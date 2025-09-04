@@ -401,6 +401,7 @@ pub mod payment {
         pub mint_url: String,
         pub unit: String,
         pub amount: u64,
+        pub expires_at: Timestamp,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]

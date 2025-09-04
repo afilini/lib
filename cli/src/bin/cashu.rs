@@ -2,8 +2,9 @@ use std::{sync::Arc, time::Duration as StdDuration};
 
 use app::{CallbackError, CashuRequestListener};
 use cli::{CliError, create_app_instance, create_sdk_instance};
-use portal::protocol::model::payment::{
-    CashuRequestContent, CashuRequestContentWithKey, CashuResponseStatus,
+use portal::protocol::model::{
+    Timestamp,
+    payment::{CashuRequestContent, CashuRequestContentWithKey, CashuResponseStatus},
 };
 
 struct LogCashuRequestListener;
@@ -58,6 +59,7 @@ async fn main() -> Result<(), CliError> {
         mint_url: "https://mint.example.com".to_string(),
         unit: "msat".to_string(),
         amount: 12345,
+        expires_at: Timestamp::now_plus_seconds(300),
     };
 
     let response = sender_sdk

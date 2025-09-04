@@ -1088,11 +1088,13 @@ async fn handle_command(command: CommandWithId, ctx: Arc<SocketContext>) {
                 }
             };
 
+            let expires_at = Timestamp::now_plus_seconds(300);
             let content = CashuRequestContent {
                 mint_url,
                 unit,
                 amount,
                 request_id: Uuid::new_v4().to_string(),
+                expires_at,
             };
             match ctx.sdk.request_cashu(recipient_key, subkeys, content).await {
                 Ok(Some(response)) => {
