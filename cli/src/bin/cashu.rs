@@ -1,25 +1,23 @@
 use std::{sync::Arc, time::Duration as StdDuration};
 
-use app::{CallbackError, CashuRequestListener};
+use app::{CallbackError, CashuRequestListener, RelayStatus, RelayStatusListener, RelayUrl, nwc::{MakeInvoiceRequest, NWC}, rates::{self, MarketAPI}};
 use cli::{CliError, create_app_instance, create_sdk_instance};
 use portal::protocol::model::{
     Timestamp,
-    payment::{CashuRequestContent, CashuRequestContentWithKey, CashuResponseStatus},
+    payment::{CashuRequestContent, CashuRequestContentWithKey, CashuResponseStatus, Currency, ExchangeRate, SinglePaymentRequestContent},
 };
 
-struct LogCashuRequestListener;
+struct LogRelayStatusChange;
 
 #[async_trait::async_trait]
-impl CashuRequestListener for LogCashuRequestListener {
-    async fn on_cashu_request(
+impl RelayStatusListener for LogRelayStatusChange {
+    async fn on_relay_status_change(
         &self,
-        event: CashuRequestContentWithKey,
-    ) -> Result<CashuResponseStatus, CallbackError> {
-        log::info!("Received Cashu request: {:?}", event);
-        // Always approve for test
-        Ok(CashuResponseStatus::Success {
-            token: "testtoken123".to_string(),
-        })
+        relay_url: RelayUrl,
+        status: RelayStatus,
+    ) -> Result<(), CallbackError> {
+        log::info!("Relay {:?} status changed: {:?}", relay_url.0, status);
+        Ok(())
     }
 }
 
@@ -27,23 +25,7 @@ impl CashuRequestListener for LogCashuRequestListener {
 async fn main() -> Result<(), CliError> {
     env_logger::init();
 
-    let relays = vec!["wss://relay.nostr.net".to_string()];
-
-    let (receiver_key, receiver) = create_app_instance(
-        "Receiver",
-        "mass derive myself benefit shed true girl orange family spawn device theme",
-        relays.clone(),
-    )
-    .await?;
-    let _receiver = receiver.clone();
-
-    tokio::spawn(async move {
-        log::info!("Receiver: Setting up Cashu request listener");
-        _receiver
-            .listen_cashu_requests(Arc::new(LogCashuRequestListener))
-            .await
-            .expect("Receiver: Error creating listener");
-    });
+    let relays = vec!["wss://relay.getportal.cc".to_string()];
 
     let sender_sdk = create_sdk_instance(
         "draft sunny old taxi chimney ski tilt suffer subway bundle once story",
@@ -51,41 +33,45 @@ async fn main() -> Result<(), CliError> {
     )
     .await?;
 
-    log::info!("Apps created, waiting 5 seconds before sending request");
-    tokio::time::sleep(StdDuration::from_secs(5)).await;
+    let market_api = MarketAPI::new()?;
+    let market_data = market_api.fetch_market_data("USD").await?;
 
-    let request_content = CashuRequestContent {
-        request_id: "cashu_test_1".to_string(),
-        mint_url: "https://mint.example.com".to_string(),
-        unit: "msat".to_string(),
-        amount: 12345,
-        expires_at: Timestamp::now_plus_seconds(300),
+    let amount = 5.0;
+    let currency = "EUR".to_string();
+
+    let nwc = NWC::new("nostr+walletconnect://d2983a182308a757ba8d4285c8c4dad2366069fa74ad22ac9c6ee02e208bf44f?relay=wss://relay.getalby.com/v1&secret=309f565b40da31a32d50362021a54d4c887c06e536ea14675ff43d9f5b46b1e5".to_string(), Arc::new(LogRelayStatusChange))?;
+    // dbg!(nwc.get_info().await?);
+
+    let msat_amount = market_data.calculate_millisats(amount);
+    dbg!(msat_amount);
+
+    let inv_req = MakeInvoiceRequest {
+        amount: msat_amount as u64,
+        description: Some("Test payment".to_string()),
+        description_hash: None,
+        expiry: None,
     };
+    let invoice = nwc.make_invoice(inv_req).await?;
 
-    let response = sender_sdk
-        .request_cashu(receiver_key.public_key().0, vec![], request_content)
-        .await;
-
-    match response {
-        Ok(Some(resp)) => match resp.status {
-            CashuResponseStatus::Success { token } => {
-                log::info!("Sender: Received Cashu token: {}", token);
-            }
-            CashuResponseStatus::InsufficientFunds => {
-                log::info!("Sender: Insufficient funds");
-            }
-            CashuResponseStatus::Rejected { reason } => {
-                log::info!("Sender: Cashu request rejected: {:?}", reason);
-            }
-        },
-        Ok(None) => {
-            log::info!("Sender: No response received");
-        }
-        Err(e) => {
-            log::error!("Sender: Error requesting Cashu: {}", e);
-        }
+    let payment_request = SinglePaymentRequestContent {
+        amount: (amount * 100.0) as u64,
+        currency: Currency::Fiat(currency),
+        description: Some("Test payment".to_string()),
+        expires_at: Timestamp::now_plus_seconds(300),
+        request_id: invoice.payment_hash.unwrap(),
+        current_exchange_rate: Some(ExchangeRate {
+            rate: market_data.rate,
+            source: "coinbase".to_string(),
+            time: Timestamp::now(),
+        }),
+        invoice: invoice.invoice,
+        auth_token: None,
+        subscription_id: None,
+    };
+    let mut event = sender_sdk.request_single_payment("npub1re2rdxc56f4085ed5y56lyyvcjmhfmctaleurz8jv7dugrxult4qxwemkk".parse().unwrap(), vec![], payment_request).await?;
+    while let Some(payment_response) = event.next().await {
+        dbg!(payment_response);
     }
 
-    tokio::time::sleep(StdDuration::from_secs(8)).await;
     Ok(())
 }
